@@ -3,94 +3,198 @@ from PIL import Image, ImageTk
 import ttkbootstrap as ttkb
 from tkinter import messagebox
 import threading
+import sys
 
 from front.ConnectionPage import ConnectionPage
-from core.database.DatabaseManager import *
+from core.database.DatabaseManager import DatabaseManager
 from core.utils.DotManager import DotManager
 from front.StartingPage import StartingPage
 from front.StopingPage import StopingPage
 from front.MainPage import MainPage
 
-class App:
 
-    def __init__(self, root : ttkb.Window):
+class App:
+    """
+    The main application class that orchestrates the connection process,
+    device (dot) management, and transitions between different pages (ConnectionPage,
+    MainPage, StartingPage, and StoppingPage).
+
+    This class initializes the database and dot managers, checks user
+    connection status, manages dot connections, and launches appropriate UI pages.
+    """
+
+    def __init__(self, root: ttkb.Window):
+        """
+        Initialize the application with given root window.
+
+        Args:
+            root (ttkb.Window): The main application window (tkinter-based).
+        """
+        # Initialize the database manager and the dot manager.
         self.db_manager = DatabaseManager()
         self.dot_manager = DotManager(self.db_manager)
+
+        # Store the root window for later use in the application.
         self.root = root
 
+        # Launch the ConnectionPage to prompt user login.
         self.connectionPage = ConnectionPage(self.root, self.db_manager)
+
+        # Check periodically if the user has logged in.
         self.checkConnection()
 
     def checkConnection(self):
+        """
+        Periodically check if the user is connected. If the user is connected,
+        destroy the connection frame and launch the main page. Otherwise,
+        schedule another check.
+        """
         if self.connectionPage.userConnected != "":
+            # User is connected, store the user id and move to the main page.
             self.userConnected = self.connectionPage.userConnected
             self.connectionPage.frame.destroy()
             self.root.update()
             self.launchMainPage()
         else:
+            # User not connected yet, recheck after 100 ms.
             self.root.after(100, self.checkConnection)
 
     def launchMainPage(self):
+        """
+        Launch the MainPage once the user is connected. This sets up
+        an asynchronous initialization process to detect and connect dots.
+        """
+        # Initialize main page with empty list of dots (will be updated later).
         self.mainPage = MainPage([], self.dot_manager, self.db_manager, self.root)
+
+        # Create an event to signal when initialization is complete.
         self.initialEvent = threading.Event()
+
+        # Run the initialization in a separate thread to avoid blocking the UI.
         threading.Thread(target=self.initialize, args=([self.initialEvent]), daemon=True).start()
+
+        # Check periodically if initialization is done.
         self.checkInit()
-    
+
     def checkInit(self):
+        """
+        Once the initialization (first device connection attempt) is complete,
+        update the main page with the connected devices and display them.
+        """
         if self.initialEvent.is_set():
+            # Initialization is done, update dots in the MainPage.
             self.mainPage.dotsConnected = self.dot_manager.getDevices()
             self.mainPage.make_dot_page()
+            # Clear the event for potential future use if needed.
             self.initialEvent.clear()
         else:
+            # Not initialized yet, check again after 100 ms.
             self.root.after(100, self.checkInit)
 
-    def initialize(self, initialEvent : threading.Event):
+    def initialize(self, initialEvent: threading.Event):
+        """
+        Attempt the first connection to all necessary devices (dots).
+        If any device is not connected, prompt the user to retry until all
+        are connected. Once successful, start a separate thread to monitor
+        device connections/disconnections (USB events).
+
+        Args:
+            initialEvent (threading.Event): An event to set once initialization is done.
+        """
         (check, unconnectedDevice) = self.dot_manager.firstConnection()
+        # If not all devices are connected, prompt user to reconnect missing devices.
         while not check:
             deviceMessage = f"{unconnectedDevice[0]}"
             for deviceTag in unconnectedDevice[1:]:
-                deviceMessage = deviceMessage + " ," + deviceTag 
+                deviceMessage += " ," + deviceTag
+            # Ask the user to retry the connection for missing devices.
             messagebox.askretrycancel("Connexion", f"Veuillez reconnecter les capteurs {deviceMessage}")
             (check, unconnectedDevice) = self.dot_manager.firstConnection()
 
+        # Once all devices are connected, set the event to signal completion.
         initialEvent.set()
 
-        usb_detection_thread = threading.Thread(target=self.checkUsbDots, args=([self.startStopping, self.startStarting]))
-        usb_detection_thread.daemon = True
+        # Start a separate thread to monitor device connections/disconnections.
+        usb_detection_thread = threading.Thread(
+            target=self.checkUsbDots,
+            args=([self.startStopping, self.startStarting]),
+            daemon=True
+        )
         usb_detection_thread.start()
 
     def checkUsbDots(self, callbackStop, callbackStart):
+        """
+        Continuously monitor device connection status. If a device is connected
+        while recording, start the StopingPage. If a device is disconnected while
+        not recording, start the StartingPage.
+
+        Args:
+            callbackStop (function): Function to call when a recorded device reconnects.
+            callbackStart (function): Function to call when a non-recording device disconnects.
+        """
         while True:
+            # Check the status of devices.
             checkUsb = self.dot_manager.checkDevices()
-            lastConnected = checkUsb[0]
-            lastDisconnected = checkUsb[1]
+            lastConnected = checkUsb[0]  # Devices that got connected since last check.
+            lastDisconnected = checkUsb[1]  # Devices that got disconnected since last check.
+
+            # If any devices have been connected, check if they need to be stopped.
             if lastConnected:
                 print("Connexion")
                 for device in lastConnected:
-                    if device.isRecording or device.recordingCount > 0 :
+                    # If device is currently recording or has pending records, stop it.
+                    if device.isRecording or device.recordingCount > 0:
                         callbackStop(device)
+
+            # If any devices have been disconnected, check if we should start them.
             if lastDisconnected:
                 print("Deconnexion")
                 for device in lastDisconnected:
+                    # If device is not currently recording, start it.
                     if not device.isRecording:
                         callbackStart(device)
+
+            # Wait a short time before checking again.
             time.sleep(0.2)
 
     def startStopping(self, device):
+        """
+        Launch the StopingPage for a given device to stop recording.
+
+        Args:
+            device: The device instance that needs to be stopped.
+        """
         StopingPage(device, self.db_manager)
-    
+
     def startStarting(self, device):
+        """
+        Launch the StartingPage for a given device to start a new recording.
+
+        Args:
+            device: The device instance to start recording.
+        """
         StartingPage(device, self.db_manager, self.userConnected)
 
+
+# Entry point of the application.
 root = ttkb.Window(title="Synergie", themename="minty")
+
+# Create an App instance with the root window.
 myapp = App(root)
+
+# Maximize the window to the screen size.
 width = root.winfo_screenwidth()
 height = root.winfo_screenheight()
 root.geometry("%dx%d" % (width, height))
-try :
+
+# Try to load the application icon from the PyInstaller bundle or from a local path.
+try:
     ico = Image.open(f'{sys._MEIPASS}/img/Logo_s2mJUMP_RGB.png')
 except:
-    ico = Image.open(f'img/Logo_s2mJUMP_RGB.png')
+    ico = Image.open('img/Logo_s2mJUMP_RGB.png')
+
 photo = ImageTk.PhotoImage(ico)
 root.wm_iconphoto(False, photo)
+
+# Start the main event loop.
 root.mainloop()

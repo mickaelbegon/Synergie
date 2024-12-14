@@ -33,6 +33,7 @@ def export(df: pd.DataFrame, sampleTimeFineSynchro: int = 0) -> pd.DataFrame:
 
     for jump in session.jumps:
         jump_copy = copy.deepcopy(jump)
+        print("Treatment of jump", jump_copy)
         jump_copy.df_type = jump.df_type.copy(deep=True)
         jump_copy.df_success = jump.df_success.copy(deep=True)
         jumpList.append(jump_copy)
