@@ -1,4 +1,5 @@
 import time
+import tkinter as tk
 from PIL import Image, ImageTk
 import ttkbootstrap as ttkb
 from tkinter import messagebox
@@ -12,7 +13,6 @@ from front.StartingPage import StartingPage
 from front.StopingPage import StopingPage
 from front.MainPage import MainPage
 
-
 class App:
     """
     The main application class that orchestrates the connection process,
@@ -25,7 +25,7 @@ class App:
 
     def __init__(self, root: ttkb.Window):
         """
-        Initialize the application with given root window.
+        Initialize the application with the given root window.
 
         Args:
             root (ttkb.Window): The main application window (tkinter-based).
@@ -95,8 +95,8 @@ class App:
         """
         Attempt the first connection to all necessary devices (dots).
         If any device is not connected, prompt the user to retry until all
-        are connected. Once successful, start a separate thread to monitor
-        device connections/disconnections (USB events).
+        are connected or the user cancels. Once successful, start a separate thread
+        to monitor device connections/disconnections (USB events).
 
         Args:
             initialEvent (threading.Event): An event to set once initialization is done.
@@ -106,9 +106,12 @@ class App:
         while not check:
             deviceMessage = f"{unconnectedDevice[0]}"
             for deviceTag in unconnectedDevice[1:]:
-                deviceMessage += " ," + deviceTag
+                deviceMessage += f", {deviceTag}"
             # Ask the user to retry the connection for missing devices.
-            messagebox.askretrycancel("Connexion", f"Veuillez reconnecter les capteurs {deviceMessage}")
+            retry = messagebox.askretrycancel("Connexion", f"Veuillez reconnecter les capteurs {deviceMessage}")
+            if not retry:
+                # User chose to cancel; exit the initialization loop.
+                return
             (check, unconnectedDevice) = self.dot_manager.firstConnection()
 
         # Once all devices are connected, set the event to signal completion.
@@ -125,18 +128,18 @@ class App:
     def checkUsbDots(self, callbackStop, callbackStart):
         """
         Continuously monitor device connection status. If a device is connected
-        while recording, start the StopingPage. If a device is disconnected while
-        not recording, start the StartingPage.
+        while recording, stop it and notify the user. If a device is disconnected while
+        not recording, start it.
 
         Args:
-            callbackStop (function): Function to call when a recorded device reconnects.
+            callbackStop (function): Function to call when a recording device reconnects.
             callbackStart (function): Function to call when a non-recording device disconnects.
         """
         while True:
             # Check the status of devices.
             checkUsb = self.dot_manager.checkDevices()
-            lastConnected = checkUsb[0]  # Devices that got connected since last check.
-            lastDisconnected = checkUsb[1]  # Devices that got disconnected since last check.
+            lastConnected = checkUsb[0]    # Devices that got connected since last check.
+            lastDisconnected = checkUsb[1] # Devices that got disconnected since last check.
 
             # If any devices have been connected, check if they need to be stopped.
             if lastConnected:
@@ -144,7 +147,8 @@ class App:
                 for device in lastConnected:
                     # If device is currently recording or has pending records, stop it.
                     if device.isRecording or device.recordingCount > 0:
-                        callbackStop(device)
+                        # Schedule the stop and message on the main thread.
+                        self.root.after(0, lambda d=device: self.handle_device_recording(d))
 
             # If any devices have been disconnected, check if we should start them.
             if lastDisconnected:
@@ -156,6 +160,28 @@ class App:
 
             # Wait a short time before checking again.
             time.sleep(0.2)
+
+    def handle_device_recording(self, device):
+        """
+        Handle stopping the recording on a device and notify the user.
+
+        This method stops the recording on the given device and displays a message
+        to inform the user that the recording has been stopped.
+
+        Args:
+            device: The device instance that is currently recording and needs to be stopped.
+        """
+        # Stop the recording on the device.
+        self.dot_manager.stop_recording(device)
+
+        # Notify the user that the recording has been stopped.
+        messagebox.showinfo(
+            "Arrêt de l'enregistrement",
+            f"L'enregistrement sur le capteur {device.deviceTagName} a été arrêté."
+        )
+
+        # Optionally, you can also launch the StoppingPage or perform other UI updates here.
+        self.startStopping(device)
 
     def startStopping(self, device):
         """
@@ -177,24 +203,26 @@ class App:
 
 
 # Entry point of the application.
-root = ttkb.Window(title="Synergie", themename="minty")
+if __name__ == "__main__":
+    # Initialize the main application window.
+    root = ttkb.Window(title="Synergie", themename="minty")
 
-# Create an App instance with the root window.
-myapp = App(root)
+    # Create an instance of the App class with the root window.
+    myapp = App(root)
 
-# Maximize the window to the screen size.
-width = root.winfo_screenwidth()
-height = root.winfo_screenheight()
-root.geometry("%dx%d" % (width, height))
+    # Maximize the window to the screen size.
+    width = root.winfo_screenwidth()
+    height = root.winfo_screenheight()
+    root.geometry(f"{width}x{height}")
 
-# Try to load the application icon from the PyInstaller bundle or from a local path.
-try:
-    ico = Image.open(f'{sys._MEIPASS}/img/Logo_s2mJUMP_RGB.png')
-except:
-    ico = Image.open('img/Logo_s2mJUMP_RGB.png')
+    # Try to load the application icon from the PyInstaller bundle or from a local path.
+    try:
+        ico = Image.open(f'{sys._MEIPASS}/img/Logo_s2mJUMP_RGB.png')
+    except:
+        ico = Image.open('img/Logo_s2mJUMP_RGB.png')
 
-photo = ImageTk.PhotoImage(ico)
-root.wm_iconphoto(False, photo)
+    photo = ImageTk.PhotoImage(ico)
+    root.wm_iconphoto(False, photo)
 
-# Start the main event loop.
-root.mainloop()
+    # Start the main event loop.
+    root.mainloop()
