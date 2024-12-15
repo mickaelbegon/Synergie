@@ -17,7 +17,6 @@ from movelladot_pc_sdk.movelladot_pc_sdk_py39_64 import (
 )
 from core.database.DatabaseManager import DatabaseManager, JumpData
 
-logger = logging.getLogger(__name__)
 
 class DotDevice(XsDotCallback):
     """
@@ -31,7 +30,16 @@ class DotDevice(XsDotCallback):
         db_manager: DatabaseManager,
     ):
         super().__init__()
-        self.isRecording = False  # Initialize early to prevent AttributeError
+        # Initialize logger
+        self.logger = logging.getLogger(self.__class__.__name__)
+        if not self.logger.hasHandlers():
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
+            self.logger.setLevel(logging.INFO)
+
+        self.is_recording = False  # Initialize early to prevent AttributeError
         self.portInfoUsb = portInfoUsb
         self.portInfoBt = portInfoBt
         self.db_manager = db_manager
@@ -48,20 +56,20 @@ class DotDevice(XsDotCallback):
 
         self.usbDevice: XsDotUsbDevice = None
         self.btDevice: XsDotDevice = None
-        self.initializeUsb()
-        self.initializeBt()
+        self.initialize_usb()
+        self.initialize_bt()
 
         self.deviceId = str(self.usbDevice.deviceId()) if self.usbDevice else ""
         self.deviceTagName = str(self.btDevice.deviceTagName()) if self.btDevice else ""
         self.batteryLevel = self.btDevice.batteryLevel() if self.btDevice else 0
         self.recordingCount = (
-            0 if self.isRecording else (self.usbDevice.recordingCount() if self.usbDevice else 0)
+            0 if self.is_recording else (self.usbDevice.recordingCount() if self.usbDevice else 0)
         )
-        self.isPlugged = True
+        self.is_plugged = True
         self.timingRecord = datetime.now().timestamp()
 
-        self.loadImages()
-        self.currentImage = self.imageActive
+        self.load_images()
+        self.current_image = self.imageActive
 
         self.count = 0
         self.packetsReceived = []
@@ -71,9 +79,9 @@ class DotDevice(XsDotCallback):
         # Initialize charging status
         self.chargingStatus = False  # Default to not charging
 
-        logger.info(f"DotDevice initialized: {self.deviceTagName} (ID: {self.deviceId})")
+        self.logger.info(f"DotDevice initialized: {self.deviceTagName} (ID: {self.deviceId})")
 
-    def initializeBt(self):
+    def initialize_bt(self):
         self.btManager.closePort(self.portInfoBt)
         checkDevice = False
         device = None
@@ -81,12 +89,12 @@ class DotDevice(XsDotCallback):
         while not checkDevice:
             self.btManager.closePort(self.portInfoBt)
             if not self.btManager.openPort(self.portInfoBt):
-                logger.warning(f"Connection to Bluetooth Device {self.portInfoBt.bluetoothAddress()} failed")
+                self.logger.warning(f"Connection to Bluetooth Device {self.portInfoBt.bluetoothAddress()} failed")
                 checkDevice = False
             else:
                 device: XsDotDevice = self.btManager.device(self.portInfoBt.deviceId())
                 if device is None:
-                    logger.warning("Bluetooth device not found after opening port.")
+                    self.logger.warning("Bluetooth device not found after opening port.")
                     checkDevice = False
                 else:
                     time.sleep(1)  # Wait for the device to initialize
@@ -95,15 +103,15 @@ class DotDevice(XsDotCallback):
                         self.btDevice = device
                         self.deviceTagName = str(device.deviceTagName())
                         self.batteryLevel = device.batteryLevel()
-                        logger.info(f"Bluetooth connection established with device: {self.deviceTagName}")
+                        self.logger.info(f"Bluetooth connection established with device: {self.deviceTagName}")
 
-                        if self.isRecording:
+                        if self.is_recording:
                             self.logger.info("Bluetooth device is currently recording. Stopping recording...")
-                            self.stopRecord()
+                            self.stop_record()
                     else:
-                        logger.warning("Bluetooth device initialization incomplete.")
+                        self.logger.warning("Bluetooth device initialization incomplete.")
 
-    def initializeUsb(self):
+    def initialize_usb(self):
         self.usbManager.closePort(self.portInfoUsb)
         device = None
         while device is None:
@@ -116,23 +124,23 @@ class DotDevice(XsDotCallback):
                     serial_info = self.portInfoUsb.serialNumber
                 else:
                     serial_info = "Unknown Serial"
-                logger.warning(f"Connection to USB Device {serial_info} failed")
+                self.logger.warning(f"Connection to USB Device {serial_info} failed")
             else:
                 self.usbDevice = device
                 self.deviceId = str(device.deviceId())  # Assign deviceId before logging
-                logger.info(f"USB connection established with device ID: {self.deviceId}")
+                self.logger.info(f"USB connection established with device ID: {self.deviceId}")
 
-                if self.isRecording:
+                if self.is_recording:
                     self.logger.info("USB device is currently recording. Stopping recording...")
-                    self.stopRecord()
-        self.isPlugged = True
+                    self.stop_record()
+        self.is_plugged = True
 
-    def loadImages(self):
+    def load_images(self):
         try:
             fontTag = ImageFont.truetype(font="arialbd.ttf", size=60)
         except IOError:
             fontTag = ImageFont.load_default()
-            logger.warning("Custom font 'arialbd.ttf' not found. Using default font.")
+            self.logger.warning("Custom font 'arialbd.ttf' not found. Using default font.")
 
         # Load active image
         try:
@@ -156,35 +164,35 @@ class DotDevice(XsDotCallback):
         imgInactive = imgInactive.resize((116, 139))
         self.imageInactive = ImageTk.PhotoImage(imgInactive)
 
-    def startRecord(self) -> bool:
-        self.isRecording = True
+    def start_record(self) -> bool:
+        self.is_recording = True
         if not self.btDevice.startRecording():
-            logger.warning("Failed to start recording on Bluetooth device. Reinitializing connection.")
-            self.initializeBt()
-            self.isRecording = self.btDevice.startRecording()
-        if self.isRecording:
+            self.logger.warning("Failed to start recording on Bluetooth device. Reinitializing connection.")
+            self.initialize_bt()
+            self.is_recording = self.btDevice.startRecording()
+        if self.is_recording:
             self.timingRecord = datetime.now().timestamp()
-            logger.info(f"Recording started at {self.timingRecord} seconds.")
+            self.logger.info(f"Recording started at {self.timingRecord} seconds.")
         else:
-            logger.error("Recording could not be started.")
-        return self.isRecording
+            self.logger.error("Recording could not be started.")
+        return self.is_recording
 
-    def stopRecord(self) -> bool:
-        self.isRecording = False
+    def stop_record(self) -> bool:
+        self.is_recording = False
         if not self.btDevice.stopRecording():
-            logger.warning("Failed to stop recording on Bluetooth device. Reinitializing connection.")
-            self.initializeBt()
-            self.isRecording = not self.btDevice.stopRecording()
+            self.logger.warning("Failed to stop recording on Bluetooth device. Reinitializing connection.")
+            self.initialize_bt()
+            self.is_recording = not self.btDevice.stopRecording()
         self.recordingCount = self.usbDevice.recordingCount() if self.usbDevice else 0
-        if not self.isRecording:
-            logger.info("Recording stopped successfully.")
+        if not self.is_recording:
+            self.logger.info("Recording stopped successfully.")
         else:
-            logger.error("Recording could not be stopped.")
-        return not self.isRecording
+            self.logger.error("Recording could not be stopped.")
+        return not self.is_recording
 
-    def exportData(self, saveFile: bool, extractEvent: Event):
-        logger.info("Exporting data from sensor...")
-        self.saveFile = saveFile
+    def export_data(self, save_file: bool, extract_event: Event):
+        self.logger.info("Exporting data from sensor...")
+        self.saveFile = save_file
         self.exportDone = False
         self.packetsReceived = []
         self.count = 0
@@ -202,13 +210,13 @@ class DotDevice(XsDotCallback):
 
         # Select the data types for export
         if not self.usbDevice.selectExportData(exportData):
-            logger.error(f"Could not select export data. Reason: {self.usbDevice.lastResultText()}")
+            self.logger.error(f"Could not select export data. Reason: {self.usbDevice.lastResultText()}")
 
         # Iterate through each recording and export data
         for recordingIndex in range(1, self.usbDevice.recordingCount() + 1):
             recInfo = self.usbDevice.getRecordingInfo(recordingIndex)
             if recInfo.empty():
-                logger.error(f"Could not get recording info. Reason: {self.usbDevice.lastResultText()}")
+                self.logger.error(f"Could not get recording info. Reason: {self.usbDevice.lastResultText()}")
                 continue  # Skip to the next recording
 
             dateRecord = recInfo.startUTC()
@@ -216,12 +224,12 @@ class DotDevice(XsDotCallback):
             if trainingId != "":
                 self.db_manager.set_training_date(trainingId, dateRecord)
                 if not self.usbDevice.startExportRecording(recordingIndex):
-                    logger.error(f"Could not export recording. Reason: {self.usbDevice.lastResultText()}")
+                    self.logger.error(f"Could not export recording. Reason: {self.usbDevice.lastResultText()}")
                 else:
                     # Wait until export is done
                     while not self.exportDone:
                         time.sleep(0.1)
-                    logger.info("File export finished!")
+                    self.logger.info("File export finished!")
 
                     # Define columns based on whether all data is saved or not
                     if self.saveFile:
@@ -278,7 +286,7 @@ class DotDevice(XsDotCallback):
                     os.makedirs(f"data/raw/{date}", exist_ok=True)
                     csv_path = f"data/raw/{date}/{self.synchroTime}_{trainingId}.csv"
                     df.to_csv(csv_path, index=False)
-                    logger.info(f"Data exported to {csv_path}")
+                    self.logger.info(f"Data exported to {csv_path}")
 
                     # Predict training data and update the database
                     self.predict_training(trainingId, df)
@@ -287,17 +295,17 @@ class DotDevice(XsDotCallback):
 
         # Erase sensor's flash memory after exporting
         self.usbDevice.eraseFlash()
-        logger.info("You can disconnect the dot.")
+        self.logger.info("You can disconnect the dot.")
         self.recordingCount = 0
-        extractEvent.set()
-        self.currentImage = self.imageActive
+        extract_event.set()
+        self.current_image = self.imageActive
 
     def predict_training(self, training_id: str, df: pd.DataFrame):
         from core.data_treatment.data_generation.exporter import export
 
         try:
             df = export(df)
-            logger.info("End of data processing.")
+            self.logger.info("End of data processing.")
             trainingJumps = []
             unknow_rotation = []
 
@@ -355,10 +363,10 @@ class DotDevice(XsDotCallback):
                     trainingJumps.append(jump.to_dict())
                 self.db_manager.add_jumps_to_training(training_id, trainingJumps)
 
-            logger.info(f"Training {training_id} updated with jump data.")
+            self.logger.info(f"Training {training_id} updated with jump data.")
 
         except Exception as e:
-            logger.error(f"Error during prediction training: {e}")
+            self.logger.error(f"Error during prediction training: {e}")
 
     def onRecordedDataAvailable(self, device, packet: XsDataPacket):
         self.count += 1
@@ -388,12 +396,12 @@ class DotDevice(XsDotCallback):
 
     def onRecordedDataDone(self, device):
         self.exportDone = True
-        logger.info("Data export completed.")
+        self.logger.info("Data export completed.")
 
     def __eq__(self, device) -> bool:
         return (self.usbDevice == device.usbDevice) and (self.btDevice == device.btDevice)
 
-    def getExportEstimatedTime(self) -> int:
+    def get_export_estimated_time(self) -> int:
         estimatedTime = 0
         for index in range(1, self.usbDevice.recordingCount() + 1):
             recInfo = self.usbDevice.getRecordingInfo(index)
@@ -405,11 +413,11 @@ class DotDevice(XsDotCallback):
         self.batteryLevel = batteryLevel
         # Assuming chargingStatus: 1 = Charging, 0 = Not Charging
         self.chargingStatus = chargingStatus == 1
-        logger.info(f"Battery level updated: {self.batteryLevel}%, Charging: {self.chargingStatus}")
+        self.logger.info(f"Battery level updated: {self.batteryLevel}%, Charging: {self.chargingStatus}")
 
     def onButtonClicked(self, device: XsDotDevice, timestamp: int):
         self.synchroTime = timestamp
-        logger.info(f"Button clicked at timestamp: {self.synchroTime}")
+        self.logger.info(f"Button clicked at timestamp: {self.synchroTime}")
 
     def is_charging(self) -> bool:
         """
@@ -418,33 +426,28 @@ class DotDevice(XsDotCallback):
         Returns:
             bool: True if the device is charging, False otherwise.
         """
-        logger.debug(f"Checking if device {self.deviceId} is charging: {self.chargingStatus}")
+        self.logger.debug(f"Checking if device {self.deviceId} is charging: {self.chargingStatus}")
         return self.chargingStatus
 
-    def closeUsb(self):
+    def close_usb(self):
         self.usbManager.closePort(self.portInfoUsb)
-        self.isPlugged = False
-        logger.info("USB connection closed.")
+        self.is_plugged = False
+        self.logger.info("USB connection closed.")
 
-    def openUsb(self):
+    def open_usb(self):
         device = None
         while device is None:
             self.usbManager.openPort(self.portInfoUsb)
             device = self.usbManager.usbDevice(self.portInfoUsb.deviceId())
             if device is None:
-                if hasattr(self.portInfoUsb, 'serial'):
-                    serial_info = self.portInfoUsb.serial
-                elif hasattr(self.portInfoUsb, 'serialNumber'):
-                    serial_info = self.portInfoUsb.serialNumber
-                else:
-                    serial_info = "Unknown Serial"
-                logger.warning(f"Connection to USB Device {serial_info} failed")
+                serial_info = getattr(self.portInfoUsb, 'serial', 'Unknown Serial')
+                self.logger.warning(f"Connection to USB Device {serial_info} failed")
             else:
                 self.usbDevice = device
                 self.deviceId = str(device.deviceId())
-                logger.info(f"USB connection re-established with device ID: {self.deviceId}")
+                self.logger.info(f"USB connection re-established with device ID: {self.deviceId}")
 
-                if self.isRecording:
-                    logger.info("USB device is currently recording. Stopping recording...")
-                    self.stopRecord()
-        self.isPlugged = True
+                if self.is_recording:
+                    self.logger.info("USB device is currently recording. Stopping recording...")
+                    self.stop_record()
+        self.is_plugged = True
