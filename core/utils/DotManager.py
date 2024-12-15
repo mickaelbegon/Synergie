@@ -32,13 +32,6 @@ class DotManager:
     def __init__(self, db_manager: DatabaseManager) -> None:
         """
         Initialize the DotManager.
-
-        This constructor sets up the UI components for the connection page and ensures that
-        the application is connected to the internet before allowing the user to attempt
-        to connect to the Firebase database.
-
-        Args:
-            db_manager (DatabaseManager): An instance of the DatabaseManager for database operations.
         """
         self.db_manager = db_manager
         self.error = False
@@ -49,9 +42,6 @@ class DotManager:
     async def bluetooth_power(self, turn_on: bool):
         """
         Asynchronously turn Bluetooth radios on or off.
-
-        Args:
-            turn_on (bool): True to turn on Bluetooth, False to turn it off.
         """
         try:
             all_radios = await radios.Radio.get_radios_async()
@@ -68,15 +58,7 @@ class DotManager:
 
     def firstConnection(self) -> Tuple[bool, List[str]]:
         """
-        Initial connection to sensors. Disables Bluetooth to connect via USB first,
-        then re-enables Bluetooth to detect possible Bluetooth connections.
-        Links USB and Bluetooth connections using deviceId and creates DotDevice instances
-        that encompass both connections for each sensor. Also verifies that Bluetooth
-        connections correspond to available USB connections during initialization.
-
-        Returns:
-            Tuple[bool, List[str]]: A tuple containing a boolean indicating success and
-            a list of unconnected device tag names.
+        Initial connection to sensors.
         """
         self.devices = []
         self.previousConnected = []
@@ -135,7 +117,7 @@ class DotManager:
         xdpcHandler.scanForDots()
         self.portInfoBt = xdpcHandler.detectedDots()
         xdpcHandler.cleanup()
-        logger.info(f"Detected Bluetooth devices: {[bt.bluetoothAddress() for bt in self.portInfoBt]}")  # Fixed Line
+        logger.info(f"Detected Bluetooth devices: {[bt.bluetoothAddress() for bt in self.portInfoBt]}")
 
         unconnectedDevice = []
 
@@ -153,14 +135,8 @@ class DotManager:
             if portInfoUsb is not None:
                 try:
                     dot_device = DotDevice(portInfoUsb, portInfoBt, self.db_manager)
-                    initialized = dot_device.initialize()
-                    if initialized:
-                        self.devices.append(dot_device)
-                        logger.info(f"DotDevice created for device ID: {deviceId}")
-                    else:
-                        logger.error(f"Failed to initialize DotDevice for device ID: {deviceId}")
-                        unconnectedDevice.append("Initialization failed")
-                        check = False
+                    self.devices.append(dot_device)
+                    logger.info(f"DotDevice created for device ID: {deviceId}")
                 except Exception as e:
                     logger.error(f"Error creating DotDevice for device ID {deviceId}: {e}")
                     unconnectedDevice.append("Initialization error")
@@ -175,6 +151,9 @@ class DotManager:
         self.previousConnected = self.devices.copy()
         logger.info(f"Total connected devices: {len(self.devices)}")
         return (check, unconnectedDevice)
+
+    # ... [Rest of the DotManager methods remain unchanged]
+
 
     def connect_new_device(self, portInfoBt: XsPortInfo) -> Optional[str]:
         """

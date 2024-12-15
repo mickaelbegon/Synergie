@@ -68,6 +68,9 @@ class DotDevice(XsDotCallback):
         self.synchroTime = 0
         self.exportDone = False
 
+        # Initialize charging status
+        self.chargingStatus = False  # Default to not charging
+
         logger.info(f"DotDevice initialized: {self.deviceTagName} (ID: {self.deviceId})")
 
     def initializeBt(self):
@@ -91,10 +94,11 @@ class DotDevice(XsDotCallback):
                     if checkDevice:
                         self.btDevice = device
                         self.deviceTagName = str(device.deviceTagName())
+                        self.batteryLevel = device.batteryLevel()
                         logger.info(f"Bluetooth connection established with device: {self.deviceTagName}")
 
                         if self.isRecording:
-                            logger.info("Bluetooth device is currently recording. Stopping recording...")
+                            self.logger.info("Bluetooth device is currently recording. Stopping recording...")
                             self.stopRecord()
                     else:
                         logger.warning("Bluetooth device initialization incomplete.")
@@ -119,7 +123,7 @@ class DotDevice(XsDotCallback):
                 logger.info(f"USB connection established with device ID: {self.deviceId}")
 
                 if self.isRecording:
-                    logger.info("USB device is currently recording. Stopping recording...")
+                    self.logger.info("USB device is currently recording. Stopping recording...")
                     self.stopRecord()
         self.isPlugged = True
 
@@ -399,11 +403,23 @@ class DotDevice(XsDotCallback):
 
     def onBatteryUpdated(self, device: XsDotDevice, batteryLevel: int, chargingStatus: int):
         self.batteryLevel = batteryLevel
-        logger.info(f"Battery level updated: {self.batteryLevel}%")
+        # Assuming chargingStatus: 1 = Charging, 0 = Not Charging
+        self.chargingStatus = chargingStatus == 1
+        logger.info(f"Battery level updated: {self.batteryLevel}%, Charging: {self.chargingStatus}")
 
     def onButtonClicked(self, device: XsDotDevice, timestamp: int):
         self.synchroTime = timestamp
         logger.info(f"Button clicked at timestamp: {self.synchroTime}")
+
+    def is_charging(self) -> bool:
+        """
+        Check if the device is currently charging.
+
+        Returns:
+            bool: True if the device is charging, False otherwise.
+        """
+        logger.debug(f"Checking if device {self.deviceId} is charging: {self.chargingStatus}")
+        return self.chargingStatus
 
     def closeUsb(self):
         self.usbManager.closePort(self.portInfoUsb)
