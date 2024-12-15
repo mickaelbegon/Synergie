@@ -55,6 +55,13 @@ class ConnectionPage:
         self.accountVar = ttkb.StringVar(self.frame, value="")
         self.entry = ttkb.Entry(self.frame, textvariable=self.accountVar)
         self.entry.grid(row=1, column=0)
+        self.entry.focus_set()  # Set focus to the entry widget
+
+        # Bind the ENTER key to the register method when the entry widget is focused.
+        self.entry.bind('<Return>', self.register)
+
+        # Bind the key press event to clear error messages when user starts typing.
+        self.entry.bind('<Key>', self.clear_error)
 
         # Style configuration for the "Se connecter" (Connect) button.
         buttonStyle = ttkb.Style()
@@ -84,6 +91,15 @@ class ConnectionPage:
 
         # Check for internet connectivity upon initialization.
         self.check_internet_connection()
+
+    def clear_error(self, event):
+        """
+        Clears the error message when the user starts typing a new email.
+
+        Args:
+            event: The event object triggered by key press.
+        """
+        self.errorVar.set("")
 
     def check_internet_connection(self):
         """
@@ -127,39 +143,62 @@ class ConnectionPage:
         except socket.error:
             return False
 
-    def register(self):
+    def register(self, event=None):
         """
         Attempt to find and authenticate the user by their email.
 
         This method first checks for internet connectivity. If connected, it proceeds to
         search for the user in the database. If the user exists and has a "COACH" role,
         the login is successful. Otherwise, an appropriate error message is displayed.
+
+        Args:
+            event: The event object (optional, used when called via key binding).
         """
-        # Re-check internet connectivity before attempting to connect to Firebase.
-        if not self._has_internet_connection():
-            messagebox.showerror(
-                "Connexion Internet",
-                "Aucune connexion Internet détectée. Veuillez vérifier votre réseau."
-            )
-            self.check_internet_connection()
-            return
+        # Disable the button to prevent multiple clicks.
+        self.button.config(state='disabled')
 
-        # Attempt to find the user by email.
-        userFound = self.dbManager.findUserByEmail(self.accountVar.get())
+        try:
+            # Re-check internet connectivity before attempting to connect to Firebase.
+            if not self._has_internet_connection():
+                messagebox.showerror(
+                    "Connexion Internet",
+                    "Aucune connexion Internet détectée. Veuillez vérifier votre réseau."
+                )
+                self.check_internet_connection()
+                return
 
-        if userFound:
-            # User exists in the database, check their role.
-            user_doc = userFound[0]
-            user_role = user_doc.get("role")
-            if user_role == "COACH":
-                # User is a coach, grant access.
-                print("Connecté")
-                self.userConnected = user_doc.id
-                # Proceed to the next step in the application, e.g., closing the connection page.
-                self.frame.destroy()
+            # Attempt to find the user by email.
+            userFound = self.dbManager.findUserByEmail(self.accountVar.get())
+
+            if userFound:
+                # User exists in the database, check their role.
+                user_doc = userFound[0]
+                user_role = user_doc.get("role")
+                if user_role == "COACH":
+                    # User is a coach, grant access.
+                    print("Connecté")
+                    self.userConnected = user_doc.id
+                    # Proceed to the next step in the application, e.g., closing the connection page.
+                    self.frame.destroy()
+                else:
+                    # User is not a coach, show error message.
+                    self.errorVar.set("Erreur : vous avez besoin d'un compte entraîneur")
             else:
-                # User is not a coach, show error message.
-                self.errorVar.set("Erreur : vous avez besoin d'un compte entraîneur")
-        else:
-            # No matching user found, show error message.
-            self.errorVar.set("Erreur : cet utilisateur n'existe pas")
+                # No matching user found, show error message.
+                self.errorVar.set("Erreur : cet utilisateur n'existe pas")
+        except Exception as e:
+            logger.error(f"Exception occurred during registration: {e}")
+            self.errorVar.set("Une erreur inattendue est survenue.")
+        finally:
+            # Re-enable the button after processing.
+            if self.button['state'] == 'disabled':
+                self.button.config(state='normal')
+
+    def clear_error(self, event):
+        """
+        Clears the error message when the user starts typing a new email.
+
+        Args:
+            event: The event object triggered by key press.
+        """
+        self.errorVar.set("")
