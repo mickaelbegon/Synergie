@@ -63,7 +63,7 @@ class MainPage:
         self.run_periodic_background_func()
     
     def make_export_button(self):
-        self.estimatedTime = self.dot_manager.getExportEstimatedTime()
+        self.estimatedTime = self.dot_manager.get_export_estimated_time()
         self.exportFrame = ttkb.Frame(self.frame)
         ttkb.Button(self.exportFrame, text=f'Exporter les données de tout les capteurs, temps estimé : {round(self.estimatedTime,0)} min', style="home.TButton", command=self.export_all_dots).grid(row=0, column=0)
         self.saveFile = ttkb.Checkbutton(self.exportFrame, text="Sauvergarder plus de données (pour la recherche)")
@@ -73,9 +73,9 @@ class MainPage:
 
     def export_all_dots(self):
         for device in self.dotsConnected:
-            if (not device.isRecording) and device.isPlugged and device.recordingCount > 0:
+            if (not device.is_recording) and device.is_plugged and device.recordingCount > 0:
                 extractEvent = threading.Event()
-                threading.Thread(target=device.exportData, args=([self.saveFile, extractEvent]),daemon=True).start()
+                threading.Thread(target=device.export_data, args=([self.saveFile, extractEvent]),daemon=True).start()
                 ExtractingPage(device.deviceTagName, self.estimatedTime, extractEvent)
 
     def run_periodic_background_func(self):

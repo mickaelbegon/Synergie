@@ -2,6 +2,8 @@ import logging
 import os
 import time
 import asyncio
+if os.name == 'nt':
+    from winrt.windows.devices import radios
 from typing import List, Tuple, Optional
 import numpy as np
 from movelladot_pc_sdk.movelladot_pc_sdk_py39_64 import XsPortInfo
@@ -241,7 +243,7 @@ class DotManager:
                 if device not in connected:
                     try:
                         device.close_usb()
-                        device.close_bluetooth()
+                        # device.close_bluetooth()
                         last_disconnected.append(device)
                         logger.info(f"Device {device.deviceId} disconnected.")
                     except AttributeError as e:
@@ -253,7 +255,7 @@ class DotManager:
                 if device not in self.previousConnected:
                     try:
                         device.open_usb()
-                        device.open_bluetooth()
+                        # device.open_bluetooth()
                         last_connected.append(device)
                         logger.info(f"Device {device.deviceId} connected.")
                     except AttributeError as e:
