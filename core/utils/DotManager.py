@@ -30,6 +30,16 @@ class DotManager:
     Class to manage the initial connection to sensors.
     """
     def __init__(self, db_manager: DatabaseManager) -> None:
+        """
+        Initialize the DotManager.
+
+        This constructor sets up the UI components for the connection page and ensures that
+        the application is connected to the internet before allowing the user to attempt
+        to connect to the Firebase database.
+
+        Args:
+            db_manager (DatabaseManager): An instance of the DatabaseManager for database operations.
+        """
         self.db_manager = db_manager
         self.error = False
         self.devices: List[DotDevice] = []
@@ -134,7 +144,7 @@ class DotManager:
             device = self.db_manager.get_dot_from_bluetooth(portInfoBt.bluetoothAddress())
             if device is None:
                 logger.info("Adding a new device.")
-                deviceId = self.connectNewDevice(portInfoBt)
+                deviceId = self.connect_new_device(portInfoBt)
             else:
                 deviceId = device.id
                 logger.info(f"Found existing device with ID: {deviceId}")
@@ -143,10 +153,17 @@ class DotManager:
             if portInfoUsb is not None:
                 try:
                     dot_device = DotDevice(portInfoUsb, portInfoBt, self.db_manager)
-                    self.devices.append(dot_device)
-                    logger.info(f"DotDevice created for device ID: {deviceId}")
+                    initialized = dot_device.initialize()
+                    if initialized:
+                        self.devices.append(dot_device)
+                        logger.info(f"DotDevice created for device ID: {deviceId}")
+                    else:
+                        logger.error(f"Failed to initialize DotDevice for device ID: {deviceId}")
+                        unconnectedDevice.append("Initialization failed")
+                        check = False
                 except Exception as e:
-                    logger.error(f"Failed to create DotDevice for device ID {deviceId}: {e}")
+                    logger.error(f"Error creating DotDevice for device ID {deviceId}: {e}")
+                    unconnectedDevice.append("Initialization error")
                     check = False
             else:
                 tag_name = device.get('tag_name') if device else "Unknown"
@@ -159,6 +176,55 @@ class DotManager:
         logger.info(f"Total connected devices: {len(self.devices)}")
         return (check, unconnectedDevice)
 
+    def connect_new_device(self, portInfoBt: XsPortInfo) -> Optional[str]:
+        """
+        Adds a new sensor to the database.
+
+        Args:
+            portInfoBt (XsPortInfo): The Bluetooth port information of the device.
+
+        Returns:
+            Optional[str]: The device ID of the newly connected device, or None if failed.
+        """
+        try:
+            manager = XsDotConnectionManager()
+            checkDevice = False
+            deviceId = None
+            while not checkDevice:
+                manager.closePort(portInfoBt)
+                if not manager.openPort(portInfoBt):
+                    logger.error(f"Connection to Device {portInfoBt.bluetoothAddress()} failed")
+                    checkDevice = False
+                else:
+                    device = manager.device(portInfoBt.deviceId())
+                    if device is None:
+                        logger.warning("Bluetooth device not found after opening port.")
+                        checkDevice = False
+                    else:
+                        time.sleep(1)
+                        checkDevice = (device.deviceTagName() != '') and (device.batteryLevel() != 0)
+                        if checkDevice:
+                            logger.info(f"Connected to new device: {device.deviceTagName()} with ID: {device.deviceId()}")
+                            deviceId = str(device.deviceId())
+                        else:
+                            logger.warning("Device initialization incomplete.")
+
+            if deviceId:
+                try:
+                    self.db_manager.save_dot_data(deviceId, device.bluetoothAddress(), device.deviceTagName())
+                    logger.info(f"Device {deviceId} data saved to database.")
+                except Exception as e:
+                    logger.error(f"Failed to save device data to database: {e}")
+                finally:
+                    manager.closePort(portInfoBt)
+                return deviceId
+            else:
+                logger.error("Failed to obtain device ID after connection.")
+                return None
+        except Exception as e:
+            logger.error(f"Exception while connecting new device: {e}")
+            return None
+
     def checkDevices(self) -> Tuple[List[DotDevice], List[DotDevice]]:
         """
         Detects USB-connected sensors to capture any new connections or disconnections.
@@ -169,7 +235,7 @@ class DotManager:
         connected: List[DotDevice] = []
         for device in self.devices:
             try:
-                if device.btDevice.isCharging():
+                if device.is_charging():
                     connected.append(device)
             except Exception as e:
                 logger.error(f"Error checking device {device.deviceId} charging status: {e}")
@@ -180,18 +246,24 @@ class DotManager:
             for device in self.previousConnected:
                 if device not in connected:
                     try:
-                        device.closeUsb()
+                        device.close_usb()
+                        device.close_bluetooth()
                         lastDisconnected.append(device)
                         logger.info(f"Device {device.deviceId} disconnected.")
+                    except AttributeError as e:
+                        logger.error(f"DotDevice {device.deviceId} does not have expected close methods: {e}")
                     except Exception as e:
                         logger.error(f"Error disconnecting device {device.deviceId}: {e}")
         elif len(self.previousConnected) < len(connected):
             for device in connected:
                 if device not in self.previousConnected:
                     try:
-                        device.openUsb()
+                        device.open_usb()
+                        device.open_bluetooth()
                         lastConnected.append(device)
                         logger.info(f"Device {device.deviceId} connected.")
+                    except AttributeError as e:
+                        logger.error(f"DotDevice {device.deviceId} does not have expected open methods: {e}")
                     except Exception as e:
                         logger.error(f"Error connecting device {device.deviceId}: {e}")
         else:
@@ -210,7 +282,7 @@ class DotManager:
         estimatedTimes = [0]
         for device in self.devices:
             try:
-                estimatedTimes.append(device.getExportEstimatedTime())
+                estimatedTimes.append(device.get_export_estimated_time())
             except Exception as e:
                 logger.error(f"Error estimating export time for device {device.deviceId}: {e}")
                 estimatedTimes.append(0)
@@ -227,56 +299,6 @@ class DotManager:
         """
         return self.devices.copy()
 
-    def connectNewDevice(self, portInfoBt: XsPortInfo) -> Optional[str]:
-        """
-        Adds a new sensor to the database.
-
-        Args:
-            portInfoBt (XsPortInfo): The Bluetooth port information of the device.
-
-        Returns:
-            Optional[str]: The device ID of the newly connected device, or None if failed.
-        """
-        manager = XsDotConnectionManager()
-        checkDevice = False
-        deviceId = None
-        while not checkDevice:
-            try:
-                manager.closePort(portInfoBt)
-                if not manager.openPort(portInfoBt):
-                    logger.error(f"Connection to Device {portInfoBt.bluetoothAddress()} failed")
-                    checkDevice = False
-                else:
-                    device: XsDotDevice = manager.device(portInfoBt.deviceId())
-                    if device is None:
-                        logger.warning("Bluetooth device not found after opening port.")
-                        checkDevice = False
-                    else:
-                        time.sleep(1)
-                        checkDevice = (device.deviceTagName() != '') and (device.batteryLevel() != 0)
-                        if checkDevice:
-                            logger.info(f"Connected to new device: {device.deviceTagName()} with ID: {device.deviceId()}")
-                            deviceId = str(device.deviceId())
-                        else:
-                            logger.warning("Device initialization incomplete.")
-            except Exception as e:
-                logger.error(f"Exception while connecting new device: {e}")
-                checkDevice = False
-                time.sleep(5)  # Prevent tight loop in case of persistent errors
-
-        if deviceId:
-            try:
-                self.db_manager.save_dot_data(deviceId, device.bluetoothAddress(), device.deviceTagName())
-                logger.info(f"Device {deviceId} data saved to database.")
-            except Exception as e:
-                logger.error(f"Failed to save device data to database: {e}")
-            finally:
-                manager.closePort(portInfoBt)
-            return deviceId
-        else:
-            logger.error("Failed to obtain device ID after connection.")
-            return None
-
     def stop_recording(self, dot_device: DotDevice) -> bool:
         """
         Stops recording on the specified DotDevice.
@@ -289,14 +311,14 @@ class DotManager:
         """
         if dot_device in self.devices:
             try:
-                success = dot_device.stopRecord()
+                success = dot_device.stop_recording()
                 if success:
                     logger.info(f"Recording stopped on device {dot_device.deviceId}.")
                 else:
                     logger.error(f"Failed to stop recording on device {dot_device.deviceId}.")
                 return success
             except AttributeError as e:
-                logger.error(f"DotDevice {dot_device.deviceId} does not have a stopRecord method: {e}")
+                logger.error(f"DotDevice {dot_device.deviceId} does not have a stop_recording method: {e}")
                 return False
             except Exception as e:
                 logger.error(f"An unexpected error occurred while stopping recording on device {dot_device.deviceId}: {e}")
