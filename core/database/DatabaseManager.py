@@ -1,6 +1,7 @@
 import os
 import sys
 import socket
+import requests
 from typing import List
 import firebase_admin
 from firebase_admin import credentials
@@ -10,6 +11,8 @@ import firebase_admin.firestore
 from dataclasses import dataclass
 from datetime import datetime
 from tkinter import messagebox
+
+from core.utils.internet_check import check_internet_connection, has_internet_connection
 
 @dataclass
 class JumpData:
@@ -126,7 +129,7 @@ class DatabaseManager:
         If there is no internet connection, display an error message and do not
         initialize the database.
         """
-        if not self._has_internet_connection():
+        if not has_internet_connection():
             messagebox.showerror("Connexion Internet", "Aucune connexion Internet détectée. Veuillez vérifier votre réseau.")
             self.db = None
             return
@@ -148,23 +151,6 @@ class DatabaseManager:
         # Create a Firestore client instance.
         self.db = firestore.client()
 
-    def _has_internet_connection(self) -> bool:
-        """
-        Check if the computer is connected to the internet.
-
-        This method tries to create a socket connection to a well-known host (e.g., '8.8.8.8').
-        If it succeeds, it assumes the internet is accessible.
-
-        Returns:
-            bool: True if internet connection is available, False otherwise.
-        """
-        try:
-            socket.setdefaulttimeout(3)
-            # Check connectivity to Google's DNS server (8.8.8.8) on port 53
-            socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("8.8.8.8", 53))
-            return True
-        except:
-            return False
 
     def save_training_data(self, data: TrainingData) -> int:
         """
