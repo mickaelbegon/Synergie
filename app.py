@@ -83,7 +83,7 @@ class App:
         """
         if self.initialEvent.is_set():
             # Initialization is done, update dots in the MainPage.
-            self.mainPage.dotsConnected = self.dot_manager.getDevices()
+            self.mainPage.dotsConnected = self.dot_manager.get_devices()
             self.mainPage.make_dot_page()
             # Clear the event for potential future use if needed.
             self.initialEvent.clear()
@@ -101,7 +101,7 @@ class App:
         Args:
             initialEvent (threading.Event): An event to set once initialization is done.
         """
-        (check, unconnectedDevice) = self.dot_manager.firstConnection()
+        (check, unconnectedDevice) = self.dot_manager.first_connection()
         # If not all devices are connected, prompt user to reconnect missing devices.
         while not check:
             deviceMessage = f"{unconnectedDevice[0]}"
@@ -112,10 +112,23 @@ class App:
             if not retry:
                 # User chose to cancel; exit the initialization loop.
                 return
-            (check, unconnectedDevice) = self.dot_manager.firstConnection()
+            (check, unconnectedDevice) = self.dot_manager.first_connection()
 
         # Once all devices are connected, set the event to signal completion.
         initialEvent.set()
+
+        # Now that all devices are connected, check if any are currently recording.
+        devices = self.dot_manager.get_devices()
+        for device in devices:
+            # Assuming `device.is_recording` is a boolean attribute or a method
+            if device.is_recording:
+                # Stop the device from recording
+                stopped = self.dot_manager.stop_recording(device)
+                if stopped:
+                    self.logger.info(f"Stopped recording on device {device.deviceId}")
+                else:
+                    self.logger.warning(f"Failed to stop recording on device {device.deviceId}")
+
 
         # Start a separate thread to monitor device connections/disconnections.
         usb_detection_thread = threading.Thread(
@@ -137,7 +150,7 @@ class App:
         """
         while True:
             # Check the status of devices.
-            checkUsb = self.dot_manager.checkDevices()
+            checkUsb = self.dot_manager.check_devices()
             lastConnected = checkUsb[0]    # Devices that got connected since last check.
             lastDisconnected = checkUsb[1] # Devices that got disconnected since last check.
 
@@ -146,16 +159,15 @@ class App:
                 print("Connexion")
                 for device in lastConnected:
                     # If device is currently recording or has pending records, stop it.
-                    if device.isRecording or device.recordingCount > 0:
-                        # Schedule the stop and message on the main thread.
-                        self.root.after(0, lambda d=device: self.handle_device_recording(d))
+                    if device.is_recording or device.recordingCount > 0:
+                        callbackStop(device)
 
             # If any devices have been disconnected, check if we should start them.
             if lastDisconnected:
                 print("Deconnexion")
                 for device in lastDisconnected:
                     # If device is not currently recording, start it.
-                    if not device.isRecording:
+                    if not device.is_recording:
                         callbackStart(device)
 
             # Wait a short time before checking again.
