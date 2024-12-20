@@ -114,9 +114,6 @@ class App:
                 return
             (check, unconnectedDevice) = self.dot_manager.first_connection()
 
-        # Once all devices are connected, set the event to signal completion.
-        initialEvent.set()
-
         # Now that all devices are connected, check if any are currently recording.
         devices = self.dot_manager.get_devices()
         for device in devices:
@@ -128,6 +125,9 @@ class App:
                     self.logger.info(f"Stopped recording on device {device.deviceId}")
                 else:
                     self.logger.warning(f"Failed to stop recording on device {device.deviceId}")
+
+        # Once all devices are connected, set the event to signal completion.
+        initialEvent.set()
 
 
         # Start a separate thread to monitor device connections/disconnections.

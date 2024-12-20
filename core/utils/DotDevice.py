@@ -104,10 +104,9 @@ class DotDevice(XsDotCallback):
                         self.deviceTagName = str(device.deviceTagName())
                         self.batteryLevel = device.batteryLevel()
                         self.logger.info(f"Bluetooth connection established with device: {self.deviceTagName}")
+                        if device.stopRecording() is True:
+                            self.logger.info(f"{self.deviceTagName} was recording and was stopped")
 
-                        if self.is_recording:
-                            self.logger.info("Bluetooth device is currently recording. Stopping recording...")
-                            self.stop_record()
                     else:
                         self.logger.warning("Bluetooth device initialization incomplete.")
 

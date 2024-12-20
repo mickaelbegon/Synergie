@@ -265,7 +265,7 @@ class DotManager:
         else:
             logger.info("No changes in device connections.")
 
-        self.previousConnected = connected.copy()
+        self.previousConnected = connected #.copy()
         return (last_connected, last_disconnected)
 
     def get_export_estimated_time(self) -> float:
@@ -295,38 +295,3 @@ class DotManager:
         """
         return self.devices.copy()
 
-    def stop_recording(self, dot_device: DotDevice) -> bool:
-        """
-        Stops recording on the specified DotDevice.
-
-        Args:
-            dot_device (DotDevice): The DotDevice instance on which to stop recording.
-
-        Returns:
-            bool: True if recording was successfully stopped, False otherwise.
-        """
-        if dot_device in self.devices:
-            try:
-                success = dot_device.stop_record()
-                if success:
-                    logger.info(f"Recording stopped on device {dot_device.deviceId}.")
-                else:
-                    logger.error(f"Failed to stop recording on device {dot_device.deviceId}.")
-                return success
-            except AttributeError as e:
-                logger.error(f"DotDevice {dot_device.deviceId} does not have a stop_record method: {e}")
-                return False
-            except Exception as e:
-                logger.error(f"An unexpected error occurred while stopping recording on device {dot_device.deviceId}: {e}")
-                return False
-        else:
-            logger.error(f"Device {dot_device.deviceId} is not managed by DotManager.")
-            return False
-
-    def stop_all_recordings(self):
-        """
-        Stops recording on all managed DotDevice instances.
-        """
-        for device in self.devices:
-            self.stop_recording(device)
-        logger.info("All recordings have been stopped.")
