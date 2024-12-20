@@ -1,7 +1,5 @@
 import os
 import sys
-import socket
-import requests
 from typing import List
 import firebase_admin
 from firebase_admin import credentials
@@ -12,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from tkinter import messagebox
 
-from core.utils.internet_check import check_internet_connection, has_internet_connection
+from core.utils.internet_check import has_internet_connection
 
 @dataclass
 class JumpData:
