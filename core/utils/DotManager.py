@@ -166,7 +166,7 @@ class DotManager:
                 time.sleep(5)
                 check = False
 
-        self.previousConnected = self.devices.copy()
+        self.previousConnected = self.devices #.copy()
         logger.info(f"Total connected devices: {len(self.devices)}")
         return (check, unconnected_device)
 
@@ -293,5 +293,5 @@ class DotManager:
         Returns:
             List[DotDevice]: The list of devices.
         """
-        return self.devices.copy()
+        return self.devices #.copy()
 

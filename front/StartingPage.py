@@ -141,7 +141,7 @@ class StartingPage:
         self.db_manager.set_current_record(deviceId, self.db_manager.save_training_data(new_training))
 
         # Attempt to start the record on the actual physical device.
-        recordStarted = self.device.startRecord()
+        recordStarted = self.device.start_record()
 
         # Clean up the initial UI components: remove the canvas and the main label.
         self.canvas.destroy()

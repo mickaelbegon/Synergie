@@ -33,7 +33,7 @@ class StopingPage:
         buttonStyle = ttkb.Style()
         buttonStyle.configure('my.TButton', font=Font(self.frame, size=12, weight=BOLD))
         ttkb.Button(self.frame, text="Arrêt", style="my.TButton", command=self.stopRecord).grid(row=1,column=0,sticky="nsew",pady=20)
-        self.estimatedTime = self.device.getExportEstimatedTime()
+        self.estimatedTime = self.device.get_export_estimated_time()
         ttkb.Button(self.frame, text=f"Arrêt et extraction des données \n Temps estimé : {round(self.estimatedTime,0)} min", style="my.TButton", command=self.stopRecordAndExtract).grid(row=2,column=0,sticky="nsew")
         self.saveFile = ttkb.Checkbutton(self.frame, text="Sauvegarder plus de données (pour la recherche)")
         self.saveFile.state(['!alternate'])
@@ -42,7 +42,7 @@ class StopingPage:
         self.window.grid()
 
     def stopRecord(self):
-        recordStopped = self.device.stopRecord()
+        recordStopped = self.device.stop_record()
         self.frame.destroy()
         self.frame = ttkb.Frame(self.window)
         if recordStopped :
@@ -57,7 +57,7 @@ class StopingPage:
         self.window.destroy()
     
     def stopRecordAndExtract(self):
-        recordStopped = self.device.stopRecord()
+        recordStopped = self.device.stop_record()
         if recordStopped:
             self.device.currentImage = self.device.imageInactive
         saveFile = self.saveFile.instate(["selected"])
@@ -87,7 +87,7 @@ class StopingPage:
         self.extractEvent = threading.Event()
         self.checkFinish()
         if recordStopped :
-            threading.Thread(target=self.device.exportData, args=([saveFile, self.extractEvent]),daemon=True).start()
+            threading.Thread(target=self.device.export_data, args=([saveFile, self.extractEvent]),daemon=True).start()
         else:
             self.extractEvent.set()
 
