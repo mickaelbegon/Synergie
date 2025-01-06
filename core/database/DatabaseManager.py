@@ -51,10 +51,10 @@ class SkaterData:
 
 class DatabaseManager:
     def __init__(self):
-        try :
-            json_path = os.path.join(sys._MEIPASS, 's2m-skating-firebase-adminsdk-3ofmb-8552d58146.json')
+        try:
+            json_path = os.path.join(sys._MEIPASS, 's2m-skating-firebase-adminsdk-3ofmb-cc861a6ad1.json')
         except:
-            json_path = 's2m-skating-firebase-adminsdk-3ofmb-8552d58146.json'
+            json_path = 's2m-skating-firebase-adminsdk-3ofmb-cc861a6ad1.json'
         cred = credentials.Certificate(json_path)
         try:
             firebase_admin.initialize_app(cred)

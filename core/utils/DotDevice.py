@@ -180,29 +180,32 @@ class DotDevice(XsDotCallback):
                 else:
                     while not self.exportDone:
                         time.sleep(0.1)
+
                     print('File export finished!')
                     if self.saveFile:
                         columnSelected = ["PacketCounter","SampleTimeFine","Euler_X","Euler_Y","Euler_Z","Quat_W","Quat_X","Quat_Y","Quat_Z","Acc_X","Acc_Y","Acc_Z","Gyr_X","Gyr_Y","Gyr_Z","Mag_X","Mag_Y","Mag_Z"]
                     else:
                         columnSelected = ["PacketCounter","SampleTimeFine","Euler_X","Euler_Y","Euler_Z","Acc_X","Acc_Y","Acc_Z","Gyr_X","Gyr_Y","Gyr_Z"]
                     df = pd.DataFrame.from_records(self.packetsReceived, columns=columnSelected)
-                    date = datetime.fromtimestamp(dateRecord).strftime("%Y_%m_%d")
-                    startSampleTime = df["SampleTimeFine"][0]
-                    newSampleTimeFine = []
-                    for timeFine in df["SampleTimeFine"]:
-                        newTime = timeFine - startSampleTime
-                        if newTime < 0:
-                            newSampleTimeFine.append(newTime + 2**32)
-                        else:
-                            newSampleTimeFine.append(newTime)
-                    df["SampleTimeFine"] = newSampleTimeFine
-                    self.synchroTime = max(0, self.synchroTime - startSampleTime)
-                    os.makedirs(f"data/raw/{date}", exist_ok = True)
-                    df.to_csv(f"data/raw/{date}/{self.synchroTime}_{trainingId}.csv", index=False)
 
-                    self.predict_training(trainingId, df)
-                    self.db_manager.remove_current_record(self.deviceId, trainingId)
-                    self.recordingCount -= 1
+                    if df.count().iloc[0] > 0:
+                        date = datetime.fromtimestamp(dateRecord).strftime("%Y_%m_%d")
+                        startSampleTime = df["SampleTimeFine"][0]
+                        newSampleTimeFine = []
+                        for timeFine in df["SampleTimeFine"]:
+                            newTime = timeFine - startSampleTime
+                            if newTime < 0:
+                                newSampleTimeFine.append(newTime + 2**32)
+                            else:
+                                newSampleTimeFine.append(newTime)
+                        df["SampleTimeFine"] = newSampleTimeFine
+                        self.synchroTime = max(0, self.synchroTime - startSampleTime)
+                        os.makedirs(f"data/raw/{date}", exist_ok = True)
+                        df.to_csv(f"data/raw/{date}/{self.synchroTime}_{trainingId}.csv", index=False)
+
+                        self.predict_training(trainingId, df)
+                        self.db_manager.remove_current_record(self.deviceId, trainingId)
+                        self.recordingCount -= 1
         
         self.usbDevice.eraseFlash()
         print("You can disconnect the dot")
