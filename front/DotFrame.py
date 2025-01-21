@@ -17,16 +17,16 @@ class DotFrame(ttkb.Frame):
 
         self.imageLabel = ttkb.Label(self, image=self.device.current_image)
         self.imageLabel.grid(row=0, column=0)
-        labelFont = Font(self, size=15, weight=BOLD)
-        self.pluggedLabel = ttkb.Label(self, text=f"En charge : {self.device.is_plugged}", font=labelFont)
+        label_font = Font(self, size=15, weight=BOLD)
+        self.pluggedLabel = ttkb.Label(self, text=f"En charge : {self.device.is_plugged}", font=label_font)
         self.pluggedLabel.grid(row=1, column=0, sticky="w")
-        self.batteryLabel = ttkb.Label(self, text=f"Batterie : {self.device.batteryLevel}%", font=labelFont)
+        self.batteryLabel = ttkb.Label(self, text=f"Batterie : {self.device.batteryLevel}%", font=label_font)
         self.batteryLabel.grid(row=2, column=0, sticky="w")
         if self.device.is_recording:
             recording = "en cours" 
         else: 
             recording = self.device.recordingCount
-        self.recordsLabel = ttkb.Label(self, text=f"Enregistrements stockés: {recording}", font=labelFont)
+        self.recordsLabel = ttkb.Label(self, text=f"Enregistrements stockés: {recording}", font=label_font)
         self.recordsLabel.grid(row=3, column=0, sticky="w")
         if self.device.is_recording:
             duration = datetime.now().timestamp() - self.device.timingRecord
@@ -34,7 +34,7 @@ class DotFrame(ttkb.Frame):
             recordMessage = f"Enregistrement en cours ...\n    {displayTime}"
         else:
             recordMessage = "Pas d'enregistrement en cours"
-        self.recordingLabel = ttkb.Label(self, text=recordMessage, font=labelFont)
+        self.recordingLabel = ttkb.Label(self, text=recordMessage, font=label_font)
         self.recordingLabel.grid(row=4, column=0, sticky="w")
         self.grid(row=0, column=0)
     
