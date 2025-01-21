@@ -9,11 +9,7 @@ import numpy as np
 from movelladot_pc_sdk.movelladot_pc_sdk_py39_64 import XsPortInfo
 # Import other necessary classes from the SDK as needed
 from movelladot_pc_sdk.movelladot_pc_sdk_py39_64 import (
-    XsDotDevice,
-    XsDotUsbDevice,
     XsDotConnectionManager,
-    XsDotCallback,
-    XsDataPacket,
 )
 from core.database.DatabaseManager import DatabaseManager
 from core.utils.xdpchandler import XdpcHandler
@@ -96,20 +92,20 @@ class DotManager:
             logger.warning("Unsupported OS for Bluetooth power control.")
 
         # Initialize USB connection handler
-        xdpcHandler = XdpcHandler()
-        if not xdpcHandler.initialize():
+        xdpc_handler = XdpcHandler()
+        if not xdpc_handler.initialize():
             logger.error("Failed to initialize XdpcHandler for USB.")
-            xdpcHandler.cleanup()
+            xdpc_handler.cleanup()
             self.error = True
-            return (False, ["Initialization failed"])
+            return False, ["Initialization failed"]
 
-        xdpcHandler.detectUsbDevices()
+        xdpc_handler.detectUsbDevices()
         self.port_info_usb = {}
-        while len(xdpcHandler.connectedUsbDots()) < len(xdpcHandler.detectedDots()):
-            xdpcHandler.connectDots()
-        for device in xdpcHandler.connectedUsbDots():
+        while len(xdpc_handler.connectedUsbDots()) < len(xdpc_handler.detectedDots()):
+            xdpc_handler.connectDots()
+        for device in xdpc_handler.connectedUsbDots():
             self.port_info_usb[str(device.deviceId())] = device.portInfo()
-        xdpcHandler.cleanup()
+        xdpc_handler.cleanup()
         logger.info(f"Connected USB devices: {list(self.port_info_usb.keys())}")
 
         # Re-enable Bluetooth
@@ -126,15 +122,15 @@ class DotManager:
             logger.warning("Unsupported OS for Bluetooth power control.")
 
         # Initialize Bluetooth connection handler
-        xdpcHandler = XdpcHandler()
-        if not xdpcHandler.initialize():
+        xdpc_handler = XdpcHandler()
+        if not xdpc_handler.initialize():
             logger.error("Failed to initialize XdpcHandler for Bluetooth.")
-            xdpcHandler.cleanup()
+            xdpc_handler.cleanup()
             self.error = True
             return (False, ["Initialization failed"])
-        xdpcHandler.scanForDots()
-        self.port_info_bt = xdpcHandler.detectedDots()
-        xdpcHandler.cleanup()
+        xdpc_handler.scanForDots()
+        self.port_info_bt = xdpc_handler.detectedDots()
+        xdpc_handler.cleanup()
         logger.info(f"Detected Bluetooth devices: {[bt.bluetoothAddress() for bt in self.port_info_bt]}")
 
         unconnected_device = []
@@ -168,7 +164,7 @@ class DotManager:
 
         self.previousConnected = self.devices #.copy()
         logger.info(f"Total connected devices: {len(self.devices)}")
-        return (check, unconnected_device)
+        return check, unconnected_device
 
     def connect_new_device(self, port_info_bt: XsPortInfo) -> Optional[str]:
         """
@@ -182,22 +178,22 @@ class DotManager:
         """
         try:
             manager = XsDotConnectionManager()
-            checkDevice = False
+            check_device = False
             device_id = None
-            while not checkDevice:
+            while not check_device:
                 manager.closePort(port_info_bt)
                 if not manager.openPort(port_info_bt):
                     logger.error(f"Connection to Device {port_info_bt.bluetoothAddress()} failed")
-                    checkDevice = False
+                    check_device = False
                 else:
                     device = manager.device(port_info_bt.deviceId())
                     if device is None:
                         logger.warning("Bluetooth device not found after opening port.")
-                        checkDevice = False
+                        check_device = False
                     else:
                         time.sleep(1)
-                        checkDevice = (device.deviceTagName() != '') and (device.batteryLevel() != 0)
-                        if checkDevice:
+                        check_device = (device.deviceTagName() != '') and (device.batteryLevel() != 0)
+                        if check_device:
                             logger.info(f"Connected to new device: {device.deviceTagName()} with ID: {device.deviceId()}")
                             device_id = str(device.deviceId())
                         else:

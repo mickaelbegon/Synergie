@@ -15,6 +15,7 @@ from movelladot_pc_sdk.movelladot_pc_sdk_py39_64 import (
     XsPortInfo,
     XsDataPacket,
 )
+import constants
 from core.database.DatabaseManager import DatabaseManager, JumpData
 
 
@@ -197,7 +198,7 @@ class DotDevice(XsDotCallback):
         self.count = 0
 
         # Define the types of data to export
-        exportData = movelladot_pc_sdk.XsIntArray()
+        exportData = XsIntArray()
         exportData.push_back(movelladot_pc_sdk.RecordingData_Timestamp)
         exportData.push_back(movelladot_pc_sdk.RecordingData_Euler)
         exportData.push_back(movelladot_pc_sdk.RecordingData_Acceleration)
@@ -321,7 +322,7 @@ class DotDevice(XsDotCallback):
                     jump_data = JumpData(
                         0,
                         training_id,
-                        jumpType(int(row["type"])).name,
+                        constants.jumpType(int(row["type"])).name,
                         val_rot,
                         bool(row["success"]),
                         jump_time,
@@ -334,7 +335,7 @@ class DotDevice(XsDotCallback):
                     jump_data = JumpData(
                         0,
                         training_id,
-                        jumpType(int(row["type"])).name,
+                        constants.jumpType(int(row["type"])).name,
                         val_rot,
                         bool(row["success"]),
                         jump_time,
@@ -346,7 +347,7 @@ class DotDevice(XsDotCallback):
                     jump_data = JumpData(
                         0,
                         training_id,
-                        jumpType(int(row["type"])).name,
+                        constants.jumpType(int(row["type"])).name,
                         0,
                         bool(row["success"]),
                         jump_time,
