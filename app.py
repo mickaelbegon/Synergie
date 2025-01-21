@@ -114,6 +114,15 @@ class App:
                 return
             (check, unconnectedDevice) = self.dot_manager.first_connection()
 
+        # Now that all devices are connected, check if any are currently recording.
+        devices = self.dot_manager.getDevices()
+        for device in devices:
+            if device.btDevice.stopRecording() is True:
+               print(f"{device.deviceTagName} was recording and was stopped")
+
+
+
+
         initialEvent.set()
 
 

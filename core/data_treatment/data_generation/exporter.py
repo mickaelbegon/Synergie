@@ -39,6 +39,8 @@ def export(df: pd.DataFrame, sampleTimeFineSynchro: int = 0) -> pd.DataFrame:
         jumpList.append(jump_copy)
         predict_jump.append(jump_copy.df)
 
+
+    #todo: load once the model, not for each jump
     model_test_type = model.load_model(constants.modeltype_filepath)
     model_test_success = model.load_model(constants.modelsuccess_filepath)
     prediction = ModelPredictor(model_test_type, model_test_success)
