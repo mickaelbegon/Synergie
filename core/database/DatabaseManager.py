@@ -12,6 +12,7 @@ from datetime import datetime
 @dataclass
 class JumpData:
     jump_id : int
+    training_id : str
     jump_type : str
     jump_rotations : float
     jump_success : bool
@@ -20,7 +21,8 @@ class JumpData:
     jump_length : float
 
     def to_dict(self):
-        return {"jump_type" : self.jump_type,
+        return {"training_id" : self.training_id,
+         "jump_type" : self.jump_type,
          "jump_rotations" : self.jump_rotations,
          "jump_success" : self.jump_success,
          "jump_time" : self.jump_time,
@@ -51,14 +53,14 @@ class SkaterData:
 
 class DatabaseManager:
     def __init__(self):
-        try :
+        try:
             json_path = os.path.join(sys._MEIPASS, 's2m-skating-firebase-adminsdk-3ofmb-8552d58146.json')
-        except:
+        except AttributeError:
             json_path = 's2m-skating-firebase-adminsdk-3ofmb-8552d58146.json'
         cred = credentials.Certificate(json_path)
         try:
             firebase_admin.initialize_app(cred)
-        except :
+        except ValueError:
             pass
         self.db = firestore.client()
     
@@ -90,7 +92,7 @@ class DatabaseManager:
         try:
             trainingId = self.db.collection("dots").document(deviceId).get().get("current_record")[-1]
             return trainingId
-        except:
+        except (TypeError, IndexError):
             return ""
         
     def remove_current_record(self, deviceId, trainingId):

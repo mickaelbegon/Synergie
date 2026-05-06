@@ -4,6 +4,7 @@ import pandas as pd
 import constants
 from constants import jumpType,jumpSuccess
 import math
+from synergie.config import JUMP_WINDOW_FRAMES, SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES
 
 class Jump:
     def __init__(self, start: int, end: int, df: pd.DataFrame, combinate : bool, jump_type: jumpType = jumpType.NONE, jump_success: jumpSuccess = jumpSuccess.NONE):
@@ -25,15 +26,17 @@ class Jump:
         # timestamps are in microseconds, I want to have the lenghs in seconds
         self.length = round(np.longlong(df['ms'][end] - df['ms'][start]) / 1000,3)
 
-        self.rotation = self.calculate_rotation(df[self.start:self.end].copy().reset_index())
+        self.signed_rotation = self.calculate_rotation(df[self.start:self.end].copy().reset_index())
+        self.rotation = abs(self.signed_rotation)
+        self.rotation_direction = self._rotation_direction_label(self.signed_rotation)
 
         self.df = self.dynamic_resize(df) # The dataframe containing the jump
         self.df["Combination"] = [int(self.combinate)]*len(self.df)
-        self.df_success = self.df[120:] 
-        self.df_type = self.df[:240]
-        df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        df.dropna(subset=["Gyr_X_unfiltered"], how="all", inplace=True)
-        self.max_rotation_speed = round(df['Gyr_X_unfiltered'][start:end].abs().max()/360,1)
+        self.df_success = self.df[SUCCESS_WINDOW_START:]
+        self.df_type = self.df[:TYPE_WINDOW_FRAMES]
+        gyr_source = df["Gyr_X_unfiltered"].replace([np.inf, -np.inf], np.nan).dropna()
+        window = gyr_source.iloc[start:end]
+        self.max_rotation_speed = round(window.abs().max() / 360, 1) if not window.empty else 0.0
 
     def calculate_rotation(self, df):
         """
@@ -54,9 +57,15 @@ class Jump:
         tps = tps - tps[0]
         difftps = np.diff(tps)/1e6
         vit = df_rots['Gyr_X'].to_numpy().reshape(1,n)[0][:-1]
-        pos = np.nansum(np.array(vit)*np.array(difftps))
-        total_rotation_x = np.abs(pos/360)
-        return total_rotation_x
+        pos = np.nansum(np.array(vit) * np.array(difftps))
+        return pos / 360
+
+    def _rotation_direction_label(self, signed_rotation: float) -> str:
+        if abs(signed_rotation) < 0.05:
+            return "unknown"
+        if signed_rotation > 0:
+            return "positive"
+        return "negative"
 
     def dynamic_resize(self, df: pd.DataFrame = None):
         """
@@ -65,7 +74,9 @@ class Jump:
         :param df: the dataframe containing the session where the jump is
         :return: the new dataframe
         """
-        resampled_df = df[self.start - 120:self.start + 180].copy(deep=True)
+        frames_before_takeoff = SUCCESS_WINDOW_START
+        frames_after_takeoff = JUMP_WINDOW_FRAMES - frames_before_takeoff
+        resampled_df = df[self.start - frames_before_takeoff:self.start + frames_after_takeoff].copy(deep=True)
 
         return resampled_df
 

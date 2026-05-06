@@ -75,8 +75,50 @@ sessions = {
         "29071": {
             "path": "2907/0911",
             "sample_time_fine_synchro": 229029957 + 20000000
-        }
-    }
+        },
+        # new data from Maksim
+        "1209": {
+            "path": "1209/0729",
+            "sample_time_fine_synchro": 796524662
+        },
+        "12091": {
+            "path": "1209/0813",
+            "sample_time_fine_synchro": 999589045
+        },
+        "12092": {
+            "path": "1209/0909",
+            "sample_time_fine_synchro": 87377251
+        },
+        "1109": {
+            "path": "1109/0856",
+            "sample_time_fine_synchro":  555184067
+        },
+        "0509": {
+            "path": "0509/0857",
+            "sample_time_fine_synchro": 257498672
+        },
+        "0409": {
+            "path": "0409/1231",
+            "sample_time_fine_synchro": 1679513856
+        },
+        "0209": {
+            "path": "0209/1202",
+            "sample_time_fine_synchro": 91003707
+        },
+        "0109": {
+            "path": "0109/0910",
+            "sample_time_fine_synchro": 568979664
+        },
+}
+
+
+def get_session(session_name: str) -> dict:
+    """Return metadata for a configured recording session."""
+    try:
+        return sessions[session_name]
+    except KeyError as exc:
+        available = ", ".join(sorted(sessions))
+        raise KeyError(f"Unknown session '{session_name}'. Available sessions: {available}") from exc
 
 class jumpType(Enum):
     """

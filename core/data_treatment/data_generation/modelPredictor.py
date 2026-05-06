@@ -4,6 +4,7 @@ import constants
 
 import numpy as np
 import pandas as pd
+from synergie.config import JUMP_WINDOW_FRAMES, SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES
 
 class ModelPredictor:
     def __init__(self, model_type: keras.models.Model, model_success: keras.models.Model) -> None:
@@ -35,12 +36,15 @@ class ModelPredictor:
 
         for index,df in enumerate(data):
             df_predictjump = df
-            if len(df_predictjump) == 300:
-                predict_jump_type.append(df_predictjump[:240])
-                predict_jump_success.append(df_predictjump[120:])
+            if len(df_predictjump) == JUMP_WINDOW_FRAMES:
+                predict_jump_type.append(df_predictjump[:TYPE_WINDOW_FRAMES])
+                predict_jump_success.append(df_predictjump[SUCCESS_WINDOW_START:])
             else:
                 predict_type[index] = 8
-                predict_success[index] == 2
+                predict_success[index] = 2
+
+        if not predict_jump_type:
+            return (predict_type, predict_success)
 
         prediction_type = self.model_type.predict(np.array(predict_jump_type))   
         prediction_success = self.model_success.predict(np.array(predict_jump_success))

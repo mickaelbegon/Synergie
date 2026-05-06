@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageTk
 from constants import *
 
 from core.database.DatabaseManager import DatabaseManager, JumpData
+from synergie.services.jump_predictions import build_training_jump_payload
 
 class DotDevice(XsDotCallback):
     """
@@ -97,7 +98,7 @@ class DotDevice(XsDotCallback):
         fontTag = ImageFont.truetype(font="arialbd.ttf",size=60)
         try:
             imgActive = Image.open(f"{sys._MEIPASS}/img/Dot_active.png")
-        except:
+        except (AttributeError, FileNotFoundError, OSError):
             imgActive = Image.open(f"img/Dot_active.png")
         d = ImageDraw.Draw(imgActive)
         text = self.deviceTagName
@@ -112,7 +113,7 @@ class DotDevice(XsDotCallback):
 
         try:
             imgInactive = Image.open(f"{sys._MEIPASS}/img/Dot_inactive.png")
-        except:
+        except (AttributeError, FileNotFoundError, OSError):
             imgInactive = Image.open(f"img/Dot_inactive.png")
         d = ImageDraw.Draw(imgInactive)
         d.text( (x,65), text,font=fontTag, fill="black")
@@ -216,36 +217,12 @@ class DotDevice(XsDotCallback):
         Utilisation des modèles de prédiction pour avoir les infos de l'enregistrement
         """
         try:
-            df = export(df)
+            predictions = export(df)
             print("End of process")
-            trainingJumps = []
-            unknow_rotation = []
-            for iter,row in df.iterrows():
-                jump_time_min, jump_time_sec = row["videoTimeStamp"].split(":")
-                jump_time = '{:02d}:{:02d}'.format(int(jump_time_min), int(jump_time_sec))
-                val_rot = float(row["rotations"])
-                if row["type"] < 5 and val_rot > 0.5:
-                    if val_rot < 2:
-                        val_rot = np.ceil(val_rot-0.3)
-                    else:
-                        val_rot = np.ceil(val_rot-0.15)
-                    jump_data = JumpData(0, training_id, jumpType(int(row["type"])).name, val_rot, bool(row["success"]), jump_time, float(row["rotation_speed"]), float(row["length"]))
-                    trainingJumps.append(jump_data.to_dict())
-                elif row["type"] == 5 and val_rot > 0.8: 
-                    val_rot = np.ceil(val_rot-0.7)+0.5
-                    jump_data = JumpData(0, training_id, jumpType(int(row["type"])).name, val_rot, bool(row["success"]), jump_time, float(row["rotation_speed"]), float(row["length"]))
-                    trainingJumps.append(jump_data.to_dict())
-                else:
-                    jump_data = JumpData(0, training_id, jumpType(int(row["type"])).name, 0, bool(row["success"]), jump_time, float(row["rotation_speed"]), float(row["length"]))
-                    unknow_rotation.append(jump_data)
-            if trainingJumps != []:
-                self.db_manager.add_jumps_to_training(training_id, trainingJumps)
-            else:
-                for jump in unknow_rotation:
-                    trainingJumps.append(jump.to_dict())
-                self.db_manager.add_jumps_to_training(training_id, trainingJumps)
-        except:
-            pass
+            training_jumps = build_training_jump_payload(predictions, training_id)
+            self.db_manager.add_jumps_to_training(training_id, training_jumps)
+        except (KeyError, TypeError, ValueError) as exc:
+            print(f"Prediction failed for training {training_id}: {exc}")
         
     def onRecordedDataAvailable(self, device, packet : XsDataPacket):
         """

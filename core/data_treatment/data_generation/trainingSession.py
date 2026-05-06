@@ -5,9 +5,14 @@ import scipy as sp
 import constants
 from core.utils import plot
 from core.utils.jump import Jump
+from synergie.config import (
+    DEFAULT_COMBINATION_GAP_FRAMES,
+    DEFAULT_DETECTION_THRESHOLD,
+    DEFAULT_SMOOTHING_SIGMA,
+)
 
 
-def gather_jumps(df: pd.DataFrame) -> list[Jump]:
+def gather_jumps(df: pd.DataFrame, combination_gap_frames: int = DEFAULT_COMBINATION_GAP_FRAMES) -> list[Jump]:
     """
     detects and gathers all the jumps in a dataframe
     :param df: the dataframe containing the session data
@@ -28,8 +33,8 @@ def gather_jumps(df: pd.DataFrame) -> list[Jump]:
 
         for i in range(len(begin)):
             combinate = False
-            if i>0:
-                combinate = (begin[i] - begin[i-1]) < 180
+            if i > 0:
+                combinate = (begin[i] - begin[i-1]) < combination_gap_frames
             jumps.append(Jump(begin[i], end[i], df, combinate))
 
     return jumps
@@ -39,11 +44,21 @@ class trainingSession:
     This class is meant to describe a training session in a sport context. Not to be confused with a training session in a machine learning context (class training)
     contains the preprocessed dataframe and the jumps
     """
-    def __init__(self, df: pd.DataFrame, sampleTimefineSynchro: int = 0):
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        sampleTimefineSynchro: int = 0,
+        detection_threshold: float | None = None,
+        smoothing_sigma: float = DEFAULT_SMOOTHING_SIGMA,
+        combination_gap_frames: int = DEFAULT_COMBINATION_GAP_FRAMES,
+    ):
         """
         :param path: path of the CSV
         :param synchroFrame: the frame where the synchro tap is
         """
+        self.detection_threshold = DEFAULT_DETECTION_THRESHOLD if detection_threshold is None else detection_threshold
+        self.smoothing_sigma = smoothing_sigma
+        self.combination_gap_frames = combination_gap_frames
         df = self.__load_and_preprocess_data(df, sampleTimefineSynchro)
         self.initFromDataFrame(df)
 
@@ -73,14 +88,14 @@ class trainingSession:
         df['Y_acc_derivative'] = df['Acc_Y'].diff()
         df['Z_acc_derivative'] = df['Acc_Z'].diff()
         df["Gyr_X_unfiltered"] = df["Gyr_X"].copy(deep=True)
-        df["Gyr_X_smoothed"] = sp.ndimage.gaussian_filter1d(df["Gyr_X"], sigma=30)
+        df["Gyr_X_smoothed"] = sp.ndimage.gaussian_filter1d(df["Gyr_X"], sigma=self.smoothing_sigma)
         df['X_gyr_derivative'] = df['Gyr_X_smoothed'].diff()
         df['Y_gyr_derivative'] = df['Gyr_Y'].diff()
         df['Z_gyr_derivative'] = df['Gyr_Z'].diff()
         df["X_gyr_second_derivative"] = df['X_gyr_derivative'].diff()
 
         # add markers when the value is crossing -0.2
-        df['X_gyr_second_derivative_crossing'] = [False if x > constants.treshold else True for x in
+        df['X_gyr_second_derivative_crossing'] = [False if x > self.detection_threshold else True for x in
                                                   df['X_gyr_second_derivative']]
         return df
     
@@ -91,7 +106,7 @@ class trainingSession:
         :param df: the dataframe containing the whole session
         """
         self.df = df
-        self.jumps = gather_jumps(df)
+        self.jumps = gather_jumps(df, combination_gap_frames=self.combination_gap_frames)
 
     def plot(self):
         timestamps = [i.startTimestamp for i in self.jumps] + [i.endTimestamp for i in self.jumps]
