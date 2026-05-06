@@ -20,7 +20,7 @@ class StartingPage:
         self.window.place_window_center()
         try:
             ico = Image.open(f'{sys._MEIPASS}/img/Logo_s2mJUMP_RGB.png')
-        except:
+        except (AttributeError, FileNotFoundError, OSError):
             ico = Image.open(f'img/Logo_s2mJUMP_RGB.png')
         photo = ImageTk.PhotoImage(ico)
         self.window.wm_iconphoto(False, photo)

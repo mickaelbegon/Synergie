@@ -1,6 +1,7 @@
 import threading
 import time
 import sys
+from tkinter import TclError
 from PIL import Image, ImageTk
 from tkinter.font import BOLD, Font
 import ttkbootstrap as ttkb
@@ -17,7 +18,7 @@ class StopingPage:
         self.window.place_window_center()
         try:
             ico = Image.open(f'{sys._MEIPASS}/img/Logo_s2mJUMP_RGB.png')
-        except:
+        except (AttributeError, FileNotFoundError, OSError):
             ico = Image.open(f'img/Logo_s2mJUMP_RGB.png')
         photo = ImageTk.PhotoImage(ico)
         self.window.wm_iconphoto(False, photo)
@@ -94,7 +95,7 @@ class StopingPage:
     def checkFinish(self):
         try:
             self.checkProgressBar()
-        except:
+        except TclError:
             pass
         self.window.update()
         if self.extractEvent.is_set():

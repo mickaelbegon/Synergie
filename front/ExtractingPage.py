@@ -1,5 +1,6 @@
 import threading
 import time
+from tkinter import TclError
 from tkinter.font import BOLD, Font
 import ttkbootstrap as ttkb
 
@@ -24,7 +25,7 @@ class ExtractingPage:
     def checkFinish(self):
         try:
             self.checkProgressBar()
-        except:
+        except TclError:
             pass
         if self.event.is_set():
             self.text.set("Extraction finie")
