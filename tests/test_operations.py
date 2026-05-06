@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from synergie import operations
+from synergie import session_store
 
 
 class OperationsTests(unittest.TestCase):
@@ -64,6 +65,43 @@ class OperationsTests(unittest.TestCase):
             self.assertEqual(description["name"], "example.csv")
             self.assertEqual(description["suffix"], ".csv")
             self.assertGreater(description["size_bytes"], 0)
+
+    def test_add_session_persists_new_session_in_json_store(self):
+        original_file = session_store.SESSIONS_FILE
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_file = Path(tmpdir) / "sessions.json"
+            session_store.SESSIONS_FILE = temp_file
+            session_store.save_sessions({"1331": {"path": "2009/1331", "sample_time_fine_synchro": 965369596}})
+
+            metadata = operations.add_session("9999", "custom/9999", 123456)
+
+            self.assertEqual(metadata["path"], "custom/9999")
+            self.assertEqual(metadata["sample_time_fine_synchro"], 123456)
+            sessions = session_store.load_sessions()
+            self.assertIn("9999", sessions)
+        session_store.SESSIONS_FILE = original_file
+
+    def test_describe_training_dataset_returns_class_distribution(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dataset_root = Path(tmpdir)
+            (dataset_root / "jumplist.csv").write_text(
+                "type,success,skater\n"
+                "0,1,alice\n"
+                "1,0,bob\n"
+                "1,1,bob\n"
+                "8,1,skip_me\n"
+                "2,2,skip_me_too\n",
+                encoding="utf-8",
+            )
+
+            stats = operations.describe_training_dataset("type", dataset_root)
+
+            self.assertEqual(stats["task"], "type")
+            self.assertEqual(stats["base_samples"], 3)
+            self.assertEqual(stats["effective_samples"], 6)
+            self.assertEqual(stats["unique_skaters"], 2)
+            self.assertEqual(stats["class_counts"], {"0": 1, "1": 2})
+            self.assertTrue(stats["augment_mirror"])
 
 
 if __name__ == "__main__":

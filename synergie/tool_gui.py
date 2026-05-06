@@ -7,7 +7,14 @@ from typing import TYPE_CHECKING
 
 import constants
 from synergie import operations
-from synergie.config import DEFAULT_COMBINATION_GAP_FRAMES, DEFAULT_SMOOTHING_SIGMA, DEFAULT_DETECTION_THRESHOLD
+from synergie.config import (
+    DEFAULT_COMBINATION_GAP_FRAMES,
+    DEFAULT_DETECTION_THRESHOLD,
+    DEFAULT_SMOOTHING_SIGMA,
+    GYRO_SATURATION_WARNING_THRESHOLD,
+    SUCCESS_WINDOW_START,
+    TYPE_WINDOW_FRAMES,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -31,10 +38,15 @@ class SynergieToolsApp:
         self.session_var = tk.StringVar(value=sorted(constants.sessions)[0])
         self.session_files_var = tk.StringVar(value=[])
         self.session_folder_summary_var = tk.StringVar(value="")
+        self.new_session_id_var = tk.StringVar()
+        self.new_session_path_var = tk.StringVar()
+        self.new_session_synchro_var = tk.StringVar()
         self.train_task_var = tk.StringVar(value="type")
         self.train_architecture_var = tk.StringVar(value=self.TRAIN_ARCHITECTURES["type"][0])
         self.dataset_var = tk.StringVar(value="data/annotated/total")
         self.epochs_var = tk.StringVar(value="10")
+        self.train_dataset_stats_var = tk.StringVar(value="Dataset stats not loaded yet.")
+        self.train_quality_summary_var = tk.StringVar(value="No training run yet.")
 
         self.inspect_csv_path_var = tk.StringVar()
         self.inspect_session_var = tk.StringVar(value=sorted(constants.sessions)[0])
@@ -92,11 +104,14 @@ class SynergieToolsApp:
         notebook.add(train_tab, text="Train")
         notebook.add(notes_tab, text="Algo Notes")
 
-        self.sessions_text = scrolledtext.ScrolledText(sessions_tab, height=18, wrap=tk.WORD)
-        self.sessions_text.grid(row=0, column=0, sticky="nsew")
         sessions_tab.columnconfigure(0, weight=1)
+        sessions_tab.columnconfigure(1, weight=0)
         sessions_tab.rowconfigure(0, weight=1)
-        ttk.Button(sessions_tab, text="Refresh sessions", command=self._populate_sessions).grid(row=1, column=0, sticky="w", pady=(8, 0))
+
+        self.sessions_text = scrolledtext.ScrolledText(sessions_tab, height=18, wrap=tk.WORD)
+        self.sessions_text.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        self._build_sessions_side_panel(sessions_tab)
+        ttk.Button(sessions_tab, text="Refresh sessions", command=self._refresh_all_sessions).grid(row=1, column=0, sticky="w", pady=(8, 0))
 
         self._build_process_tab(process_tab)
         self._build_inspect_tab(inspect_tab)
@@ -121,9 +136,9 @@ class SynergieToolsApp:
         ttk.Button(parent, text="Save as", command=self._pick_output).grid(row=1, column=2, sticky="e")
 
         ttk.Label(parent, text="Session").grid(row=2, column=0, sticky="w", pady=4)
-        session_box = ttk.Combobox(parent, textvariable=self.session_var, values=sorted(constants.sessions), state="readonly")
-        session_box.grid(row=2, column=1, sticky="w", padx=8)
-        session_box.bind("<<ComboboxSelected>>", self._on_process_session_changed)
+        self.process_session_box = ttk.Combobox(parent, textvariable=self.session_var, values=operations.list_sessions(), state="readonly")
+        self.process_session_box.grid(row=2, column=1, sticky="w", padx=8)
+        self.process_session_box.bind("<<ComboboxSelected>>", self._on_process_session_changed)
 
         ttk.Label(parent, text="Session CSV files").grid(row=3, column=0, sticky="nw", pady=4)
         self.process_session_files = tk.Listbox(parent, listvariable=self.session_files_var, height=6, exportselection=False)
@@ -153,15 +168,15 @@ class SynergieToolsApp:
         ttk.Button(controls, text="Browse", command=self._pick_inspect_csv).grid(row=0, column=2, sticky="e")
 
         ttk.Label(controls, text="Session").grid(row=1, column=0, sticky="w", pady=4)
-        inspect_session_box = ttk.Combobox(
+        self.inspect_session_box = ttk.Combobox(
             controls,
             textvariable=self.inspect_session_var,
-            values=sorted(constants.sessions),
+            values=operations.list_sessions(),
             state="readonly",
             width=16,
         )
-        inspect_session_box.grid(row=1, column=1, sticky="w", padx=8)
-        inspect_session_box.bind("<<ComboboxSelected>>", self._on_inspect_session_changed)
+        self.inspect_session_box.grid(row=1, column=1, sticky="w", padx=8)
+        self.inspect_session_box.bind("<<ComboboxSelected>>", self._on_inspect_session_changed)
 
         ttk.Label(controls, text="Session CSV files").grid(row=2, column=0, sticky="nw", pady=(12, 0))
         self.inspect_session_files = tk.Listbox(controls, listvariable=self.inspect_session_files_var, height=5, exportselection=False)
@@ -244,6 +259,22 @@ class SynergieToolsApp:
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._draw_placeholder_plots()
 
+    def _build_sessions_side_panel(self, parent: ttk.Frame) -> None:
+        panel = ttk.LabelFrame(parent, text="Add Session", padding=12)
+        panel.grid(row=0, column=1, sticky="ns")
+        panel.columnconfigure(1, weight=1)
+
+        ttk.Label(panel, text="Session ID").grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Entry(panel, textvariable=self.new_session_id_var, width=18).grid(row=0, column=1, sticky="ew")
+
+        ttk.Label(panel, text="Relative path").grid(row=1, column=0, sticky="w", pady=4)
+        ttk.Entry(panel, textvariable=self.new_session_path_var, width=22).grid(row=1, column=1, sticky="ew")
+
+        ttk.Label(panel, text="Synchro").grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Entry(panel, textvariable=self.new_session_synchro_var, width=18).grid(row=2, column=1, sticky="ew")
+
+        ttk.Button(panel, text="Add session", command=self._add_session_from_gui).grid(row=3, column=0, columnspan=2, sticky="w", pady=(12, 0))
+
     def _build_train_tab(self, parent: ttk.Frame) -> None:
         for index in range(2):
             parent.columnconfigure(index, weight=1 if index == 1 else 0)
@@ -264,11 +295,16 @@ class SynergieToolsApp:
         ttk.Label(parent, text="Epochs").grid(row=3, column=0, sticky="w", pady=4)
         ttk.Entry(parent, textvariable=self.epochs_var).grid(row=3, column=1, sticky="w")
 
-        ttk.Button(parent, text="Run training", command=self._run_train).grid(row=4, column=0, sticky="w", pady=(12, 12))
+        ttk.Button(parent, text="Refresh dataset stats", command=self._refresh_training_dataset_stats).grid(row=4, column=0, sticky="w", pady=(12, 4))
+        ttk.Label(parent, textvariable=self.train_dataset_stats_var, justify=tk.LEFT).grid(row=5, column=0, columnspan=2, sticky="w", pady=(0, 8))
+
+        ttk.Button(parent, text="Run training", command=self._run_train).grid(row=6, column=0, sticky="w", pady=(8, 4))
+        ttk.Label(parent, textvariable=self.train_quality_summary_var, justify=tk.LEFT).grid(row=7, column=0, columnspan=2, sticky="w", pady=(0, 8))
 
         self.train_log = scrolledtext.ScrolledText(parent, height=18, wrap=tk.WORD)
-        self.train_log.grid(row=5, column=0, columnspan=2, sticky="nsew")
-        parent.rowconfigure(5, weight=1)
+        self.train_log.grid(row=8, column=0, columnspan=2, sticky="nsew")
+        parent.rowconfigure(8, weight=1)
+        self._refresh_training_dataset_stats()
 
     def _build_notes_tab(self, parent: ttk.Frame) -> None:
         notes = scrolledtext.ScrolledText(parent, height=20, wrap=tk.WORD)
@@ -295,6 +331,43 @@ class SynergieToolsApp:
                 tk.END,
                 f"{session}: path={metadata['path']} synchro={metadata['sample_time_fine_synchro']}\n",
             )
+
+    def _refresh_session_selectors(self) -> None:
+        values = operations.list_sessions()
+        self.process_session_box.configure(values=values)
+        self.inspect_session_box.configure(values=values)
+        if values:
+            if self.session_var.get() not in values:
+                self.session_var.set(values[0])
+            if self.inspect_session_var.get() not in values:
+                self.inspect_session_var.set(values[0])
+
+    def _refresh_all_sessions(self) -> None:
+        self._populate_sessions()
+        self._refresh_session_selectors()
+        self._refresh_session_file_lists()
+
+    def _add_session_from_gui(self) -> None:
+        session_id = self.new_session_id_var.get().strip()
+        path = self.new_session_path_var.get().strip()
+        synchro_value = self.new_session_synchro_var.get().strip()
+        if not session_id or not path or not synchro_value:
+            messagebox.showwarning("Synergie Tools", "Fill session id, path and synchro before adding a session.")
+            return
+
+        try:
+            metadata = operations.add_session(session_id, path, int(synchro_value))
+        except ValueError as exc:
+            messagebox.showerror("Synergie Tools", str(exc))
+            return
+
+        self.new_session_id_var.set("")
+        self.new_session_path_var.set("")
+        self.new_session_synchro_var.set("")
+        self.session_var.set(session_id)
+        self.inspect_session_var.set(session_id)
+        self._refresh_all_sessions()
+        self.status_var.set(f"Session added: {session_id} -> {metadata['path']}")
 
     def _refresh_session_file_lists(self) -> None:
         self._populate_process_session_files()
@@ -342,6 +415,36 @@ class SynergieToolsApp:
         if self.train_architecture_var.get() not in options and options:
             self.train_architecture_var.set(options[0])
 
+    def _format_training_dataset_stats(self, stats: dict) -> str:
+        class_counts = ", ".join(f"{label}: {count}" for label, count in stats["class_counts"].items())
+        mirror_text = "yes" if stats["augment_mirror"] else "no"
+        return (
+            f"Training set stats ({stats['task']}): "
+            f"{stats['base_samples']} labelled jumps, {stats['unique_skaters']} skaters, "
+            f"{stats['effective_samples']} effective samples with mirror augmentation ({mirror_text}).\n"
+            f"Class distribution: {class_counts}"
+        )
+
+    def _format_training_quality_summary(self, summary: dict) -> str:
+        def metric(value) -> str:
+            return "n/a" if value is None else f"{value:.3f}"
+
+        return (
+            f"Model quality: test_acc={metric(summary.get('test_accuracy'))}, "
+            f"best_val_acc={metric(summary.get('best_val_accuracy'))}, "
+            f"final_val_acc={metric(summary.get('final_val_accuracy'))}, "
+            f"epochs={summary.get('epochs_ran', 0)}, "
+            f"test_samples={summary.get('test_samples', 0)}"
+        )
+
+    def _refresh_training_dataset_stats(self) -> None:
+        try:
+            stats = operations.describe_training_dataset(self.train_task_var.get(), self.dataset_var.get())
+        except Exception as exc:
+            self.train_dataset_stats_var.set(f"Unable to load dataset stats: {exc}")
+            return
+        self.train_dataset_stats_var.set(self._format_training_dataset_stats(stats))
+
     def _pick_csv(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
         if path:
@@ -365,6 +468,7 @@ class SynergieToolsApp:
 
     def _on_train_task_changed(self, _event=None) -> None:
         self._sync_train_architectures()
+        self._refresh_training_dataset_stats()
 
     def _on_process_file_selected(self, _event=None) -> None:
         selection = self.process_session_files.curselection()
@@ -419,13 +523,18 @@ class SynergieToolsApp:
     def _run_train(self) -> None:
         self.status_var.set("Training started...")
         self.train_log.delete("1.0", tk.END)
+        self.train_quality_summary_var.set("Training in progress...")
 
         def action() -> None:
             epochs = int(self.epochs_var.get())
             task = self.train_task_var.get()
             architecture = self.train_architecture_var.get()
             self.root.after(0, lambda: self._log(self.train_log, f"Running training: task={task}, architecture={architecture}, epochs={epochs}"))
-            operations.train_model(task, self.dataset_var.get(), epochs, architecture)
+            summary = operations.train_model(task, self.dataset_var.get(), epochs, architecture)
+            formatted_summary = self._format_training_quality_summary(summary)
+            self.root.after(0, lambda: self.train_quality_summary_var.set(formatted_summary))
+            self.root.after(0, lambda: self._log(self.train_log, formatted_summary))
+            self.root.after(0, lambda: self._log(self.train_log, f"Confusion matrix: {summary.get('confusion_matrix', [])}"))
             self.root.after(0, lambda: self._log(self.train_log, "Training finished."))
             self.root.after(0, lambda: self.status_var.set("Training completed"))
 
@@ -475,18 +584,45 @@ class SynergieToolsApp:
 
     def _draw_placeholder_plots(self) -> None:
         overview_ax, zoom_ax = self.axes
+        self._reset_secondary_axes()
         overview_ax.clear()
         zoom_ax.clear()
         overview_ax.set_title("Overview of IMU jump localisation signals")
         zoom_ax.set_title("Zoom on selected jump")
         overview_ax.set_xlabel("ms")
         zoom_ax.set_xlabel("ms")
-        overview_ax.set_ylabel("Signal")
-        zoom_ax.set_ylabel("Signal")
+        overview_ax.set_ylabel("Gyroscope")
+        zoom_ax.set_ylabel("Gyroscope")
         overview_ax.text(0.5, 0.5, "Load a CSV in Inspect IMU", ha="center", va="center", transform=overview_ax.transAxes)
         zoom_ax.text(0.5, 0.5, "Select a detected jump to zoom", ha="center", va="center", transform=zoom_ax.transAxes)
         self.figure.tight_layout()
         self.canvas.draw_idle()
+
+    def _jump_window_bounds_ms(self, session_df, jump) -> dict[str, tuple[float, float]]:
+        type_start_idx = max(0, jump.start - SUCCESS_WINDOW_START)
+        type_end_idx = min(len(session_df) - 1, jump.start + (TYPE_WINDOW_FRAMES - SUCCESS_WINDOW_START) - 1)
+        success_start_idx = max(0, jump.start)
+        success_end_idx = min(len(session_df) - 1, jump.start + (len(jump.df_success) - 1))
+        return {
+            "type": (float(session_df.iloc[type_start_idx]["ms"]), float(session_df.iloc[type_end_idx]["ms"])),
+            "success": (float(session_df.iloc[success_start_idx]["ms"]), float(session_df.iloc[success_end_idx]["ms"])),
+            "detected": (float(session_df.iloc[jump.start]["ms"]), float(session_df.iloc[jump.end]["ms"])),
+        }
+
+    def _jump_has_gyro_saturation(self, session_df, jump) -> bool:
+        start_idx = max(0, jump.start - SUCCESS_WINDOW_START)
+        end_idx = min(len(session_df), jump.start + len(jump.df))
+        window = session_df.iloc[start_idx:end_idx]["Gyr_X_unfiltered"].abs()
+        return bool((window >= GYRO_SATURATION_WARNING_THRESHOLD).any())
+
+    def _draw_jump_windows(self, axis, session_df, jump, alpha_scale: float = 1.0) -> None:
+        bounds = self._jump_window_bounds_ms(session_df, jump)
+        axis.axvspan(bounds["type"][0], bounds["type"][1], color="royalblue", alpha=0.10 * alpha_scale)
+        axis.axvspan(bounds["success"][0], bounds["success"][1], color="seagreen", alpha=0.10 * alpha_scale)
+        if self._jump_has_gyro_saturation(session_df, jump):
+            axis.axvspan(bounds["detected"][0], bounds["detected"][1], color="crimson", alpha=0.12 * alpha_scale)
+            axis.axvline(bounds["detected"][0], color="crimson", linestyle=":", linewidth=1.2)
+            axis.axvline(bounds["detected"][1], color="crimson", linestyle=":", linewidth=1.2)
 
     def _redraw_plots(self) -> None:
         if self.inspect_session is None:
@@ -502,31 +638,50 @@ class SynergieToolsApp:
     def _draw_overview_plot(self) -> None:
         overview_ax, _ = self.axes
         session_df = self.inspect_session.df
+        self._reset_secondary_axes()
         overview_ax.clear()
+        overview_right_ax = overview_ax.twinx()
         overview_ax.set_title("Signals used to localise jumps")
         overview_ax.plot(session_df["ms"], session_df["Gyr_X_unfiltered"], label="Gyr_X raw", linewidth=0.8, alpha=0.4)
         overview_ax.plot(session_df["ms"], session_df["Gyr_X_smoothed"], label="Gyr_X smoothed", linewidth=1.3)
-        overview_ax.plot(session_df["ms"], session_df["X_gyr_second_derivative"], label="2nd derivative", linewidth=1.0)
-        overview_ax.axhline(self.inspect_session.detection_threshold, color="crimson", linestyle="--", label="Detection threshold")
+        overview_right_ax.plot(
+            session_df["ms"],
+            session_df["X_gyr_second_derivative"],
+            label="2nd derivative",
+            linewidth=1.0,
+            color="crimson",
+        )
+        overview_right_ax.axhline(
+            self.inspect_session.detection_threshold,
+            color="crimson",
+            linestyle="--",
+            label="Detection threshold",
+        )
 
         for jump in self.detected_jumps:
-            start_ms = session_df.iloc[jump.start]["ms"]
-            end_ms = session_df.iloc[jump.end]["ms"]
-            overview_ax.axvspan(start_ms, end_ms, color="orange", alpha=0.18)
+            self._draw_jump_windows(overview_ax, session_df, jump)
 
         overview_ax.set_xlabel("ms")
-        overview_ax.set_ylabel("Signal")
-        overview_ax.legend(loc="upper right", fontsize=8)
+        overview_ax.set_ylabel("Gyroscope")
+        overview_right_ax.set_ylabel("2nd derivative")
+        overview_ax.plot([], [], color="royalblue", linewidth=6, alpha=0.35, label="Type window")
+        overview_ax.plot([], [], color="seagreen", linewidth=6, alpha=0.35, label="Success window")
+        overview_ax.plot([], [], color="crimson", linewidth=2, linestyle=":", label="Gyro saturation")
+        overview_lines, overview_labels = overview_ax.get_legend_handles_labels()
+        overview_right_lines, overview_right_labels = overview_right_ax.get_legend_handles_labels()
+        overview_ax.legend(overview_lines + overview_right_lines, overview_labels + overview_right_labels, loc="upper right", fontsize=8)
 
     def _draw_zoom_plot(self, jump_index: int | None) -> None:
         _, zoom_ax = self.axes
         zoom_ax.clear()
+        zoom_right_ax = zoom_ax.twinx()
         zoom_ax.set_title("Zoom on selected jump")
 
         if jump_index is None or jump_index >= len(self.detected_jumps):
             zoom_ax.text(0.5, 0.5, "Select a jump in the list", ha="center", va="center", transform=zoom_ax.transAxes)
             zoom_ax.set_xlabel("ms")
-            zoom_ax.set_ylabel("Signal")
+            zoom_ax.set_ylabel("Gyroscope")
+            zoom_right_ax.set_ylabel("2nd derivative")
             return
 
         jump = self.detected_jumps[jump_index]
@@ -537,17 +692,41 @@ class SynergieToolsApp:
 
         zoom_ax.plot(view_df["ms"], view_df["Gyr_X_unfiltered"], label="Gyr_X raw", linewidth=0.8, alpha=0.4)
         zoom_ax.plot(view_df["ms"], view_df["Gyr_X_smoothed"], label="Gyr_X smoothed", linewidth=1.3)
-        zoom_ax.plot(view_df["ms"], view_df["X_gyr_second_derivative"], label="2nd derivative", linewidth=1.0)
-        zoom_ax.axhline(self.inspect_session.detection_threshold, color="crimson", linestyle="--", label="Detection threshold")
+        zoom_right_ax.plot(
+            view_df["ms"],
+            view_df["X_gyr_second_derivative"],
+            label="2nd derivative",
+            linewidth=1.0,
+            color="crimson",
+        )
+        zoom_right_ax.axhline(
+            self.inspect_session.detection_threshold,
+            color="crimson",
+            linestyle="--",
+            label="Detection threshold",
+        )
 
-        start_ms = session_df.iloc[jump.start]["ms"]
-        end_ms = session_df.iloc[jump.end]["ms"]
-        zoom_ax.axvspan(start_ms, end_ms, color="orange", alpha=0.22)
-        zoom_ax.axvline(start_ms, color="black", linestyle=":")
-        zoom_ax.axvline(end_ms, color="black", linestyle=":")
+        self._draw_jump_windows(zoom_ax, session_df, jump, alpha_scale=1.5)
+        bounds = self._jump_window_bounds_ms(session_df, jump)
+        zoom_ax.axvline(bounds["detected"][0], color="black", linestyle=":")
+        zoom_ax.axvline(bounds["detected"][1], color="black", linestyle=":")
         zoom_ax.set_xlabel("ms")
-        zoom_ax.set_ylabel("Signal")
-        zoom_ax.legend(loc="upper right", fontsize=8)
+        zoom_ax.set_ylabel("Gyroscope")
+        zoom_right_ax.set_ylabel("2nd derivative")
+        saturation_text = " | Gyro saturated" if self._jump_has_gyro_saturation(session_df, jump) else ""
+        zoom_ax.set_title(f"Zoom on selected jump{saturation_text}")
+        zoom_ax.plot([], [], color="royalblue", linewidth=6, alpha=0.35, label="Type window")
+        zoom_ax.plot([], [], color="seagreen", linewidth=6, alpha=0.35, label="Success window")
+        zoom_ax.plot([], [], color="crimson", linewidth=2, linestyle=":", label="Gyro saturation")
+        zoom_lines, zoom_labels = zoom_ax.get_legend_handles_labels()
+        zoom_right_lines, zoom_right_labels = zoom_right_ax.get_legend_handles_labels()
+        zoom_ax.legend(zoom_lines + zoom_right_lines, zoom_labels + zoom_right_labels, loc="upper right", fontsize=8)
+
+    def _reset_secondary_axes(self) -> None:
+        primary_axes = set(self.axes)
+        for axis in list(self.figure.axes):
+            if axis not in primary_axes:
+                self.figure.delaxes(axis)
 
     def _selected_jump_index(self) -> int | None:
         selection = self.jump_listbox.curselection()

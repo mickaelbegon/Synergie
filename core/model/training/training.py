@@ -1,7 +1,7 @@
 import keras
 import numpy as np
 import tensorflow as tf
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import accuracy_score, confusion_matrix
 
 import core.model.model
 import core.model.training.loader as loader
@@ -45,6 +45,35 @@ class Trainer:
         results = confusion_matrix(y_true, y_pred2)
         print(results)
 
+    def evaluate_best_model(self, path):
+        model = self.model_load_best(path)
+        y_pred = model.predict(
+            {"temporal_input": self.dataset.temporal_features_test, "scalar_input": self.dataset.scalar_features_test},
+            verbose=0,
+        )
+        predicted_labels = [int(np.argmax(x)) for x in y_pred]
+        true_labels = [int(np.argmax(x)) for x in self.dataset.labels_test]
+        return {
+            "test_accuracy": float(accuracy_score(true_labels, predicted_labels)),
+            "confusion_matrix": confusion_matrix(true_labels, predicted_labels).tolist(),
+            "test_samples": int(len(true_labels)),
+        }
+
+    def _history_summary(self, history):
+        history_data = history.history if history is not None else {}
+        val_accuracy_history = history_data.get("val_accuracy", [])
+        train_accuracy_history = history_data.get("accuracy", [])
+        val_loss_history = history_data.get("val_loss", [])
+        train_loss_history = history_data.get("loss", [])
+        return {
+            "epochs_ran": int(len(train_accuracy_history) or len(val_accuracy_history)),
+            "final_train_accuracy": float(train_accuracy_history[-1]) if train_accuracy_history else None,
+            "best_val_accuracy": float(max(val_accuracy_history)) if val_accuracy_history else None,
+            "final_val_accuracy": float(val_accuracy_history[-1]) if val_accuracy_history else None,
+            "final_train_loss": float(train_loss_history[-1]) if train_loss_history else None,
+            "final_val_loss": float(val_loss_history[-1]) if val_loss_history else None,
+        }
+
     def train(self, epochs: int = 100, plot: bool = True):
         """
         Do the training, and plot the confusion matrix and losses through epochs
@@ -54,8 +83,9 @@ class Trainer:
         """
 
         self.model.summary()
+        history = None
         try:
-            trainin = self.model.fit(
+            history = self.model.fit(
                 {"temporal_input" : self.dataset.temporal_features_train, "scalar_input" : self.dataset.scalar_features_train},
                 self.dataset.labels_train,
                 epochs=epochs,
@@ -68,6 +98,9 @@ class Trainer:
         if plot:
             self.model = core.model.model.load_model(self.model_filepath)
             self.plot(self.model_filepath)
+        summary = self._history_summary(history)
+        summary.update(self.evaluate_best_model(self.model_filepath))
+        return summary
 
     def train_success(self, epochs: int = 100, plot: bool = True):
         """
@@ -78,8 +111,9 @@ class Trainer:
         """
 
         self.model.summary()
+        history = None
         try:
-            trainin = self.model.fit(
+            history = self.model.fit(
                 {"temporal_input" : self.dataset.temporal_features_train, "scalar_input" : self.dataset.scalar_features_train},
                 self.dataset.labels_train,
                 epochs=epochs,
@@ -93,3 +127,6 @@ class Trainer:
         if plot:
             self.model = core.model.model.load_model(self.model_filepath)
             self.plot(self.model_filepath)
+        summary = self._history_summary(history)
+        summary.update(self.evaluate_best_model(self.model_filepath))
+        return summary

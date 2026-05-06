@@ -1,16 +1,26 @@
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 
 import constants
+from synergie import session_store
 
 
 def list_sessions() -> list[str]:
+    constants.sessions = session_store.load_sessions()
     return sorted(constants.sessions)
 
 
 def session_metadata(session_name: str) -> dict:
+    constants.sessions = session_store.load_sessions()
     return constants.get_session(session_name)
+
+
+def add_session(session_name: str, path: str, sample_time_fine_synchro: int) -> dict:
+    metadata = session_store.add_session(session_name, path, sample_time_fine_synchro)
+    constants.sessions = session_store.load_sessions()
+    return metadata
 
 
 def session_synchro(session_name: str) -> int:
@@ -54,7 +64,41 @@ def parse_training_id_from_csv_path(csv_path: Path) -> str | None:
     return training_parts[1]
 
 
-def train_model(task: str, dataset_path: str, epochs: int | None = None, architecture: str | None = None) -> None:
+def describe_training_dataset(task: str, dataset_path: str, augment_mirror: bool = True) -> dict:
+    dataset_root = Path(dataset_path)
+    filtered: list[dict] = []
+    with (dataset_root / "jumplist.csv").open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            jump_type = int(row["type"])
+            success = int(row["success"])
+            if success == 2 or jump_type == 8:
+                continue
+            filtered.append({"type": jump_type, "success": success, "skater": row["skater"]})
+
+    if task == "type":
+        labels = [row["type"] for row in filtered]
+    elif task == "success":
+        labels = [row["success"] for row in filtered]
+    else:
+        raise ValueError(f"Unsupported training task: {task}")
+
+    counts: dict[int, int] = {}
+    for label in labels:
+        counts[label] = counts.get(label, 0) + 1
+
+    base_samples = int(len(filtered))
+    return {
+        "task": task,
+        "base_samples": base_samples,
+        "effective_samples": int(base_samples * (2 if augment_mirror else 1)),
+        "unique_skaters": len({row["skater"] for row in filtered}),
+        "class_counts": {str(label): counts[label] for label in sorted(counts)},
+        "augment_mirror": bool(augment_mirror),
+    }
+
+
+def train_model(task: str, dataset_path: str, epochs: int | None = None, architecture: str | None = None) -> dict:
     from core.model import model
     from core.model.training.loader import Loader
     from core.model.training.training import Trainer
@@ -67,8 +111,7 @@ def train_model(task: str, dataset_path: str, epochs: int | None = None, archite
             model.build_model(task, selected_architecture),
             constants.modeltype_filepath,
         )
-        trainer.train(epochs=epochs or 10)
-        return
+        return trainer.train(epochs=epochs or 10)
 
     if task == "success":
         trainer = Trainer(
@@ -76,8 +119,7 @@ def train_model(task: str, dataset_path: str, epochs: int | None = None, archite
             model.build_model(task, selected_architecture),
             constants.modelsuccess_filepath,
         )
-        trainer.train_success(epochs=epochs or 20)
-        return
+        return trainer.train_success(epochs=epochs or 20)
 
     raise ValueError(f"Unsupported training task: {task}")
 
