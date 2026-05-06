@@ -15,6 +15,11 @@ if TYPE_CHECKING:
 
 
 class SynergieToolsApp:
+    TRAIN_ARCHITECTURES = {
+        "type": ["inceptiontime", "transformer"],
+        "success": ["tcn", "lstm"],
+    }
+
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Synergie Tools")
@@ -27,6 +32,7 @@ class SynergieToolsApp:
         self.session_files_var = tk.StringVar(value=[])
         self.session_folder_summary_var = tk.StringVar(value="")
         self.train_task_var = tk.StringVar(value="type")
+        self.train_architecture_var = tk.StringVar(value=self.TRAIN_ARCHITECTURES["type"][0])
         self.dataset_var = tk.StringVar(value="data/annotated/total")
         self.epochs_var = tk.StringVar(value="10")
 
@@ -243,19 +249,26 @@ class SynergieToolsApp:
             parent.columnconfigure(index, weight=1 if index == 1 else 0)
 
         ttk.Label(parent, text="Task").grid(row=0, column=0, sticky="w", pady=4)
-        ttk.Combobox(parent, textvariable=self.train_task_var, values=["type", "success"], state="readonly").grid(row=0, column=1, sticky="w")
+        train_task_box = ttk.Combobox(parent, textvariable=self.train_task_var, values=["type", "success"], state="readonly")
+        train_task_box.grid(row=0, column=1, sticky="w")
+        train_task_box.bind("<<ComboboxSelected>>", self._on_train_task_changed)
 
-        ttk.Label(parent, text="Dataset").grid(row=1, column=0, sticky="w", pady=4)
-        ttk.Entry(parent, textvariable=self.dataset_var).grid(row=1, column=1, sticky="ew")
+        ttk.Label(parent, text="Architecture").grid(row=1, column=0, sticky="w", pady=4)
+        self.train_architecture_box = ttk.Combobox(parent, textvariable=self.train_architecture_var, state="readonly")
+        self.train_architecture_box.grid(row=1, column=1, sticky="w")
+        self._sync_train_architectures()
 
-        ttk.Label(parent, text="Epochs").grid(row=2, column=0, sticky="w", pady=4)
-        ttk.Entry(parent, textvariable=self.epochs_var).grid(row=2, column=1, sticky="w")
+        ttk.Label(parent, text="Dataset").grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Entry(parent, textvariable=self.dataset_var).grid(row=2, column=1, sticky="ew")
 
-        ttk.Button(parent, text="Run training", command=self._run_train).grid(row=3, column=0, sticky="w", pady=(12, 12))
+        ttk.Label(parent, text="Epochs").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Entry(parent, textvariable=self.epochs_var).grid(row=3, column=1, sticky="w")
+
+        ttk.Button(parent, text="Run training", command=self._run_train).grid(row=4, column=0, sticky="w", pady=(12, 12))
 
         self.train_log = scrolledtext.ScrolledText(parent, height=18, wrap=tk.WORD)
-        self.train_log.grid(row=4, column=0, columnspan=2, sticky="nsew")
-        parent.rowconfigure(4, weight=1)
+        self.train_log.grid(row=5, column=0, columnspan=2, sticky="nsew")
+        parent.rowconfigure(5, weight=1)
 
     def _build_notes_tab(self, parent: ttk.Frame) -> None:
         notes = scrolledtext.ScrolledText(parent, height=20, wrap=tk.WORD)
@@ -322,6 +335,13 @@ class SynergieToolsApp:
         self.sigma_label_var.set(f"{self.sigma_var.get():.0f}")
         self.gap_label_var.set(f"{self.gap_var.get()}")
 
+    def _sync_train_architectures(self) -> None:
+        task = self.train_task_var.get()
+        options = self.TRAIN_ARCHITECTURES.get(task, [])
+        self.train_architecture_box.configure(values=options)
+        if self.train_architecture_var.get() not in options and options:
+            self.train_architecture_var.set(options[0])
+
     def _pick_csv(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
         if path:
@@ -342,6 +362,9 @@ class SynergieToolsApp:
 
     def _on_inspect_session_changed(self, _event=None) -> None:
         self._populate_inspect_session_files()
+
+    def _on_train_task_changed(self, _event=None) -> None:
+        self._sync_train_architectures()
 
     def _on_process_file_selected(self, _event=None) -> None:
         selection = self.process_session_files.curselection()
@@ -399,7 +422,10 @@ class SynergieToolsApp:
 
         def action() -> None:
             epochs = int(self.epochs_var.get())
-            operations.train_model(self.train_task_var.get(), self.dataset_var.get(), epochs)
+            task = self.train_task_var.get()
+            architecture = self.train_architecture_var.get()
+            self.root.after(0, lambda: self._log(self.train_log, f"Running training: task={task}, architecture={architecture}, epochs={epochs}"))
+            operations.train_model(task, self.dataset_var.get(), epochs, architecture)
             self.root.after(0, lambda: self._log(self.train_log, "Training finished."))
             self.root.after(0, lambda: self.status_var.set("Training completed"))
 

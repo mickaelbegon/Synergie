@@ -49,6 +49,13 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.model, "summary")
         self.assertEqual(args.test_size, 0.3)
 
+    def test_benchmark_hydra_parsing(self):
+        parser = build_parser()
+        args = normalize_args(parser.parse_args(["benchmark", "success", "--model", "hydra"]))
+        self.assertEqual(args.command, "benchmark")
+        self.assertEqual(args.task, "success")
+        self.assertEqual(args.model, "hydra")
+
     def test_legacy_train_flag_is_preserved(self):
         parser = build_parser()
         args = normalize_args(parser.parse_args(["-t", "success"]))

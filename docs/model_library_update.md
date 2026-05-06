@@ -25,4 +25,4 @@ Recommended next experiment order:
 1. Compare `transformer` vs `inceptiontime` on jump type.
 2. Compare `lstm` vs `tcn` on success prediction.
 3. Run the new `benchmark` command with `MiniRocket` on the same dataset split.
-4. Add a second `aeon` baseline such as `Hydra` when the environment is upgraded and validated.
+4. Compare `MiniRocket` and `Hydra` through the shared CLI benchmark entrypoint.

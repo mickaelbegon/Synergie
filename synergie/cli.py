@@ -31,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_parser = subparsers.add_parser("benchmark", help="Lancer un benchmark experimental sur le dataset annote.")
     benchmark_parser.add_argument("task", choices=["type", "success"])
     benchmark_parser.add_argument("--dataset", default="data/annotated/total")
-    benchmark_parser.add_argument("--model", default="minirocket", choices=["minirocket", "summary"])
+    benchmark_parser.add_argument("--model", default="minirocket", choices=["minirocket", "hydra", "summary"])
     benchmark_parser.add_argument("--test-size", type=float, default=0.2)
     benchmark_parser.add_argument("--random-state", type=int, default=42)
 
@@ -97,7 +97,7 @@ def run_command(args: argparse.Namespace) -> int:
 
     if args.command == "benchmark":
         try:
-            from synergie.experiments.benchmark import benchmark_summary, run_minirocket_benchmark
+            from synergie.experiments.benchmark import benchmark_summary, run_hydra_benchmark, run_minirocket_benchmark
         except ModuleNotFoundError as exc:
             missing = exc.name or "scientific dependencies"
             raise RuntimeError(
@@ -109,12 +109,34 @@ def run_command(args: argparse.Namespace) -> int:
             print(benchmark_summary(args.task, args.dataset))
             return 0
 
-        result = run_minirocket_benchmark(
-            args.task,
-            args.dataset,
-            test_size=args.test_size,
-            random_state=args.random_state,
-        )
+        if args.model == "minirocket":
+            try:
+                result = run_minirocket_benchmark(
+                    args.task,
+                    args.dataset,
+                    test_size=args.test_size,
+                    random_state=args.random_state,
+                )
+            except ModuleNotFoundError as exc:
+                missing = exc.name or "benchmark dependency"
+                raise RuntimeError(
+                    f"The '{args.model}' benchmark is not available in the current environment. "
+                    f"Missing module: {missing}. Recreate or update the 'synergie-data' environment first."
+                ) from exc
+        else:
+            try:
+                result = run_hydra_benchmark(
+                    args.task,
+                    args.dataset,
+                    test_size=args.test_size,
+                    random_state=args.random_state,
+                )
+            except ModuleNotFoundError as exc:
+                missing = exc.name or "benchmark dependency"
+                raise RuntimeError(
+                    f"The '{args.model}' benchmark is not available in the current environment. "
+                    f"Missing module: {missing}. Recreate or update the 'synergie-data' environment first."
+                ) from exc
         print(f"model={result.model_name}")
         print(f"task={result.task}")
         print(f"accuracy={result.accuracy:.4f}")
