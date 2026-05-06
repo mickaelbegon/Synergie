@@ -67,6 +67,9 @@ class SynergieToolsApp:
         self.figure = None
         self.axes = None
         self.canvas = None
+        self.train_figure = None
+        self.train_axes = None
+        self.train_canvas = None
 
         self._build_layout()
         self._populate_sessions()
@@ -259,6 +262,19 @@ class SynergieToolsApp:
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._draw_placeholder_plots()
 
+    def _build_train_plot_canvas(self) -> None:
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        from matplotlib.figure import Figure
+
+        figure = Figure(figsize=(8, 3.8), dpi=100)
+        loss_ax = figure.add_subplot(121)
+        accuracy_ax = figure.add_subplot(122)
+        self.train_figure = figure
+        self.train_axes = (loss_ax, accuracy_ax)
+        self.train_canvas = FigureCanvasTkAgg(figure, master=self.train_plot_container)
+        self.train_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self._draw_placeholder_training_plot()
+
     def _build_sessions_side_panel(self, parent: ttk.Frame) -> None:
         panel = ttk.LabelFrame(parent, text="Add Session", padding=12)
         panel.grid(row=0, column=1, sticky="ns")
@@ -278,6 +294,8 @@ class SynergieToolsApp:
     def _build_train_tab(self, parent: ttk.Frame) -> None:
         for index in range(2):
             parent.columnconfigure(index, weight=1 if index == 1 else 0)
+        parent.rowconfigure(8, weight=1)
+        parent.rowconfigure(9, weight=1)
 
         ttk.Label(parent, text="Task").grid(row=0, column=0, sticky="w", pady=4)
         train_task_box = ttk.Combobox(parent, textvariable=self.train_task_var, values=["type", "success"], state="readonly")
@@ -301,9 +319,16 @@ class SynergieToolsApp:
         ttk.Button(parent, text="Run training", command=self._run_train).grid(row=6, column=0, sticky="w", pady=(8, 4))
         ttk.Label(parent, textvariable=self.train_quality_summary_var, justify=tk.LEFT).grid(row=7, column=0, columnspan=2, sticky="w", pady=(0, 8))
 
+        train_plot_frame = ttk.LabelFrame(parent, text="Training Curves", padding=8)
+        train_plot_frame.grid(row=8, column=0, columnspan=2, sticky="nsew", pady=(0, 8))
+        train_plot_frame.columnconfigure(0, weight=1)
+        train_plot_frame.rowconfigure(0, weight=1)
+        self.train_plot_container = ttk.Frame(train_plot_frame)
+        self.train_plot_container.grid(row=0, column=0, sticky="nsew")
+        self._build_train_plot_canvas()
+
         self.train_log = scrolledtext.ScrolledText(parent, height=18, wrap=tk.WORD)
-        self.train_log.grid(row=8, column=0, columnspan=2, sticky="nsew")
-        parent.rowconfigure(8, weight=1)
+        self.train_log.grid(row=9, column=0, columnspan=2, sticky="nsew")
         self._refresh_training_dataset_stats()
 
     def _build_notes_tab(self, parent: ttk.Frame) -> None:
@@ -437,6 +462,68 @@ class SynergieToolsApp:
             f"test_samples={summary.get('test_samples', 0)}"
         )
 
+    def _draw_placeholder_training_plot(self) -> None:
+        if self.train_axes is None:
+            return
+        loss_ax, accuracy_ax = self.train_axes
+        loss_ax.clear()
+        accuracy_ax.clear()
+        loss_ax.set_title("Loss")
+        accuracy_ax.set_title("Accuracy")
+        loss_ax.set_xlabel("Epoch")
+        accuracy_ax.set_xlabel("Epoch")
+        loss_ax.set_ylabel("Loss")
+        accuracy_ax.set_ylabel("Accuracy")
+        loss_ax.text(0.5, 0.5, "Run a training to see the curves", ha="center", va="center", transform=loss_ax.transAxes)
+        accuracy_ax.text(0.5, 0.5, "Train and validation accuracy", ha="center", va="center", transform=accuracy_ax.transAxes)
+        self.train_figure.tight_layout()
+        self.train_canvas.draw_idle()
+
+    def _draw_training_history(self, summary: dict) -> None:
+        if self.train_axes is None:
+            return
+        history = summary.get("history", {})
+        accuracy = history.get("accuracy", [])
+        val_accuracy = history.get("val_accuracy", [])
+        loss = history.get("loss", [])
+        val_loss = history.get("val_loss", [])
+        if not any((accuracy, val_accuracy, loss, val_loss)):
+            self._draw_placeholder_training_plot()
+            return
+
+        loss_ax, accuracy_ax = self.train_axes
+        loss_ax.clear()
+        accuracy_ax.clear()
+        loss_epochs = list(range(1, max(len(loss), len(val_loss)) + 1))
+        accuracy_epochs = list(range(1, max(len(accuracy), len(val_accuracy)) + 1))
+
+        if loss:
+            loss_ax.plot(loss_epochs[: len(loss)], loss, label="train loss", color="firebrick", linewidth=1.8)
+        if val_loss:
+            loss_ax.plot(loss_epochs[: len(val_loss)], val_loss, label="val loss", color="tomato", linestyle="--", linewidth=1.6)
+        if accuracy:
+            accuracy_ax.plot(accuracy_epochs[: len(accuracy)], accuracy, label="train acc", color="navy", linewidth=1.8)
+        if val_accuracy:
+            accuracy_ax.plot(
+                accuracy_epochs[: len(val_accuracy)],
+                val_accuracy,
+                label="val acc",
+                color="royalblue",
+                linestyle="--",
+                linewidth=1.6,
+            )
+
+        loss_ax.set_title("Loss")
+        accuracy_ax.set_title("Accuracy")
+        loss_ax.set_xlabel("Epoch")
+        accuracy_ax.set_xlabel("Epoch")
+        loss_ax.set_ylabel("Loss")
+        accuracy_ax.set_ylabel("Accuracy")
+        loss_ax.legend(loc="best", fontsize=8)
+        accuracy_ax.legend(loc="best", fontsize=8)
+        self.train_figure.tight_layout()
+        self.train_canvas.draw_idle()
+
     def _refresh_training_dataset_stats(self) -> None:
         try:
             stats = operations.describe_training_dataset(self.train_task_var.get(), self.dataset_var.get())
@@ -524,6 +611,7 @@ class SynergieToolsApp:
         self.status_var.set("Training started...")
         self.train_log.delete("1.0", tk.END)
         self.train_quality_summary_var.set("Training in progress...")
+        self._draw_placeholder_training_plot()
 
         def action() -> None:
             epochs = int(self.epochs_var.get())
@@ -532,6 +620,7 @@ class SynergieToolsApp:
             self.root.after(0, lambda: self._log(self.train_log, f"Running training: task={task}, architecture={architecture}, epochs={epochs}"))
             summary = operations.train_model(task, self.dataset_var.get(), epochs, architecture)
             formatted_summary = self._format_training_quality_summary(summary)
+            self.root.after(0, lambda: self._draw_training_history(summary))
             self.root.after(0, lambda: self.train_quality_summary_var.set(formatted_summary))
             self.root.after(0, lambda: self._log(self.train_log, formatted_summary))
             self.root.after(0, lambda: self._log(self.train_log, f"Confusion matrix: {summary.get('confusion_matrix', [])}"))

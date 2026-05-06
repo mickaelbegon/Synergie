@@ -72,6 +72,12 @@ class Trainer:
             "final_val_accuracy": float(val_accuracy_history[-1]) if val_accuracy_history else None,
             "final_train_loss": float(train_loss_history[-1]) if train_loss_history else None,
             "final_val_loss": float(val_loss_history[-1]) if val_loss_history else None,
+            "history": {
+                "accuracy": [float(value) for value in train_accuracy_history],
+                "val_accuracy": [float(value) for value in val_accuracy_history],
+                "loss": [float(value) for value in train_loss_history],
+                "val_loss": [float(value) for value in val_loss_history],
+            },
         }
 
     def train(self, epochs: int = 100, plot: bool = True):
