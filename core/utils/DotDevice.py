@@ -3,7 +3,6 @@ import os
 import sys
 from threading import Event
 import time
-from movelladot_pc_sdk.movelladot_pc_sdk_py39_64 import XsDotDevice, XsDotUsbDevice, XsDotConnectionManager, XsDotCallback, XsPortInfo, XsDataPacket
 import movelladot_pc_sdk
 import numpy as np
 import pandas as pd
@@ -11,6 +10,14 @@ from PIL import Image, ImageDraw, ImageFont, ImageTk
 from constants import *
 
 from core.database.DatabaseManager import DatabaseManager, JumpData
+from core.utils.movella_sdk_loader import (
+    XsDataPacket,
+    XsDotCallback,
+    XsDotConnectionManager,
+    XsDotDevice,
+    XsDotUsbDevice,
+    XsPortInfo,
+)
 from synergie.services.jump_predictions import build_training_jump_payload
 
 class DotDevice(XsDotCallback):

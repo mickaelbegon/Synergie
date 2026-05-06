@@ -28,6 +28,13 @@ L'application GUI depend aussi :
 
 Le SDK Movella est disponible ici : [Movella DOT software documentation](https://www.movella.com/support/software-documentation)
 
+Compatibilite Movella:
+
+- le code essaye maintenant automatiquement les bindings PC SDK Python `py311`, `py310`, puis `py39`
+- la release officielle Movella DOT `2023.6.0` a introduit la famille `Movella DOT` et le PC SDK associe
+- d'apres Movella, le firmware `3.0.0+` doit etre utilise avec les SDK/apps `2023.6.0+`
+- le Data Exporter recent reste distinct selon le seuil firmware `2.4.0`
+
 ## Lancer l'application
 
 ```sh
@@ -50,6 +57,11 @@ Dans `tools_gui.py`, l'onglet `Inspect IMU` permet aussi :
 - de selectionner un saut pour afficher un zoom dedie
 - de lire le dossier de session choisi et lister tous les fichiers disponibles avec infos de base sur le fichier selectionne
 
+L'onglet `Train` permet maintenant aussi de choisir explicitement l'architecture d'entrainement selon la tache:
+
+- `type` : `inceptiontime` ou `transformer`
+- `success` : `tcn` ou `lstm`
+
 ## CLI
 
 La CLI est organisee par sous-commandes :
@@ -64,6 +76,7 @@ python main.py train success --epochs 20
 python main.py train success --architecture tcn --epochs 20
 python main.py benchmark type --model summary
 python main.py benchmark type --model minirocket
+python main.py benchmark type --model hydra
 python main.py process-file data/raw/0406/0927/1_D422CD0076F7_20240604_092734.csv --output data/pending/example_predictions.csv
 python main.py repredict
 ```
@@ -117,6 +130,7 @@ La commande `benchmark` sert a comparer rapidement des approches sur le meme dat
 
 - `--model summary` : resume du dataset exploitable
 - `--model minirocket` : benchmark CPU `MiniRocket + RidgeClassifierCV`
+- `--model hydra` : benchmark CPU `HydraClassifier`
 
 ## Branche `pariterre`
 

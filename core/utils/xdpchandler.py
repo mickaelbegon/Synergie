@@ -32,7 +32,7 @@ import movelladot_pc_sdk
 from user_settings import *
 import time
 
-from movelladot_pc_sdk.movelladot_pc_sdk_py39_64 import XsPortInfo, XsDotDevice, XsDotUsbDevice, XsDotConnectionManager
+from core.utils.movella_sdk_loader import XsDotConnectionManager, XsDotDevice, XsDotUsbDevice, XsPortInfo
 
 waitForConnections = True
 
