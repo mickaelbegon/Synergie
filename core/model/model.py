@@ -1,44 +1,94 @@
 import keras
 from keras import layers
 
-def lstm():
-    temporal_input = keras.Input(shape=(180, 10), name='temporal_input')
-    x = layers.BatchNormalization()(temporal_input)
-    x = keras.layers.LSTM(128, return_sequences=True)(x)
-    x = keras.layers.LSTM(64)(x)
-    x = keras.layers.Dropout(0.4)(x)
-    x = keras.layers.Dense(64, activation='relu')(x)
-    x = keras.layers.Dropout(0.4)(x)
-    x = keras.layers.Dense(16, activation='relu')(x)
+from synergie.config import SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES
 
-    scalar_input = keras.Input(shape=(2,), name='scalar_input')  # Ex: masse et taille
-    y = layers.Dense(16, activation='relu')(scalar_input)
 
-    combined = layers.concatenate([x, y])
-
-    z = layers.Dense(16, activation="relu")(combined)
-    z = keras.layers.Dropout(0.2)(combined)
-    outputs = keras.layers.Dense(2, activation='softmax')(z)
-
-    optimizer = keras.optimizers.Adam(learning_rate=0.00001)
-
-    model = keras.Model([temporal_input, scalar_input], outputs)
-
-    model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
-
+def _compile_model(model: keras.Model, learning_rate: float = 0.00005) -> keras.Model:
+    optimizer = keras.optimizers.Adam(learning_rate=learning_rate)
+    model.compile(loss="categorical_crossentropy", optimizer=optimizer, metrics=["accuracy"])
     return model
 
-#
+
+def _residual_block(x, filters: int, dilation_rate: int, dropout: float):
+    residual = x
+    x = layers.Conv1D(filters, kernel_size=3, padding="causal", dilation_rate=dilation_rate, activation="relu")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Dropout(dropout)(x)
+    x = layers.Conv1D(filters, kernel_size=3, padding="causal", dilation_rate=dilation_rate, activation="relu")(x)
+    x = layers.BatchNormalization()(x)
+
+    if residual.shape[-1] != filters:
+        residual = layers.Conv1D(filters, kernel_size=1, padding="same")(residual)
+
+    x = layers.Add()([x, residual])
+    return layers.Activation("relu")(x)
+
+
+def _inception_module(x, filters: int, bottleneck_filters: int):
+    if int(x.shape[-1]) > 1:
+        x_reduced = layers.Conv1D(bottleneck_filters, kernel_size=1, padding="same", activation="relu")(x)
+    else:
+        x_reduced = x
+
+    branch_9 = layers.Conv1D(filters, kernel_size=9, padding="same", activation="relu")(x_reduced)
+    branch_19 = layers.Conv1D(filters, kernel_size=19, padding="same", activation="relu")(x_reduced)
+    branch_39 = layers.Conv1D(filters, kernel_size=39, padding="same", activation="relu")(x_reduced)
+    pooled = layers.MaxPooling1D(pool_size=3, strides=1, padding="same")(x)
+    pooled = layers.Conv1D(filters, kernel_size=1, padding="same", activation="relu")(pooled)
+
+    x = layers.Concatenate()([branch_9, branch_19, branch_39, pooled])
+    return layers.BatchNormalization()(x)
+
+
+def lstm():
+    temporal_input = keras.Input(shape=(TYPE_WINDOW_FRAMES - SUCCESS_WINDOW_START, 10), name="temporal_input")
+    x = layers.BatchNormalization()(temporal_input)
+    x = layers.LSTM(128, return_sequences=True)(x)
+    x = layers.LSTM(64)(x)
+    x = layers.Dropout(0.4)(x)
+    x = layers.Dense(64, activation="relu")(x)
+    x = layers.Dropout(0.4)(x)
+    x = layers.Dense(16, activation="relu")(x)
+
+    scalar_input = keras.Input(shape=(2,), name="scalar_input")
+    y = layers.Dense(16, activation="relu")(scalar_input)
+
+    combined = layers.Concatenate()([x, y])
+    z = layers.Dense(16, activation="relu")(combined)
+    z = layers.Dropout(0.2)(z)
+    outputs = layers.Dense(2, activation="softmax")(z)
+
+    model = keras.Model([temporal_input, scalar_input], outputs)
+    return _compile_model(model, learning_rate=0.00001)
+
+
+def tcn_success():
+    temporal_input = keras.Input(shape=(TYPE_WINDOW_FRAMES - SUCCESS_WINDOW_START, 10), name="temporal_input")
+    x = temporal_input
+    for dilation_rate in (1, 2, 4, 8):
+        x = _residual_block(x, filters=64, dilation_rate=dilation_rate, dropout=0.2)
+    x = layers.GlobalAveragePooling1D()(x)
+    x = layers.Dense(32, activation="relu")(x)
+
+    scalar_input = keras.Input(shape=(2,), name="scalar_input")
+    y = layers.Dense(16, activation="relu")(scalar_input)
+
+    combined = layers.Concatenate()([x, y])
+    z = layers.Dense(16, activation="relu")(combined)
+    z = layers.Dropout(0.2)(z)
+    outputs = layers.Dense(2, activation="softmax")(z)
+
+    model = keras.Model([temporal_input, scalar_input], outputs)
+    return _compile_model(model, learning_rate=0.00003)
+
+
 def transformer_encoder(inputs, head_size, num_heads, ff_dim, dropout=0):
-    # Normalization and Attention
     x = layers.LayerNormalization(epsilon=1e-6)(inputs)
-    x = layers.MultiHeadAttention(
-        key_dim=head_size, num_heads=num_heads, dropout=dropout
-    )(x, x)
+    x = layers.MultiHeadAttention(key_dim=head_size, num_heads=num_heads, dropout=dropout)(x, x)
     x = layers.Dropout(dropout)(x)
     res = x + inputs
 
-    # Feed Forward Part
     x = layers.LayerNormalization(epsilon=1e-6)(res)
     x = layers.Conv1D(filters=ff_dim, kernel_size=1, activation="relu")(x)
     x = layers.Dropout(dropout)(x)
@@ -47,14 +97,14 @@ def transformer_encoder(inputs, head_size, num_heads, ff_dim, dropout=0):
 
 
 def transformer(
-        input_shape=(240, 10),
-        head_size=256,
-        num_heads=4,
-        ff_dim=4,
-        num_transformer_blocks=4,
-        mlp_units=128,
-        dropout=0,
-        mlp_dropout=0,
+    input_shape=(TYPE_WINDOW_FRAMES, 10),
+    head_size=256,
+    num_heads=4,
+    ff_dim=4,
+    num_transformer_blocks=4,
+    mlp_units=128,
+    dropout=0,
+    mlp_dropout=0,
 ):
     n_classes = 6
 
@@ -67,29 +117,85 @@ def transformer(
     x = layers.Dense(mlp_units, activation="relu")(x)
     x = layers.Dropout(mlp_dropout)(x)
     x = layers.Dense(16, activation="relu")(x)
-    
-    scalar_input = keras.Input(shape=(2,), name='scalar_input')  # Ex: masse et taille
-    y = layers.Dense(16, activation='relu')(scalar_input)
 
-    combined = layers.concatenate([x, y])
-    
+    scalar_input = keras.Input(shape=(2,), name="scalar_input")
+    y = layers.Dense(16, activation="relu")(scalar_input)
+
+    combined = layers.Concatenate()([x, y])
     z = layers.Dense(16, activation="relu")(combined)
-    z = layers.Dropout(0.2)(x)
+    z = layers.Dropout(0.2)(z)
     outputs = layers.Dense(n_classes, activation="softmax")(z)
 
-    optimizer = keras.optimizers.Adam(learning_rate=0.00005)
+    model = keras.Model([temporal_input, scalar_input], outputs)
+    return _compile_model(model, learning_rate=0.00005)
+
+
+def inception_time(
+    input_shape=(TYPE_WINDOW_FRAMES, 10),
+    filters: int = 32,
+    bottleneck_filters: int = 32,
+    modules: int = 3,
+):
+    n_classes = 6
+
+    temporal_input = keras.Input(shape=input_shape, name="temporal_input")
+    x = temporal_input
+    residual = x
+
+    for module_index in range(modules):
+        x = _inception_module(x, filters=filters, bottleneck_filters=bottleneck_filters)
+        if module_index % 2 == 1:
+            if residual.shape[-1] != x.shape[-1]:
+                residual = layers.Conv1D(int(x.shape[-1]), kernel_size=1, padding="same")(residual)
+            x = layers.Add()([x, residual])
+            x = layers.Activation("relu")(x)
+            residual = x
+
+    x = layers.GlobalAveragePooling1D()(x)
+    x = layers.Dense(64, activation="relu")(x)
+    x = layers.Dropout(0.2)(x)
+
+    scalar_input = keras.Input(shape=(2,), name="scalar_input")
+    y = layers.Dense(16, activation="relu")(scalar_input)
+
+    combined = layers.Concatenate()([x, y])
+    z = layers.Dense(32, activation="relu")(combined)
+    z = layers.Dropout(0.2)(z)
+    outputs = layers.Dense(n_classes, activation="softmax")(z)
 
     model = keras.Model([temporal_input, scalar_input], outputs)
+    return _compile_model(model, learning_rate=0.00003)
 
-    model.compile(loss="categorical_crossentropy", optimizer=optimizer, metrics=["accuracy"])
-    return model
+
+def build_model(task: str, architecture: str):
+    if task == "type":
+        if architecture == "transformer":
+            return transformer(dropout=0.3, mlp_dropout=0.1)
+        if architecture == "inceptiontime":
+            return inception_time()
+    elif task == "success":
+        if architecture == "lstm":
+            return lstm()
+        if architecture == "tcn":
+            return tcn_success()
+
+    raise ValueError(f"Unsupported model combination: task={task}, architecture={architecture}")
+
+
+def default_architecture(task: str) -> str:
+    if task == "type":
+        return "inceptiontime"
+    if task == "success":
+        return "tcn"
+    raise ValueError(f"Unsupported task: {task}")
+
 
 def transformerTraining(hp):
-    input_shape = (240, 10)
-    head_size = hp.Int('head_size', min_value=32, max_value=512, step=32)
-    num_heads = hp.Int('num_heads', min_value=2, max_value=16, step=2)
-    ff_dim = hp.Int('ff_dim', min_value=128, max_value=2048, step=128)
-    num_transformer_blocks = hp.Int('num_transformer_blocks', min_value=1, max_value=12, step=1)
+    input_shape = (TYPE_WINDOW_FRAMES, 10)
+    head_size = hp.Int("head_size", min_value=32, max_value=512, step=32)
+    num_heads = hp.Int("num_heads", min_value=2, max_value=16, step=2)
+    ff_dim = hp.Int("ff_dim", min_value=128, max_value=2048, step=128)
+    num_transformer_blocks = hp.Int("num_transformer_blocks", min_value=1, max_value=12, step=1)
     mlp_units = 128
     dropout = 0.3
     mlp_dropout = 0.1
@@ -106,11 +212,8 @@ def transformerTraining(hp):
     x = layers.Dropout(mlp_dropout)(x)
     outputs = layers.Dense(n_classes, activation="softmax")(x)
     model = keras.Model(inputs, outputs)
+    return _compile_model(model, learning_rate=learning_rate)
 
-    optimizer = keras.optimizers.Adam(learning_rate=learning_rate)
-
-    model.compile(loss="categorical_crossentropy", optimizer=optimizer, metrics=["accuracy"])
-    return model
 
 def save_model(model, path="saved_models/model.keras"):
     keras.saving.save_model(model, path, overwrite=True)

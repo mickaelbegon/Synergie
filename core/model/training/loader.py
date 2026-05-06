@@ -8,6 +8,7 @@ from sklearn.preprocessing import LabelEncoder
 from dataclasses import dataclass
 
 import constants
+from synergie.config import ROTATION_MIRROR_COLUMNS, SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES, TrainingConfig
 
 @dataclass
 class Dataset:
@@ -19,16 +20,14 @@ class Dataset:
     labels_test : np.array
     val_dataset : tf.data.Dataset
 
-# TODO: integrate data augmentation in the pipeline
-
-
 class Loader:
     """
     This class is meant to load the data from the csv files,
     and make it ready to be used by the model for training
     """
-    def __init__(self, folder_path: str, train_ratio: float = 0.8):
+    def __init__(self, folder_path: str, train_ratio: float = 0.8, augment_mirror: bool = True):
         assert 0 <= train_ratio <= 1
+        self.training_config = TrainingConfig(train_ratio=train_ratio, augment_mirror=augment_mirror)
 
         self.folder_path = folder_path
         main_csv = os.path.join(folder_path, "jumplist.csv")
@@ -50,10 +49,18 @@ class Loader:
                 jumpFrame = jumpFrame[fields_to_keep]
 
                 skater_info = skaterData[skaterData["skater"] == row["skater"]][["weight","height"]].to_numpy()[0]
-                jumps.append((np.nan_to_num(jumpFrame[:240].copy().to_numpy(), nan=0.0, posinf=0.0, neginf=0.0), skater_info))
-                jumps_success.append((np.nan_to_num(jumpFrame[120:].copy().reset_index(drop=True).to_numpy(), nan=0.0, posinf=0.0, neginf=0.0), skater_info))
+                type_window = np.nan_to_num(jumpFrame[:TYPE_WINDOW_FRAMES].copy().to_numpy(), nan=0.0, posinf=0.0, neginf=0.0)
+                success_window = np.nan_to_num(jumpFrame[SUCCESS_WINDOW_START:].copy().reset_index(drop=True).to_numpy(), nan=0.0, posinf=0.0, neginf=0.0)
+                jumps.append((type_window, skater_info))
+                jumps_success.append((success_window, skater_info))
                 labelstype.append(row['type'])
                 labelssuccess.append(row['success'])
+
+                if self.training_config.augment_mirror:
+                    jumps.append((self._mirror_temporal_features(type_window, fields_to_keep), skater_info))
+                    jumps_success.append((self._mirror_temporal_features(success_window, fields_to_keep), skater_info))
+                    labelstype.append(row['type'])
+                    labelssuccess.append(row['success'])
 
         # label one hot encoding
         labelEncoder = LabelEncoder()
@@ -62,7 +69,12 @@ class Loader:
 
         # make a training and validation dataset
 
-        features_train, features_val, self.labels_train, self.labels_val = train_test_split(jumps, labelstype, train_size=train_ratio, shuffle=True)
+        features_train, features_val, self.labels_train, self.labels_val = train_test_split(
+            jumps,
+            labelstype,
+            train_size=self.training_config.train_ratio,
+            shuffle=True,
+        )
 
         self.temporal_features_test = []
         self.scalar_features_test = []
@@ -78,7 +90,12 @@ class Loader:
 
         self.val_dataset = tf.data.Dataset.from_tensor_slices(({"temporal_input" : self.temporal_features_test, "scalar_input" : self.scalar_features_test}, self.labels_val)).batch(16)
 
-        features_train_success, features_val_success, self.labels_train_success, self.labels_val_success = train_test_split(jumps_success, labelssuccess, train_size=train_ratio, shuffle=True)
+        features_train_success, features_val_success, self.labels_train_success, self.labels_val_success = train_test_split(
+            jumps_success,
+            labelssuccess,
+            train_size=self.training_config.train_ratio,
+            shuffle=True,
+        )
 
         self.temporal_features_test_success = []
         self.scalar_features_test_success = []
@@ -93,6 +110,13 @@ class Loader:
             self.scalar_features_train_success.append(x[1])
 
         self.val_dataset_success = tf.data.Dataset.from_tensor_slices(({"temporal_input" : self.temporal_features_test_success, "scalar_input" : self.scalar_features_test_success}, self.labels_val_success)).batch(16)
+
+    def _mirror_temporal_features(self, features: np.ndarray, field_names: list[str]) -> np.ndarray:
+        mirrored = features.copy()
+        for column_name in ROTATION_MIRROR_COLUMNS:
+            if column_name in field_names:
+                mirrored[:, field_names.index(column_name)] *= -1
+        return mirrored
 
     def get_type_data(self):
         data = Dataset(

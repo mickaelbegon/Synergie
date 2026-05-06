@@ -1,62 +1,139 @@
-# AIOnIce
+# Synergie Data
 
-A figure skating jump recognition software using IMU data as input. 
-Une application de reconnaissance des figures de patinage artistique utilisant les données de capteurs IMU
+Logiciel de reconnaissance de sauts en patinage artistique a partir de donnees IMU Movella DOT.
 
-CLI usage: 
+Le depot contient deux usages principaux :
+
+- une application graphique pour la collecte et l'export des capteurs
+- une CLI pour l'entrainement et le retraitement des fichiers CSV
+- une petite interface graphique utilitaire pour les workflows de dev et d'analyse
+
+## Installation
+
+### Environnement Conda
+
+Le fichier [environment.yml](C:\Users\micka\Documents\GIT\Synergie_Data\Synergie_Data\environment.yml) decrit l'environnement conseille pour le developpement et les tests.
 
 ```sh
-pip install requirements.txt
+conda env create -f environment.yml
+conda activate synergie-data
 ```
 
-Vous aurez aussi besoin du movelladot_pc_sdk : (https://www.movella.com/support/software-documentation)
+### Dependances externes
 
-## Application
+L'application GUI depend aussi :
 
-Une application avec une interface graphique disponible
+- du SDK Movella DOT
+- d'un fichier de credentials Firebase local non versionne
+
+Le SDK Movella est disponible ici : [Movella DOT software documentation](https://www.movella.com/support/software-documentation)
+
+## Lancer l'application
+
 ```sh
 python app.py
+python tools_gui.py
 ```
 
-L'application contient : 
-- Une page de connexion
-- Une page d'accueil 
-- des pages pop-up lors des actions de l'utilisateur
+Flux principal :
 
-Avant d'afficher à la page d'accueil l'application cherche tous les capteurs disponibles et se connectent à ceci via Bluetooth ET USB.
+- connexion d'un coach via Firebase
+- detection des capteurs Bluetooth et USB
+- demarrage d'un enregistrement au debranchement
+- arret et export au rebranchement
+- prediction automatique des sauts apres export
 
-Le lancement d'un enregistrement se fait en débranchant un capteur et l'arrêt de cet enregistrement en rebranchant le capteur.
-Lors de ces étapes des fenêtres de confirmation s'ouvrent pour proposer des choix à l'utilisateur.
+Dans `tools_gui.py`, l'onglet `Inspect IMU` permet aussi :
 
-Lors de l'arrêt ou via le button sur la page d'accueil on peut exporter les données des capteurs connectés via USB. Cette opération peut prendre un certain temps et nécessite de laisser le capteur branché.
-Les données brutes sont sauvegardés dans des fichiers rangés par date et sont automatiquement traités par l'application pour détecter les sauts et reconnaître les figures effectués durant l'entraînement, ces données traités sont stockés sur un base de données Firebase.
+- d'afficher les signaux utilises pour localiser les sauts
+- d'ajuster les sliders de detection
+- de selectionner un saut pour afficher un zoom dedie
+- de lire le dossier de session choisi et lister tous les fichiers disponibles avec infos de base sur le fichier selectionne
 
-## Base de donnés
+## CLI
 
-L'application utilise une base de données Firebase pour stockés les données traitées par l'application
-
-## Entraînement des modèles
+La CLI est organisee par sous-commandes :
 
 ```sh
-python3 main.py -t <"model_type">
+python main.py list-sessions
+python main.py show-session 1331
+python main.py list-session-files 1331
+python main.py train type --epochs 10
+python main.py train type --architecture inceptiontime --epochs 10
+python main.py train success --epochs 20
+python main.py train success --architecture tcn --epochs 20
+python main.py benchmark type --model summary
+python main.py benchmark type --model minirocket
+python main.py process-file data/raw/0406/0927/1_D422CD0076F7_20240604_092734.csv --output data/pending/example_predictions.csv
+python main.py repredict
 ```
 
-model_type peut être "type" ou "success" entraînant respectivement la reconnaissance des figures et des chutes.
-Le nombre d'époques d'entraînement doit être fixé manuellement dans `main.py`.
-
-## Le jeu de données
-
-Le modèle actuel a été entraîné avec un jeu de données d'environ 1500 sauts annotés.
-Pour des questions de propriété privée ce jeu de données n'est pas public.
-
-Ce jeu de données peut être entraînés avec de nouvelles données, en utilisant par exemple les données brutes stockés à chaque entraînement pour les annoter manuellement.
+Compatibilite conservee :
 
 ```sh
-python3 main.py -p <"path">
+python main.py -t type
+python main.py -repredict
 ```
 
-This command will process a training file to get the jumps file, and a list of them in order to help during annotation
+## Structure du projet
+
+- `app.py` : point d'entree de l'application graphique
+- `main.py` : point d'entree CLI
+- `tools_gui.py` : petite interface graphique utilitaire pour la CLI
+- `synergie/cli.py` : parsing des commandes
+- `synergie/config.py` : constantes partagees pour fenetres et seuils
+- `synergie/operations.py` : orchestration des workflows CLI
+- `synergie/services/` : logique metier reutilisable hors interface
+- `synergie/tool_gui.py` : interface graphique simple pour les workflows hors capteurs
+- `core/` : logique metier, traitement de donnees, modeles, acces base de donnees
+- `front/` : composants interface Tkinter/ttkbootstrap
+- `tests/` : tests legers de non-regression pour la CLI, l'algo IMU et les services
+
+## Tests
+
+Une premiere base de tests unitaires est fournie :
+
+```sh
+python -m unittest discover -s tests
+```
+
+Ces tests ne couvrent pas encore la partie modele ni la connexion aux capteurs. Ils valident surtout la structure CLI et quelques invariants de configuration.
+
+## Modeles IA
+
+Le projet garde TensorFlow/Keras comme base de production, mais la CLI permet maintenant de tester plusieurs architectures plus adaptees aux series temporelles IMU :
+
+- `type` : `transformer` ou `inceptiontime`
+- `success` : `lstm` ou `tcn`
+
+Les architectures recommandees par defaut sont maintenant :
+
+- `inceptiontime` pour la classification du type de saut
+- `tcn` pour la prediction de la reussite
+
+L'environnement inclut aussi `aeon` pour preparer des essais de classifieurs de series temporelles rapides comme MiniRocket/Hydra sur CPU.
+
+La commande `benchmark` sert a comparer rapidement des approches sur le meme dataset annote :
+
+- `--model summary` : resume du dataset exploitable
+- `--model minirocket` : benchmark CPU `MiniRocket + RidgeClassifierCV`
+
+## Branche `pariterre`
+
+Une analyse de la branche distante `pariterre/main` est documentee dans [docs/pariterre_merge.md](C:\Users\micka\Documents\GIT\Synergie_Data\Synergie_Data\docs\pariterre_merge.md).
+
+L'audit de l'algorithme de reconnaissance des sauts IMU est documente dans [docs/imu_jump_algorithm_review.md](C:\Users\micka\Documents\GIT\Synergie_Data\Synergie_Data\docs\imu_jump_algorithm_review.md).
+
+Resume :
+
+- la branche contient une refonte large vers un package `synergie/`
+- elle apporte de bonnes idees de structure et d'environnement
+- elle est trop intrusive pour etre fusionnee en bloc sans validation materielle
+
+## Donnees
+
+Le modele actuel s'appuie sur un jeu de donnees annote prive. Les dossiers `data/raw`, `data/new` et `data/annotated` contiennent des artefacts de travail qui peuvent etre volumineux et sensibles.
 
 ## Credits
 
-Réalisé par le S2M pour Patinage Quebec.
+Projet realise par S2M pour Patinage Quebec.
