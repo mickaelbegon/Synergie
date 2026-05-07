@@ -76,7 +76,7 @@ class OperationsTests(unittest.TestCase):
                 pending_root=tmpdir,
             )
 
-            self.assertEqual(candidate.name, "20250911_085656_sensor1_for_annotation.csv")
+            self.assertEqual(candidate.name, "20250911_085656_for_annotation.csv")
 
     def test_list_new_imu_files_skips_hidden_and_done_directories(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -99,6 +99,20 @@ class OperationsTests(unittest.TestCase):
         self.assertEqual(operations.annotation_turn_options(5), ["1.5", "2.5", "3.5", "4.5"])
         self.assertEqual(operations.annotation_turn_options("Loop"), ["1", "2", "3", "4"])
         self.assertEqual(operations.annotation_turn_options("exclude"), [])
+
+    def test_list_new_imu_sessions_groups_files_by_shared_timestamp(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "1_D422CD0076F7_20250911_085656.csv").write_text("x", encoding="utf-8")
+            (root / "2_D422CD007712_20250911_085656.csv").write_text("x", encoding="utf-8")
+            (root / "3_D422CD0077D1_20250911_090000.csv").write_text("x", encoding="utf-8")
+
+            sessions = operations.list_new_imu_sessions(root=root)
+
+            self.assertEqual(len(sessions), 2)
+            self.assertEqual(sessions[0]["session_key"], "20250911_085656")
+            self.assertEqual(len(sessions[0]["files"]), 2)
+            self.assertEqual([item["sensor_id"] for item in sessions[0]["files"]], ["1", "2"])
 
     def test_session_synchro_reads_known_session_metadata(self):
         self.assertEqual(

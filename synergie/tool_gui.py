@@ -45,6 +45,14 @@ class SynergieToolsApp:
         self.new_data_selected_file_var = tk.StringVar()
         self.new_data_output_var = tk.StringVar()
         self.new_data_summary_var = tk.StringVar(value="No file selected.")
+        self.annotation_files_var = tk.StringVar(value=[])
+        self.annotation_summary_var = tk.StringVar(value="No annotation file selected.")
+        self.annotation_type_var = tk.StringVar(value="exclude")
+        self.annotation_turn_var = tk.StringVar(value="")
+        self.annotation_success_var = tk.StringVar(value="2")
+        self.annotation_video_status_var = tk.StringVar(value="visible")
+        self.annotation_detection_status_var = tk.StringVar(value="detected_jump")
+        self.annotation_athlete_var = tk.StringVar(value="")
         self.new_session_id_var = tk.StringVar()
         self.new_session_path_var = tk.StringVar()
         self.new_session_synchro_var = tk.StringVar()
@@ -75,12 +83,18 @@ class SynergieToolsApp:
         self.inspect_session = None
         self.detected_jumps: list = []
         self._new_data_files_cache: list[dict] = []
+        self._annotation_files_cache: list[Path] = []
         self.figure = None
         self.axes = None
         self.canvas = None
+        self.annotation_figure = None
+        self.annotation_ax = None
+        self.annotation_canvas = None
         self.train_figure = None
         self.train_axes = None
         self.train_canvas = None
+        self.annotation_dataframe = None
+        self.annotation_file_path: Path | None = None
 
         self._build_layout()
         self._populate_sessions()
@@ -110,12 +124,14 @@ class SynergieToolsApp:
         sessions_tab = ttk.Frame(notebook, padding=12)
         process_tab = ttk.Frame(notebook, padding=12)
         new_data_tab = ttk.Frame(notebook, padding=12)
+        annotate_tab = ttk.Frame(notebook, padding=12)
         inspect_tab = ttk.Frame(notebook, padding=12)
         train_tab = ttk.Frame(notebook, padding=12)
         notes_tab = ttk.Frame(notebook, padding=12)
         notebook.add(sessions_tab, text="Sessions")
         notebook.add(process_tab, text="Process CSV")
         notebook.add(new_data_tab, text="New Data")
+        notebook.add(annotate_tab, text="Annotate")
         notebook.add(inspect_tab, text="Inspect IMU")
         notebook.add(train_tab, text="Train")
         notebook.add(notes_tab, text="Algo Notes")
@@ -131,6 +147,7 @@ class SynergieToolsApp:
 
         self._build_process_tab(process_tab)
         self._build_new_data_tab(new_data_tab)
+        self._build_annotate_tab(annotate_tab)
         self._build_inspect_tab(inspect_tab)
         self._build_train_tab(train_tab)
         self._build_notes_tab(notes_tab)
@@ -291,6 +308,88 @@ class SynergieToolsApp:
         self.new_data_log.grid(row=4, column=0, columnspan=3, sticky="nsew")
         self._refresh_new_data_directories()
 
+    def _build_annotate_tab(self, parent: ttk.Frame) -> None:
+        parent.columnconfigure(0, weight=0)
+        parent.columnconfigure(1, weight=1)
+        parent.rowconfigure(1, weight=1)
+
+        left_panel = ttk.Frame(parent)
+        left_panel.grid(row=0, column=0, rowspan=2, sticky="nsew", padx=(0, 12))
+        left_panel.columnconfigure(0, weight=1)
+        left_panel.rowconfigure(1, weight=1)
+
+        ttk.Button(left_panel, text="Refresh annotation files", command=self._refresh_annotation_files).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        self.annotation_files_listbox = tk.Listbox(left_panel, listvariable=self.annotation_files_var, exportselection=False, height=12, width=42)
+        self.annotation_files_listbox.grid(row=1, column=0, sticky="nsew")
+        self.annotation_files_listbox.bind("<<ListboxSelect>>", self._on_annotation_file_selected)
+
+        center_panel = ttk.LabelFrame(parent, text="Session Timeline", padding=8)
+        center_panel.grid(row=0, column=1, sticky="nsew")
+        center_panel.columnconfigure(0, weight=1)
+        center_panel.rowconfigure(1, weight=1)
+        ttk.Label(center_panel, textvariable=self.annotation_summary_var, justify=tk.LEFT).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        self.annotation_jump_listbox = tk.Listbox(center_panel, exportselection=False, height=12)
+        self.annotation_jump_listbox.grid(row=1, column=0, sticky="nsew")
+        self.annotation_jump_listbox.bind("<<ListboxSelect>>", self._on_annotation_jump_selected)
+
+        bottom_panel = ttk.Frame(parent)
+        bottom_panel.grid(row=1, column=1, sticky="nsew", pady=(12, 0))
+        bottom_panel.columnconfigure(0, weight=1)
+        bottom_panel.columnconfigure(1, weight=0)
+        bottom_panel.rowconfigure(0, weight=1)
+
+        plot_frame = ttk.LabelFrame(bottom_panel, text="Jump Signals", padding=8)
+        plot_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        plot_frame.columnconfigure(0, weight=1)
+        plot_frame.rowconfigure(0, weight=1)
+        self.annotation_plot_container = ttk.Frame(plot_frame)
+        self.annotation_plot_container.grid(row=0, column=0, sticky="nsew")
+        self._build_annotation_plot_canvas()
+
+        controls = ttk.LabelFrame(bottom_panel, text="Annotation", padding=8)
+        controls.grid(row=0, column=1, sticky="ns")
+        controls.columnconfigure(0, weight=1)
+
+        ttk.Label(controls, text="Athlete ID").grid(row=0, column=0, sticky="w")
+        ttk.Label(controls, textvariable=self.annotation_athlete_var).grid(row=1, column=0, sticky="w", pady=(0, 8))
+
+        ttk.Label(controls, text="Jump type").grid(row=2, column=0, sticky="w")
+        type_frame = ttk.Frame(controls)
+        type_frame.grid(row=3, column=0, sticky="w", pady=(0, 8))
+        for index, (key, label, _value) in enumerate(operations.ANNOTATION_JUMP_TYPE_OPTIONS):
+            ttk.Radiobutton(
+                type_frame,
+                text=label,
+                value=key,
+                variable=self.annotation_type_var,
+                command=self._sync_annotation_turn_options,
+            ).grid(row=index, column=0, sticky="w")
+
+        ttk.Label(controls, text="Turns").grid(row=4, column=0, sticky="w")
+        self.annotation_turn_box = ttk.Combobox(controls, textvariable=self.annotation_turn_var, state="readonly", width=10)
+        self.annotation_turn_box.grid(row=5, column=0, sticky="w", pady=(0, 8))
+
+        ttk.Label(controls, text="Success").grid(row=6, column=0, sticky="w")
+        success_frame = ttk.Frame(controls)
+        success_frame.grid(row=7, column=0, sticky="w", pady=(0, 8))
+        for label, value in [("Fall", "0"), ("Success", "1"), ("Unknown", "2")]:
+            ttk.Radiobutton(success_frame, text=label, value=value, variable=self.annotation_success_var).pack(anchor="w")
+
+        ttk.Label(controls, text="Video status").grid(row=8, column=0, sticky="w")
+        video_frame = ttk.Frame(controls)
+        video_frame.grid(row=9, column=0, sticky="w", pady=(0, 8))
+        for value, label in operations.ANNOTATION_VIDEO_STATUS_OPTIONS:
+            ttk.Radiobutton(video_frame, text=label, value=value, variable=self.annotation_video_status_var).pack(anchor="w")
+
+        ttk.Label(controls, text="Detection status").grid(row=10, column=0, sticky="w")
+        detection_frame = ttk.Frame(controls)
+        detection_frame.grid(row=11, column=0, sticky="w", pady=(0, 8))
+        for value, label in operations.ANNOTATION_DETECTION_STATUS_OPTIONS:
+            ttk.Radiobutton(detection_frame, text=label, value=value, variable=self.annotation_detection_status_var).pack(anchor="w")
+
+        ttk.Button(controls, text="Save current annotation", command=self._save_current_annotation).grid(row=12, column=0, sticky="w", pady=(8, 0))
+        self._refresh_annotation_files()
+
     def _build_plot_canvas(self) -> None:
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
         from matplotlib.figure import Figure
@@ -316,6 +415,18 @@ class SynergieToolsApp:
         self.train_canvas = FigureCanvasTkAgg(figure, master=self.train_plot_container)
         self.train_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._draw_placeholder_training_plot()
+
+    def _build_annotation_plot_canvas(self) -> None:
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        from matplotlib.figure import Figure
+
+        figure = Figure(figsize=(7.5, 4.0), dpi=100)
+        axis = figure.add_subplot(111)
+        self.annotation_figure = figure
+        self.annotation_ax = axis
+        self.annotation_canvas = FigureCanvasTkAgg(figure, master=self.annotation_plot_container)
+        self.annotation_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self._draw_placeholder_annotation_plot()
 
     def _build_sessions_side_panel(self, parent: ttk.Frame) -> None:
         panel = ttk.LabelFrame(parent, text="Add Session", padding=12)
@@ -501,15 +612,20 @@ class SynergieToolsApp:
 
     def _populate_new_data_files(self) -> None:
         directory = self.new_data_directory_var.get().strip()
-        files = operations.list_new_imu_files(directory=directory) if directory else operations.list_new_imu_files()
-        labels = [self._format_new_data_file_label(item) for item in files]
-        self._new_data_files_cache = files
-        self.new_data_files_var.set(labels)
-        self.new_data_summary_var.set(f"Files found: {len(files)}")
-        if not files:
+        sessions = operations.list_new_imu_sessions(directory=directory) if directory else operations.list_new_imu_sessions()
+        self._new_data_files_cache = sessions
+        self.new_data_files_var.set([self._format_new_data_file_label(item) for item in sessions])
+        self.new_data_summary_var.set(f"Sessions found: {len(sessions)}")
+        if not sessions:
             self.new_data_output_var.set("")
 
     def _format_new_data_file_label(self, metadata: dict) -> str:
+        if "files" in metadata:
+            sensors = ", ".join(file_metadata["sensor_id"] for file_metadata in metadata["files"])
+            return (
+                f"{metadata['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')} | "
+                f"{len(metadata['files'])} sensors [{sensors}]"
+            )
         return (
             f"sensor {metadata['sensor_id']} | {metadata['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')} | "
             f"{metadata['name']}"
@@ -761,14 +877,142 @@ class SynergieToolsApp:
         selection = self.new_data_files.curselection()
         if not selection:
             return
-        metadata = self._new_data_files_cache[selection[0]]
-        self.new_data_selected_file_var.set(str(metadata["path"]))
-        self.new_data_output_var.set(str(operations.suggest_for_annotation_output_path(metadata["path"])))
+        session = self._new_data_files_cache[selection[0]]
+        representative_file = session["files"][0]
+        self.new_data_selected_file_var.set(str(representative_file["path"]))
+        self.new_data_output_var.set(str(operations.suggest_for_annotation_output_path(representative_file["path"])))
+        sensors = ", ".join(file_metadata["sensor_id"] for file_metadata in session["files"])
         self.new_data_summary_var.set(
-            f"Selected: {metadata['name']}\n"
-            f"Sensor {metadata['sensor_id']} | Device {metadata['device_id']} | "
-            f"{metadata['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')}"
+            f"Session: {session['session_key']}\n"
+            f"Sensors: {sensors} | {session['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')}"
         )
+
+    def _refresh_annotation_files(self) -> None:
+        files = operations.list_pending_annotation_files()
+        self._annotation_files_cache = files
+        self.annotation_files_var.set([path.name for path in files])
+        if not files:
+            self.annotation_summary_var.set("No pending annotation file found.")
+            self.annotation_jump_listbox.delete(0, tk.END)
+            self.annotation_dataframe = None
+            self.annotation_file_path = None
+            self._draw_placeholder_annotation_plot()
+
+    def _on_annotation_file_selected(self, _event=None) -> None:
+        selection = self.annotation_files_listbox.curselection()
+        if not selection:
+            return
+        file_path = self._annotation_files_cache[selection[0]]
+        self._load_annotation_file(file_path)
+
+    def _load_annotation_file(self, file_path: Path) -> None:
+        import pandas as pd
+
+        self.annotation_file_path = file_path
+        self.annotation_dataframe = pd.read_csv(file_path)
+        self._refresh_annotation_jump_list()
+        self.annotation_summary_var.set(f"{file_path.name}\nEntries: {len(self.annotation_dataframe)}")
+        if len(self.annotation_dataframe) > 0:
+            self.annotation_jump_listbox.selection_clear(0, tk.END)
+            self.annotation_jump_listbox.selection_set(0)
+            self._on_annotation_jump_selected()
+
+    def _refresh_annotation_jump_list(self) -> None:
+        self.annotation_jump_listbox.delete(0, tk.END)
+        if self.annotation_dataframe is None:
+            return
+        for index, row in self.annotation_dataframe.iterrows():
+            label = (
+                f"{index + 1:03d} | {row.get('videoTimeStamp', '--:--')} | "
+                f"{row.get('athlete_id', row.get('skater', 'unknown'))} | "
+                f"{row.get('detection_status', 'detected_jump')}"
+            )
+            self.annotation_jump_listbox.insert(tk.END, label)
+
+    def _selected_annotation_index(self) -> int | None:
+        selection = self.annotation_jump_listbox.curselection()
+        if not selection:
+            return None
+        return selection[0]
+
+    def _on_annotation_jump_selected(self, _event=None) -> None:
+        index = self._selected_annotation_index()
+        if index is None or self.annotation_dataframe is None:
+            return
+        row = self.annotation_dataframe.iloc[index]
+        type_value = int(float(row.get("type", 8)))
+        type_key = next((key for key, _label, value in operations.ANNOTATION_JUMP_TYPE_OPTIONS if value == type_value), "exclude")
+        self.annotation_type_var.set(type_key)
+        self.annotation_turn_var.set("" if row.get("turns", "") != row.get("turns", "") else str(row.get("turns", "")))
+        self.annotation_success_var.set(str(int(float(row.get("success", 2)))))
+        self.annotation_video_status_var.set(str(row.get("video_status", "visible")))
+        self.annotation_detection_status_var.set(str(row.get("detection_status", "detected_jump")))
+        self.annotation_athlete_var.set(str(row.get("athlete_id", row.get("skater", ""))))
+        self._sync_annotation_turn_options()
+        self._draw_annotation_segment(row)
+
+    def _sync_annotation_turn_options(self) -> None:
+        options = operations.annotation_turn_options(self.annotation_type_var.get())
+        self.annotation_turn_box.configure(values=options)
+        if self.annotation_turn_var.get() not in options:
+            self.annotation_turn_var.set(options[0] if options else "")
+
+    def _draw_placeholder_annotation_plot(self) -> None:
+        if self.annotation_ax is None:
+            return
+        self.annotation_ax.clear()
+        self.annotation_ax.set_title("Annotation signals")
+        self.annotation_ax.set_xlabel("ms")
+        self.annotation_ax.set_ylabel("Signal")
+        self.annotation_ax.text(0.5, 0.5, "Select an annotation candidate", ha="center", va="center", transform=self.annotation_ax.transAxes)
+        self.annotation_figure.tight_layout()
+        self.annotation_canvas.draw_idle()
+
+    def _draw_annotation_segment(self, row) -> None:
+        import pandas as pd
+
+        if self.annotation_ax is None:
+            return
+        path = Path(str(row["path"]))
+        if not path.exists():
+            self._draw_placeholder_annotation_plot()
+            return
+        dataframe = pd.read_csv(path)
+        self.annotation_ax.clear()
+        self.annotation_ax.plot(dataframe["ms"], dataframe["Gyr_X"], label="Gyr_X", linewidth=1.2)
+        self.annotation_ax.plot(dataframe["ms"], dataframe["Acc_X"], label="Acc_X", linewidth=0.9, alpha=0.7)
+        self.annotation_ax.set_title(
+            f"{row.get('videoTimeStamp', '--:--')} | "
+            f"{row.get('athlete_id', row.get('skater', 'unknown'))} | "
+            f"{row.get('source_file', '')}"
+        )
+        self.annotation_ax.set_xlabel("ms")
+        self.annotation_ax.set_ylabel("Signal")
+        self.annotation_ax.legend(loc="upper right", fontsize=8)
+        self.annotation_figure.tight_layout()
+        self.annotation_canvas.draw_idle()
+
+    def _save_current_annotation(self) -> None:
+        index = self._selected_annotation_index()
+        if index is None or self.annotation_dataframe is None or self.annotation_file_path is None:
+            messagebox.showwarning("Synergie Tools", "Select an annotation entry first.")
+            return
+
+        type_value = next(
+            value for key, _label, value in operations.ANNOTATION_JUMP_TYPE_OPTIONS
+            if key == self.annotation_type_var.get()
+        )
+        self.annotation_dataframe.at[index, "type"] = type_value
+        self.annotation_dataframe.at[index, "turns"] = self.annotation_turn_var.get()
+        self.annotation_dataframe.at[index, "success"] = int(self.annotation_success_var.get())
+        self.annotation_dataframe.at[index, "video_status"] = self.annotation_video_status_var.get()
+        self.annotation_dataframe.at[index, "detection_status"] = self.annotation_detection_status_var.get()
+        self.annotation_dataframe.at[index, "athlete_id"] = self.annotation_athlete_var.get()
+        self.annotation_dataframe.to_csv(self.annotation_file_path, index=False)
+        self._refresh_annotation_jump_list()
+        self.annotation_jump_listbox.selection_clear(0, tk.END)
+        self.annotation_jump_listbox.selection_set(index)
+        self.status_var.set("Annotation saved")
 
     def _on_inspect_file_double_clicked(self, _event=None) -> None:
         self._on_inspect_file_selected()
@@ -865,7 +1109,8 @@ class SynergieToolsApp:
             )
             self.root.after(0, lambda: self._log(self.new_data_log, f"Created annotation CSV: {result['annotation_csv']}"))
             self.root.after(0, lambda: self._log(self.new_data_log, f"Created jump segments in: {result['segment_directory']}"))
-            self.root.after(0, lambda: self._log(self.new_data_log, f"Jumps ready for annotation: {result['jump_count']}"))
+            self.root.after(0, lambda: self._log(self.new_data_log, f"Jumps ready for annotation: {result['jump_count']} across {result['sensor_count']} sensors"))
+            self.root.after(0, self._refresh_annotation_files)
             self.root.after(0, lambda: self.status_var.set("New IMU file processed for annotation"))
 
         self._run_in_thread(action, "Unable to process the new IMU file for annotation.")
