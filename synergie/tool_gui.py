@@ -1560,6 +1560,10 @@ class SynergieToolsApp:
             "detected": (float(session_df.iloc[jump.start]["ms"]), float(session_df.iloc[jump.end]["ms"])),
         }
 
+    def _jump_center_ms(self, session_df, jump) -> float:
+        bounds = self._jump_window_bounds_ms(session_df, jump)
+        return (bounds["detected"][0] + bounds["detected"][1]) / 2.0
+
     def _jump_has_gyro_saturation(self, session_df, jump) -> bool:
         start_idx = max(0, jump.start - SUCCESS_WINDOW_START)
         end_idx = min(len(session_df), jump.start + len(jump.df))
@@ -1589,6 +1593,7 @@ class SynergieToolsApp:
     def _draw_overview_plot(self) -> None:
         overview_ax, _ = self.axes
         session_df = self.inspect_session.df
+        selected_index = self._selected_jump_index()
         self._reset_secondary_axes()
         overview_ax.clear()
         overview_right_ax = overview_ax.twinx()
@@ -1609,8 +1614,37 @@ class SynergieToolsApp:
             label="Detection threshold",
         )
 
-        for jump in self.detected_jumps:
+        selected_center_ms = None
+        selected_center_y = None
+        for index, jump in enumerate(self.detected_jumps):
             self._draw_jump_windows(overview_ax, session_df, jump)
+            center_ms = self._jump_center_ms(session_df, jump)
+            center_y = float(session_df.iloc[jump.start + ((jump.end - jump.start) // 2)]["Gyr_X_smoothed"])
+            overview_ax.plot(
+                center_ms,
+                center_y,
+                marker="o",
+                markersize=6,
+                color="black",
+                markerfacecolor="white",
+                markeredgewidth=1.2,
+                linestyle="None",
+            )
+            if selected_index == index:
+                selected_center_ms = center_ms
+                selected_center_y = center_y
+
+        if selected_center_ms is not None and selected_center_y is not None:
+            overview_ax.plot(
+                selected_center_ms,
+                selected_center_y,
+                marker="*",
+                markersize=14,
+                color="gold",
+                markeredgecolor="black",
+                markeredgewidth=1.0,
+                linestyle="None",
+            )
 
         overview_ax.set_xlabel("ms")
         overview_ax.set_ylabel("Gyroscope")
@@ -1618,6 +1652,9 @@ class SynergieToolsApp:
         overview_ax.plot([], [], color="royalblue", linewidth=6, alpha=0.35, label="Type window")
         overview_ax.plot([], [], color="seagreen", linewidth=6, alpha=0.35, label="Success window")
         overview_ax.plot([], [], color="crimson", linewidth=2, linestyle=":", label="Gyro saturation")
+        overview_ax.plot([], [], marker="o", markersize=6, color="black", markerfacecolor="white", linestyle="None", label="Detected jump center")
+        if selected_center_ms is not None:
+            overview_ax.plot([], [], marker="*", markersize=12, color="gold", markeredgecolor="black", linestyle="None", label="Selected jump")
         overview_lines, overview_labels = overview_ax.get_legend_handles_labels()
         overview_right_lines, overview_right_labels = overview_right_ax.get_legend_handles_labels()
         overview_ax.legend(overview_lines + overview_right_lines, overview_labels + overview_right_labels, loc="upper right", fontsize=8)
@@ -1665,7 +1702,7 @@ class SynergieToolsApp:
         zoom_ax.set_ylabel("Gyroscope")
         zoom_right_ax.set_ylabel("2nd derivative")
         saturation_text = " | Gyro saturated" if self._jump_has_gyro_saturation(session_df, jump) else ""
-        zoom_ax.set_title(f"Zoom on selected jump{saturation_text}")
+        zoom_ax.set_title(f"Zoom on selected jump #{jump_index + 1}{saturation_text}")
         zoom_ax.plot([], [], color="royalblue", linewidth=6, alpha=0.35, label="Type window")
         zoom_ax.plot([], [], color="seagreen", linewidth=6, alpha=0.35, label="Success window")
         zoom_ax.plot([], [], color="crimson", linewidth=2, linestyle=":", label="Gyro saturation")
@@ -1686,6 +1723,13 @@ class SynergieToolsApp:
         return selection[0]
 
     def _on_jump_selected(self, _event) -> None:
+        selected_index = self._selected_jump_index()
+        if selected_index is not None and selected_index < len(self.detected_jumps):
+            jump = self.detected_jumps[selected_index]
+            self.status_var.set(
+                f"Selected jump {selected_index + 1}/{len(self.detected_jumps)} | "
+                f"start={jump.startTimestamp:.0f} ms | len={jump.length:.2f} s"
+            )
         self._redraw_plots()
 
 
