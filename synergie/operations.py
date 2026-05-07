@@ -4,6 +4,7 @@ import csv
 from pathlib import Path
 
 import constants
+from synergie import pretrained_models
 from synergie import session_store
 
 
@@ -98,25 +99,69 @@ def describe_training_dataset(task: str, dataset_path: str, augment_mirror: bool
     }
 
 
-def train_model(task: str, dataset_path: str, epochs: int | None = None, architecture: str | None = None) -> dict:
+def list_pretrained_training_models(task: str | None = None, compatible_only: bool = False) -> list[dict]:
+    return pretrained_models.list_pretrained_models(task=task, compatible_only=compatible_only)
+
+
+def format_pretrained_model_label(model_entry: dict) -> str:
+    performance = model_entry.get("performance") or {}
+    accuracy = performance.get("test_accuracy")
+    if accuracy is None:
+        accuracy_text = "acc n/a"
+    else:
+        accuracy_text = f"acc {accuracy:.3f}"
+    status = "compatible" if model_entry.get("compatible") and model_entry.get("path_exists") else "not compatible"
+    return (
+        f"{model_entry['label']} | {model_entry['architecture']} | "
+        f"{accuracy_text} | {status}"
+    )
+
+
+def train_model(
+    task: str,
+    dataset_path: str,
+    epochs: int | None = None,
+    architecture: str | None = None,
+    pretrained_model_id: str | None = None,
+) -> dict:
     from core.model import model
     from core.model.training.loader import Loader
     from core.model.training.training import Trainer
 
     dataset = Loader(dataset_path, augment_mirror=True)
-    selected_architecture = architecture or model.default_architecture(task)
+    pretrained_entry = None
+    if pretrained_model_id:
+        pretrained_entry = pretrained_models.get_pretrained_model(pretrained_model_id)
+        if pretrained_entry["task"] != task:
+            raise ValueError(f"Pretrained model '{pretrained_model_id}' is not compatible with task '{task}'.")
+        if not pretrained_entry.get("compatible") or not pretrained_entry.get("path_exists"):
+            raise ValueError(f"Pretrained model '{pretrained_model_id}' is not currently compatible.")
+
+    selected_architecture = architecture or (
+        pretrained_entry["architecture"] if pretrained_entry else model.default_architecture(task)
+    )
     if task == "type":
+        model_instance = (
+            model.load_model(pretrained_entry["path"])
+            if pretrained_entry
+            else model.build_model(task, selected_architecture)
+        )
         trainer = Trainer(
             dataset.get_type_data(),
-            model.build_model(task, selected_architecture),
+            model_instance,
             constants.modeltype_filepath,
         )
         return trainer.train(epochs=epochs or 10)
 
     if task == "success":
+        model_instance = (
+            model.load_model(pretrained_entry["path"])
+            if pretrained_entry
+            else model.build_model(task, selected_architecture)
+        )
         trainer = Trainer(
             dataset.get_success_data(),
-            model.build_model(task, selected_architecture),
+            model_instance,
             constants.modelsuccess_filepath,
         )
         return trainer.train_success(epochs=epochs or 20)

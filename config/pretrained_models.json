@@ -1,0 +1,26 @@
+[
+  {
+    "id": "type_checkpoint_legacy",
+    "label": "Type checkpoint legacy",
+    "task": "type",
+    "architecture": "inceptiontime",
+    "path": "core/model/saved_models/checkpoint",
+    "compatible": true,
+    "notes": "Checkpoint historique du depot, chargeable dans l'environnement actuel.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.81875,
+      "test_samples": 640
+    }
+  },
+  {
+    "id": "success_legacy_saved_model",
+    "label": "Success legacy saved model",
+    "task": "success",
+    "architecture": "tcn",
+    "path": "core/model/saved_models/success",
+    "compatible": false,
+    "notes": "Modele historique detecte mais non chargeable par Keras dans l'environnement actuel.",
+    "performance": null
+  }
+]

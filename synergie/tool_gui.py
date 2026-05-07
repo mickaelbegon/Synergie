@@ -47,6 +47,9 @@ class SynergieToolsApp:
         self.epochs_var = tk.StringVar(value="10")
         self.train_dataset_stats_var = tk.StringVar(value="Dataset stats not loaded yet.")
         self.train_quality_summary_var = tk.StringVar(value="No training run yet.")
+        self.use_pretrained_var = tk.BooleanVar(value=False)
+        self.pretrained_model_var = tk.StringVar()
+        self.pretrained_models_summary_var = tk.StringVar(value="No pretrained model scan yet.")
 
         self.inspect_csv_path_var = tk.StringVar()
         self.inspect_session_var = tk.StringVar(value=sorted(constants.sessions)[0])
@@ -313,14 +316,27 @@ class SynergieToolsApp:
         ttk.Label(parent, text="Epochs").grid(row=3, column=0, sticky="w", pady=4)
         ttk.Entry(parent, textvariable=self.epochs_var).grid(row=3, column=1, sticky="w")
 
-        ttk.Button(parent, text="Refresh dataset stats", command=self._refresh_training_dataset_stats).grid(row=4, column=0, sticky="w", pady=(12, 4))
-        ttk.Label(parent, textvariable=self.train_dataset_stats_var, justify=tk.LEFT).grid(row=5, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        ttk.Checkbutton(
+            parent,
+            text="Start from pretrained model",
+            variable=self.use_pretrained_var,
+            command=self._sync_pretrained_controls,
+        ).grid(row=4, column=0, sticky="w", pady=(12, 4))
 
-        ttk.Button(parent, text="Run training", command=self._run_train).grid(row=6, column=0, sticky="w", pady=(8, 4))
-        ttk.Label(parent, textvariable=self.train_quality_summary_var, justify=tk.LEFT).grid(row=7, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        self.pretrained_model_box = ttk.Combobox(parent, textvariable=self.pretrained_model_var, state="readonly")
+        self.pretrained_model_box.grid(row=4, column=1, sticky="ew", pady=(12, 4))
+        self.pretrained_model_box.bind("<<ComboboxSelected>>", self._on_pretrained_model_changed)
+
+        ttk.Label(parent, textvariable=self.pretrained_models_summary_var, justify=tk.LEFT).grid(row=5, column=0, columnspan=2, sticky="w", pady=(0, 8))
+
+        ttk.Button(parent, text="Refresh dataset stats", command=self._refresh_training_dataset_stats).grid(row=6, column=0, sticky="w", pady=(4, 4))
+        ttk.Label(parent, textvariable=self.train_dataset_stats_var, justify=tk.LEFT).grid(row=7, column=0, columnspan=2, sticky="w", pady=(0, 8))
+
+        ttk.Button(parent, text="Run training", command=self._run_train).grid(row=8, column=0, sticky="w", pady=(8, 4))
+        ttk.Label(parent, textvariable=self.train_quality_summary_var, justify=tk.LEFT).grid(row=9, column=0, columnspan=2, sticky="w", pady=(0, 8))
 
         train_plot_frame = ttk.LabelFrame(parent, text="Training Curves", padding=8)
-        train_plot_frame.grid(row=8, column=0, columnspan=2, sticky="nsew", pady=(0, 8))
+        train_plot_frame.grid(row=10, column=0, columnspan=2, sticky="nsew", pady=(0, 8))
         train_plot_frame.columnconfigure(0, weight=1)
         train_plot_frame.rowconfigure(0, weight=1)
         self.train_plot_container = ttk.Frame(train_plot_frame)
@@ -328,7 +344,11 @@ class SynergieToolsApp:
         self._build_train_plot_canvas()
 
         self.train_log = scrolledtext.ScrolledText(parent, height=18, wrap=tk.WORD)
-        self.train_log.grid(row=9, column=0, columnspan=2, sticky="nsew")
+        self.train_log.grid(row=11, column=0, columnspan=2, sticky="nsew")
+        parent.rowconfigure(10, weight=1)
+        parent.rowconfigure(11, weight=1)
+        self._refresh_pretrained_models()
+        self._sync_pretrained_controls()
         self._refresh_training_dataset_stats()
 
     def _build_notes_tab(self, parent: ttk.Frame) -> None:
@@ -462,6 +482,58 @@ class SynergieToolsApp:
             f"test_samples={summary.get('test_samples', 0)}"
         )
 
+    def _refresh_pretrained_models(self) -> None:
+        task = self.train_task_var.get()
+        models = operations.list_pretrained_training_models(task=task)
+        compatible_models = [model for model in models if model.get("compatible") and model.get("path_exists")]
+        labels = [operations.format_pretrained_model_label(model) for model in compatible_models]
+        self.pretrained_model_box.configure(values=labels)
+        if labels:
+            current = self.pretrained_model_var.get()
+            if current not in labels:
+                self.pretrained_model_var.set(labels[0])
+        else:
+            self.pretrained_model_var.set("")
+
+        if compatible_models:
+            summary_lines = [
+                "Compatible pretrained models:",
+                *[f"- {operations.format_pretrained_model_label(model)}" for model in compatible_models],
+            ]
+        else:
+            summary_lines = ["No compatible pretrained model found for this task."]
+
+        incompatible_models = [model for model in models if not (model.get("compatible") and model.get("path_exists"))]
+        if incompatible_models:
+            summary_lines.extend(
+                [f"Detected but unavailable: {model['label']} ({model.get('notes', 'not compatible')})" for model in incompatible_models]
+            )
+        self.pretrained_models_summary_var.set("\n".join(summary_lines))
+
+    def _selected_pretrained_model_id(self) -> str | None:
+        selected_label = self.pretrained_model_var.get()
+        if not selected_label:
+            return None
+        for model in operations.list_pretrained_training_models(task=self.train_task_var.get(), compatible_only=True):
+            if operations.format_pretrained_model_label(model) == selected_label:
+                return model["id"]
+        return None
+
+    def _sync_pretrained_controls(self) -> None:
+        self.pretrained_model_box.configure(state="readonly" if self.use_pretrained_var.get() else "disabled")
+        self.train_architecture_box.configure(state="disabled" if self.use_pretrained_var.get() else "readonly")
+        if self.use_pretrained_var.get():
+            self._sync_pretrained_architecture()
+
+    def _sync_pretrained_architecture(self) -> None:
+        pretrained_model_id = self._selected_pretrained_model_id()
+        if not pretrained_model_id:
+            return
+        for model in operations.list_pretrained_training_models(task=self.train_task_var.get(), compatible_only=True):
+            if model["id"] == pretrained_model_id:
+                self.train_architecture_var.set(model["architecture"])
+                return
+
     def _draw_placeholder_training_plot(self) -> None:
         if self.train_axes is None:
             return
@@ -555,7 +627,12 @@ class SynergieToolsApp:
 
     def _on_train_task_changed(self, _event=None) -> None:
         self._sync_train_architectures()
+        self._refresh_pretrained_models()
+        self._sync_pretrained_controls()
         self._refresh_training_dataset_stats()
+
+    def _on_pretrained_model_changed(self, _event=None) -> None:
+        self._sync_pretrained_architecture()
 
     def _on_process_file_selected(self, _event=None) -> None:
         selection = self.process_session_files.curselection()
@@ -616,9 +693,17 @@ class SynergieToolsApp:
         def action() -> None:
             epochs = int(self.epochs_var.get())
             task = self.train_task_var.get()
-            architecture = self.train_architecture_var.get()
-            self.root.after(0, lambda: self._log(self.train_log, f"Running training: task={task}, architecture={architecture}, epochs={epochs}"))
-            summary = operations.train_model(task, self.dataset_var.get(), epochs, architecture)
+            pretrained_model_id = self._selected_pretrained_model_id() if self.use_pretrained_var.get() else None
+            architecture = None if pretrained_model_id else self.train_architecture_var.get()
+            pretrained_text = f", pretrained={pretrained_model_id}" if pretrained_model_id else ""
+            self.root.after(
+                0,
+                lambda: self._log(
+                    self.train_log,
+                    f"Running training: task={task}, architecture={self.train_architecture_var.get()}, epochs={epochs}{pretrained_text}",
+                ),
+            )
+            summary = operations.train_model(task, self.dataset_var.get(), epochs, architecture, pretrained_model_id=pretrained_model_id)
             formatted_summary = self._format_training_quality_summary(summary)
             self.root.after(0, lambda: self._draw_training_history(summary))
             self.root.after(0, lambda: self.train_quality_summary_var.set(formatted_summary))

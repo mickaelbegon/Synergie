@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from synergie import operations
+from synergie import pretrained_models
 from synergie import session_store
 
 
@@ -102,6 +103,30 @@ class OperationsTests(unittest.TestCase):
             self.assertEqual(stats["unique_skaters"], 2)
             self.assertEqual(stats["class_counts"], {"0": 1, "1": 2})
             self.assertTrue(stats["augment_mirror"])
+
+    def test_list_pretrained_training_models_filters_compatible_entries(self):
+        original_file = pretrained_models.PRETRAINED_MODELS_FILE
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "pretrained_models.json"
+            model_dir = Path(tmpdir) / "existing_model"
+            model_dir.mkdir()
+            config_path.write_text(
+                "["
+                "{\"id\":\"ok\",\"label\":\"Compatible\",\"task\":\"type\",\"architecture\":\"inceptiontime\",\"path\":\""
+                + str(model_dir).replace("\\", "\\\\")
+                + "\",\"compatible\":true,\"notes\":\"ok\",\"performance\":{\"test_accuracy\":0.9}},"
+                "{\"id\":\"bad\",\"label\":\"Broken\",\"task\":\"type\",\"architecture\":\"transformer\",\"path\":\"missing\",\"compatible\":false,\"notes\":\"broken\",\"performance\":null}"
+                "]",
+                encoding="utf-8",
+            )
+            pretrained_models.PRETRAINED_MODELS_FILE = config_path
+
+            models = operations.list_pretrained_training_models(task="type", compatible_only=True)
+
+            self.assertEqual(len(models), 1)
+            self.assertEqual(models[0]["id"], "ok")
+            self.assertIn("acc 0.900", operations.format_pretrained_model_label(models[0]))
+        pretrained_models.PRETRAINED_MODELS_FILE = original_file
 
 
 if __name__ == "__main__":
