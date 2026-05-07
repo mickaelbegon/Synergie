@@ -295,58 +295,85 @@ class SynergieToolsApp:
         ttk.Button(panel, text="Add session", command=self._add_session_from_gui).grid(row=3, column=0, columnspan=2, sticky="w", pady=(12, 0))
 
     def _build_train_tab(self, parent: ttk.Frame) -> None:
-        for index in range(2):
-            parent.columnconfigure(index, weight=1 if index == 1 else 0)
-        parent.rowconfigure(8, weight=1)
-        parent.rowconfigure(9, weight=1)
+        parent.columnconfigure(0, weight=0)
+        parent.columnconfigure(1, weight=1)
+        parent.rowconfigure(1, weight=1)
 
-        ttk.Label(parent, text="Task").grid(row=0, column=0, sticky="w", pady=4)
-        train_task_box = ttk.Combobox(parent, textvariable=self.train_task_var, values=["type", "success"], state="readonly")
-        train_task_box.grid(row=0, column=1, sticky="w")
+        controls = ttk.LabelFrame(parent, text="Training Setup", padding=12)
+        controls.grid(row=0, column=0, sticky="nsew", padx=(0, 12), pady=(0, 12))
+        controls.columnconfigure(1, weight=1)
+
+        ttk.Label(controls, text="Task").grid(row=0, column=0, sticky="w", pady=4)
+        train_task_box = ttk.Combobox(controls, textvariable=self.train_task_var, values=["type", "success"], state="readonly", width=18)
+        train_task_box.grid(row=0, column=1, sticky="ew")
         train_task_box.bind("<<ComboboxSelected>>", self._on_train_task_changed)
 
-        ttk.Label(parent, text="Architecture").grid(row=1, column=0, sticky="w", pady=4)
-        self.train_architecture_box = ttk.Combobox(parent, textvariable=self.train_architecture_var, state="readonly")
-        self.train_architecture_box.grid(row=1, column=1, sticky="w")
+        ttk.Label(controls, text="Architecture").grid(row=1, column=0, sticky="w", pady=4)
+        self.train_architecture_box = ttk.Combobox(controls, textvariable=self.train_architecture_var, state="readonly", width=24)
+        self.train_architecture_box.grid(row=1, column=1, sticky="ew")
         self._sync_train_architectures()
 
-        ttk.Label(parent, text="Dataset").grid(row=2, column=0, sticky="w", pady=4)
-        ttk.Entry(parent, textvariable=self.dataset_var).grid(row=2, column=1, sticky="ew")
+        ttk.Label(controls, text="Dataset").grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.dataset_var, width=34).grid(row=2, column=1, sticky="ew")
 
-        ttk.Label(parent, text="Epochs").grid(row=3, column=0, sticky="w", pady=4)
-        ttk.Entry(parent, textvariable=self.epochs_var).grid(row=3, column=1, sticky="w")
+        ttk.Label(controls, text="Epochs").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.epochs_var, width=10).grid(row=3, column=1, sticky="w")
 
         ttk.Checkbutton(
-            parent,
+            controls,
             text="Start from pretrained model",
             variable=self.use_pretrained_var,
             command=self._sync_pretrained_controls,
-        ).grid(row=4, column=0, sticky="w", pady=(12, 4))
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(12, 4))
 
-        self.pretrained_model_box = ttk.Combobox(parent, textvariable=self.pretrained_model_var, state="readonly")
-        self.pretrained_model_box.grid(row=4, column=1, sticky="ew", pady=(12, 4))
+        self.pretrained_model_box = ttk.Combobox(controls, textvariable=self.pretrained_model_var, state="readonly", width=34)
+        self.pretrained_model_box.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         self.pretrained_model_box.bind("<<ComboboxSelected>>", self._on_pretrained_model_changed)
 
-        ttk.Label(parent, textvariable=self.pretrained_models_summary_var, justify=tk.LEFT).grid(row=5, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        buttons = ttk.Frame(controls)
+        buttons.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(4, 8))
+        ttk.Button(buttons, text="Run training", command=self._run_train).grid(row=0, column=0, sticky="w")
+        ttk.Button(buttons, text="Refresh dataset stats", command=self._refresh_training_dataset_stats).grid(row=0, column=1, sticky="w", padx=(8, 0))
 
-        ttk.Button(parent, text="Refresh dataset stats", command=self._refresh_training_dataset_stats).grid(row=6, column=0, sticky="w", pady=(4, 4))
-        ttk.Label(parent, textvariable=self.train_dataset_stats_var, justify=tk.LEFT).grid(row=7, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        ttk.Label(
+            controls,
+            textvariable=self.pretrained_models_summary_var,
+            justify=tk.LEFT,
+            wraplength=340,
+        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        ttk.Label(
+            controls,
+            textvariable=self.train_dataset_stats_var,
+            justify=tk.LEFT,
+            wraplength=340,
+        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        ttk.Label(
+            controls,
+            textvariable=self.train_quality_summary_var,
+            justify=tk.LEFT,
+            wraplength=340,
+        ).grid(row=9, column=0, columnspan=2, sticky="w")
 
-        ttk.Button(parent, text="Run training", command=self._run_train).grid(row=8, column=0, sticky="w", pady=(8, 4))
-        ttk.Label(parent, textvariable=self.train_quality_summary_var, justify=tk.LEFT).grid(row=9, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        results = ttk.Frame(parent)
+        results.grid(row=0, column=1, rowspan=2, sticky="nsew")
+        results.columnconfigure(0, weight=1)
+        results.rowconfigure(0, weight=1)
+        results.rowconfigure(1, weight=1)
 
-        train_plot_frame = ttk.LabelFrame(parent, text="Training Curves", padding=8)
-        train_plot_frame.grid(row=10, column=0, columnspan=2, sticky="nsew", pady=(0, 8))
+        train_plot_frame = ttk.LabelFrame(results, text="Training Curves", padding=8)
+        train_plot_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
         train_plot_frame.columnconfigure(0, weight=1)
         train_plot_frame.rowconfigure(0, weight=1)
         self.train_plot_container = ttk.Frame(train_plot_frame)
         self.train_plot_container.grid(row=0, column=0, sticky="nsew")
         self._build_train_plot_canvas()
 
-        self.train_log = scrolledtext.ScrolledText(parent, height=18, wrap=tk.WORD)
-        self.train_log.grid(row=11, column=0, columnspan=2, sticky="nsew")
-        parent.rowconfigure(10, weight=1)
-        parent.rowconfigure(11, weight=1)
+        log_frame = ttk.LabelFrame(results, text="Training Log", padding=8)
+        log_frame.grid(row=1, column=0, sticky="nsew")
+        log_frame.columnconfigure(0, weight=1)
+        log_frame.rowconfigure(0, weight=1)
+        self.train_log = scrolledtext.ScrolledText(log_frame, height=14, wrap=tk.WORD)
+        self.train_log.grid(row=0, column=0, sticky="nsew")
         self._refresh_pretrained_models()
         self._sync_pretrained_controls()
         self._refresh_training_dataset_stats()

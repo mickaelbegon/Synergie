@@ -71,8 +71,8 @@ def describe_training_dataset(task: str, dataset_path: str, augment_mirror: bool
     with (dataset_root / "jumplist.csv").open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
-            jump_type = int(row["type"])
-            success = int(row["success"])
+            jump_type = int(float(row["type"]))
+            success = int(float(row["success"]))
             if success == 2 or jump_type == 8:
                 continue
             filtered.append({"type": jump_type, "success": success, "skater": row["skater"]})
