@@ -95,6 +95,7 @@ class SynergieToolsApp:
         self.canvas = None
         self.annotation_figure = None
         self.annotation_ax = None
+        self.annotation_acc_ax = None
         self.annotation_canvas = None
         self.train_figure = None
         self.train_axes = None
@@ -503,6 +504,7 @@ class SynergieToolsApp:
         axis = figure.add_subplot(111)
         self.annotation_figure = figure
         self.annotation_ax = axis
+        self.annotation_acc_ax = None
         self.annotation_canvas = FigureCanvasTkAgg(figure, master=self.annotation_plot_container)
         self.annotation_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._draw_placeholder_annotation_plot()
@@ -1066,9 +1068,12 @@ class SynergieToolsApp:
         if self.annotation_ax is None:
             return
         self.annotation_ax.clear()
+        if self.annotation_acc_ax is not None:
+            self.annotation_acc_ax.remove()
+            self.annotation_acc_ax = None
         self.annotation_ax.set_title("Annotation signals")
         self.annotation_ax.set_xlabel("ms")
-        self.annotation_ax.set_ylabel("Signal")
+        self.annotation_ax.set_ylabel("Gyroscope")
         self.annotation_ax.text(0.5, 0.5, "Select an annotation candidate", ha="center", va="center", transform=self.annotation_ax.transAxes)
         self.annotation_figure.tight_layout()
         self.annotation_canvas.draw_idle()
@@ -1343,16 +1348,21 @@ class SynergieToolsApp:
         offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, sensor_id)
         video_time_label = self._format_video_ms(operations.compute_annotation_jump_video_time_ms(row, offset_ms))
         self.annotation_ax.clear()
-        self.annotation_ax.plot(dataframe["ms"], dataframe["Gyr_X"], label="Gyr_X", linewidth=1.2)
-        self.annotation_ax.plot(dataframe["ms"], dataframe["Acc_X"], label="Acc_X", linewidth=0.9, alpha=0.7)
+        if self.annotation_acc_ax is not None:
+            self.annotation_acc_ax.remove()
+            self.annotation_acc_ax = None
+        self.annotation_acc_ax = self.annotation_ax.twinx()
+        gyro_line = self.annotation_ax.plot(dataframe["ms"], dataframe["Gyr_X"], label="Gyr_X", linewidth=1.2, color="#1f77b4")[0]
+        acc_line = self.annotation_acc_ax.plot(dataframe["ms"], dataframe["Acc_X"], label="Acc_X", linewidth=0.9, alpha=0.8, color="#ff7f0e")[0]
         self.annotation_ax.set_title(
             f"{video_time_label} | "
             f"{row.get('athlete_id', row.get('skater', 'unknown'))} | "
             f"sensor {sensor_id} | {row.get('source_file', '')}"
         )
         self.annotation_ax.set_xlabel("ms")
-        self.annotation_ax.set_ylabel("Signal")
-        self.annotation_ax.legend(loc="upper right", fontsize=8)
+        self.annotation_ax.set_ylabel("Gyroscope")
+        self.annotation_acc_ax.set_ylabel("Acceleration")
+        self.annotation_ax.legend([gyro_line, acc_line], ["Gyr_X", "Acc_X"], loc="upper right", fontsize=8)
         self.annotation_figure.tight_layout()
         self.annotation_canvas.draw_idle()
 
