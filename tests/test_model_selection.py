@@ -3,6 +3,7 @@ import unittest
 
 try:
     from core.model import model
+    from synergie.config import SUCCESS_WINDOW_FRAMES
 
     HAS_DL_STACK = True
 except Exception:
@@ -20,6 +21,13 @@ class ModelSelectionTests(unittest.TestCase):
     def test_invalid_model_combination_raises(self):
         with self.assertRaises(ValueError):
             model.build_model("success", "transformer")
+
+    def test_success_models_expect_success_window_frames(self):
+        tcn_model = model.build_model("success", "tcn")
+        lstm_model = model.build_model("success", "lstm")
+
+        self.assertEqual(tcn_model.get_layer("temporal_input").input_shape[0][1:], (SUCCESS_WINDOW_FRAMES, 10))
+        self.assertEqual(lstm_model.get_layer("temporal_input").input_shape[0][1:], (SUCCESS_WINDOW_FRAMES, 10))
 
 
 if __name__ == "__main__":

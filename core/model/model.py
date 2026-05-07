@@ -1,7 +1,7 @@
 import keras
 from keras import layers
 
-from synergie.config import SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES
+from synergie.config import SUCCESS_WINDOW_FRAMES, TYPE_WINDOW_FRAMES
 
 
 def _compile_model(model: keras.Model, learning_rate: float = 0.00005) -> keras.Model:
@@ -42,7 +42,7 @@ def _inception_module(x, filters: int, bottleneck_filters: int):
 
 
 def lstm():
-    temporal_input = keras.Input(shape=(TYPE_WINDOW_FRAMES - SUCCESS_WINDOW_START, 10), name="temporal_input")
+    temporal_input = keras.Input(shape=(SUCCESS_WINDOW_FRAMES, 10), name="temporal_input")
     x = layers.BatchNormalization()(temporal_input)
     x = layers.LSTM(128, return_sequences=True)(x)
     x = layers.LSTM(64)(x)
@@ -64,7 +64,7 @@ def lstm():
 
 
 def tcn_success():
-    temporal_input = keras.Input(shape=(TYPE_WINDOW_FRAMES - SUCCESS_WINDOW_START, 10), name="temporal_input")
+    temporal_input = keras.Input(shape=(SUCCESS_WINDOW_FRAMES, 10), name="temporal_input")
     x = temporal_input
     for dilation_rate in (1, 2, 4, 8):
         x = _residual_block(x, filters=64, dilation_rate=dilation_rate, dropout=0.2)
