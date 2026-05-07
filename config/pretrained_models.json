@@ -40,5 +40,19 @@
       "test_accuracy": 0.8453125,
       "test_samples": 640
     }
+  },
+  {
+    "id": "success-tcn-20260507-073132",
+    "label": "Success tcn success-tcn-20260507-073132",
+    "task": "success",
+    "architecture": "tcn",
+    "path": "core/model/saved_models/archive/success/success-tcn-20260507-073132",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.8453125,
+      "test_samples": 640
+    }
   }
 ]
