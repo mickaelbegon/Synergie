@@ -51,8 +51,7 @@ class SynergieToolsApp:
         self.annotation_type_var = tk.StringVar(value="exclude")
         self.annotation_turn_var = tk.StringVar(value="")
         self.annotation_success_var = tk.StringVar(value="2")
-        self.annotation_video_status_var = tk.StringVar(value="visible")
-        self.annotation_detection_status_var = tk.StringVar(value="detected_jump")
+        self.annotation_review_status_var = tk.StringVar(value="normal")
         self.annotation_athlete_var = tk.StringVar(value="")
         self.annotation_video_path_var = tk.StringVar()
         self.annotation_video_info_var = tk.StringVar(value="No video loaded.")
@@ -446,8 +445,15 @@ class SynergieToolsApp:
             ).grid(row=index, column=0, sticky="w")
 
         ttk.Label(controls, text="Turns").grid(row=4, column=0, sticky="w")
-        self.annotation_turn_box = ttk.Combobox(controls, textvariable=self.annotation_turn_var, state="readonly", width=10)
-        self.annotation_turn_box.grid(row=5, column=0, sticky="w", pady=(0, 8))
+        turns_frame = ttk.Frame(controls)
+        turns_frame.grid(row=5, column=0, sticky="w", pady=(0, 8))
+        for column_index, turn_value in enumerate(["1", "2", "3", "4"]):
+            ttk.Radiobutton(
+                turns_frame,
+                text=turn_value,
+                value=turn_value,
+                variable=self.annotation_turn_var,
+            ).grid(row=0, column=column_index, sticky="w", padx=(0, 8 if column_index < 3 else 0))
 
         ttk.Label(controls, text="Success").grid(row=6, column=0, sticky="w")
         success_frame = ttk.Frame(controls)
@@ -455,19 +461,13 @@ class SynergieToolsApp:
         for label, value in [("Fall", "0"), ("Success", "1"), ("Unknown", "2")]:
             ttk.Radiobutton(success_frame, text=label, value=value, variable=self.annotation_success_var).pack(anchor="w")
 
-        ttk.Label(controls, text="Video status").grid(row=8, column=0, sticky="w")
-        video_frame = ttk.Frame(controls)
-        video_frame.grid(row=9, column=0, sticky="w", pady=(0, 8))
-        for value, label in operations.ANNOTATION_VIDEO_STATUS_OPTIONS:
-            ttk.Radiobutton(video_frame, text=label, value=value, variable=self.annotation_video_status_var).pack(anchor="w")
+        ttk.Label(controls, text="Review status").grid(row=8, column=0, sticky="w")
+        review_frame = ttk.Frame(controls)
+        review_frame.grid(row=9, column=0, sticky="w", pady=(0, 8))
+        for value, label in operations.ANNOTATION_REVIEW_STATUS_OPTIONS:
+            ttk.Radiobutton(review_frame, text=label, value=value, variable=self.annotation_review_status_var).pack(anchor="w")
 
-        ttk.Label(controls, text="Detection status").grid(row=10, column=0, sticky="w")
-        detection_frame = ttk.Frame(controls)
-        detection_frame.grid(row=11, column=0, sticky="w", pady=(0, 8))
-        for value, label in operations.ANNOTATION_DETECTION_STATUS_OPTIONS:
-            ttk.Radiobutton(detection_frame, text=label, value=value, variable=self.annotation_detection_status_var).pack(anchor="w")
-
-        ttk.Button(controls, text="Save current annotation", command=self._save_current_annotation).grid(row=12, column=0, sticky="w", pady=(8, 0))
+        ttk.Button(controls, text="Save current annotation", command=self._save_current_annotation).grid(row=10, column=0, sticky="w", pady=(8, 0))
         self._refresh_annotation_files()
 
     def _build_plot_canvas(self) -> None:
@@ -1049,10 +1049,9 @@ class SynergieToolsApp:
         type_value = int(float(row.get("type", 8)))
         type_key = next((key for key, _label, value in operations.ANNOTATION_JUMP_TYPE_OPTIONS if value == type_value), "exclude")
         self.annotation_type_var.set(type_key)
-        self.annotation_turn_var.set("" if row.get("turns", "") != row.get("turns", "") else str(row.get("turns", "")))
+        self.annotation_turn_var.set(operations.annotation_turn_value_for_ui(type_key, row.get("turns", "")))
         self.annotation_success_var.set(str(int(float(row.get("success", 2)))))
-        self.annotation_video_status_var.set(str(row.get("video_status", "visible")))
-        self.annotation_detection_status_var.set(str(row.get("detection_status", "detected_jump")))
+        self.annotation_review_status_var.set(operations.annotation_review_status_from_row(row))
         self.annotation_athlete_var.set(str(row.get("athlete_id", row.get("skater", ""))))
         self._sync_annotation_turn_options()
         self._refresh_annotation_video_context()
@@ -1060,7 +1059,6 @@ class SynergieToolsApp:
 
     def _sync_annotation_turn_options(self) -> None:
         options = operations.annotation_turn_options(self.annotation_type_var.get())
-        self.annotation_turn_box.configure(values=options)
         if self.annotation_turn_var.get() not in options:
             self.annotation_turn_var.set(options[0] if options else "")
 
@@ -1376,11 +1374,15 @@ class SynergieToolsApp:
             value for key, _label, value in operations.ANNOTATION_JUMP_TYPE_OPTIONS
             if key == self.annotation_type_var.get()
         )
+        backend_status = operations.annotation_review_status_to_backend(self.annotation_review_status_var.get())
         self.annotation_dataframe.at[index, "type"] = type_value
-        self.annotation_dataframe.at[index, "turns"] = self.annotation_turn_var.get()
+        self.annotation_dataframe.at[index, "turns"] = operations.annotation_turn_value_for_storage(
+            self.annotation_type_var.get(),
+            self.annotation_turn_var.get(),
+        )
         self.annotation_dataframe.at[index, "success"] = int(self.annotation_success_var.get())
-        self.annotation_dataframe.at[index, "video_status"] = self.annotation_video_status_var.get()
-        self.annotation_dataframe.at[index, "detection_status"] = self.annotation_detection_status_var.get()
+        self.annotation_dataframe.at[index, "video_status"] = backend_status["video_status"]
+        self.annotation_dataframe.at[index, "detection_status"] = backend_status["detection_status"]
         self.annotation_dataframe.at[index, "athlete_id"] = self.annotation_athlete_var.get()
         self.annotation_dataframe.to_csv(self.annotation_file_path, index=False)
         self._refresh_annotation_jump_list()

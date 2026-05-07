@@ -23,14 +23,9 @@ ANNOTATION_JUMP_TYPE_OPTIONS = [
 ]
 
 
-ANNOTATION_VIDEO_STATUS_OPTIONS = [
-    ("visible", "Visible on video"),
-    ("not_seen_on_video", "Not seen on video"),
-]
-
-
-ANNOTATION_DETECTION_STATUS_OPTIONS = [
-    ("detected_jump", "Detected jump"),
+ANNOTATION_REVIEW_STATUS_OPTIONS = [
+    ("normal", "Seen jump"),
+    ("not_seen_on_video", "Unseen on video"),
     ("not_a_jump", "Not a jump"),
     ("manual_missing_jump", "Missed jump added manually"),
 ]
@@ -106,11 +101,59 @@ def annotation_turn_options(jump_type: str | int | None) -> list[str]:
     if jump_type is None:
         return ["1", "2", "3", "4"]
     normalized = str(jump_type).strip().lower()
-    if normalized in {"5", "axel"}:
-        return ["1.5", "2.5", "3.5", "4.5"]
     if normalized in {"8", "exclude", "none"}:
         return []
     return ["1", "2", "3", "4"]
+
+
+def annotation_turn_value_for_storage(jump_type: str | int | None, ui_turn_value: str | int | float | None) -> str:
+    if ui_turn_value is None:
+        return ""
+    normalized_turn = str(ui_turn_value).strip()
+    if not normalized_turn:
+        return ""
+    normalized_type = "" if jump_type is None else str(jump_type).strip().lower()
+    if normalized_type in {"5", "axel"}:
+        return f"{int(float(normalized_turn))}.5"
+    return str(int(float(normalized_turn))) if "." in normalized_turn else normalized_turn
+
+
+def annotation_turn_value_for_ui(jump_type: str | int | None, stored_turn_value) -> str:
+    if stored_turn_value is None or stored_turn_value != stored_turn_value:
+        return ""
+    normalized_type = "" if jump_type is None else str(jump_type).strip().lower()
+    normalized_turn = str(stored_turn_value).strip()
+    if not normalized_turn:
+        return ""
+    numeric_value = _safe_float(normalized_turn, default=float("nan"))
+    if numeric_value != numeric_value:
+        return normalized_turn
+    if normalized_type in {"5", "axel"}:
+        return str(int(numeric_value))
+    return str(int(numeric_value))
+
+
+def annotation_review_status_from_row(row) -> str:
+    detection_status = str(row.get("detection_status", "detected_jump"))
+    video_status = str(row.get("video_status", "visible"))
+    if detection_status == "manual_missing_jump":
+        return "manual_missing_jump"
+    if detection_status == "not_a_jump":
+        return "not_a_jump"
+    if video_status == "not_seen_on_video":
+        return "not_seen_on_video"
+    return "normal"
+
+
+def annotation_review_status_to_backend(review_status: str) -> dict:
+    normalized = str(review_status or "normal")
+    if normalized == "manual_missing_jump":
+        return {"video_status": "visible", "detection_status": "manual_missing_jump"}
+    if normalized == "not_a_jump":
+        return {"video_status": "visible", "detection_status": "not_a_jump"}
+    if normalized == "not_seen_on_video":
+        return {"video_status": "not_seen_on_video", "detection_status": "detected_jump"}
+    return {"video_status": "visible", "detection_status": "detected_jump"}
 
 
 def annotation_metadata_path(annotation_csv_path: str | Path) -> Path:

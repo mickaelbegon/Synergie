@@ -94,11 +94,31 @@ class OperationsTests(unittest.TestCase):
             self.assertEqual(len(files), 1)
             self.assertEqual(files[0]["sensor_id"], "1")
 
-    def test_annotation_turn_options_uses_half_rotations_for_axel(self):
-        self.assertEqual(operations.annotation_turn_options("Axel"), ["1.5", "2.5", "3.5", "4.5"])
-        self.assertEqual(operations.annotation_turn_options(5), ["1.5", "2.5", "3.5", "4.5"])
+    def test_annotation_turn_options_keep_simple_radios_for_axel(self):
+        self.assertEqual(operations.annotation_turn_options("Axel"), ["1", "2", "3", "4"])
+        self.assertEqual(operations.annotation_turn_options(5), ["1", "2", "3", "4"])
         self.assertEqual(operations.annotation_turn_options("Loop"), ["1", "2", "3", "4"])
         self.assertEqual(operations.annotation_turn_options("exclude"), [])
+
+    def test_annotation_turn_value_helpers_convert_axel_half_turns_on_save(self):
+        self.assertEqual(operations.annotation_turn_value_for_storage("axel", "2"), "2.5")
+        self.assertEqual(operations.annotation_turn_value_for_storage("loop", "2"), "2")
+        self.assertEqual(operations.annotation_turn_value_for_ui("axel", "3.5"), "3")
+        self.assertEqual(operations.annotation_turn_value_for_ui("loop", "3"), "3")
+
+    def test_annotation_review_status_maps_to_backend_columns(self):
+        self.assertEqual(
+            operations.annotation_review_status_to_backend("not_seen_on_video"),
+            {"video_status": "not_seen_on_video", "detection_status": "detected_jump"},
+        )
+        self.assertEqual(
+            operations.annotation_review_status_to_backend("not_a_jump"),
+            {"video_status": "visible", "detection_status": "not_a_jump"},
+        )
+        self.assertEqual(
+            operations.annotation_review_status_from_row({"video_status": "visible", "detection_status": "manual_missing_jump"}),
+            "manual_missing_jump",
+        )
 
     def test_list_new_imu_sessions_groups_files_by_shared_timestamp(self):
         with tempfile.TemporaryDirectory() as tmpdir:
