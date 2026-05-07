@@ -112,6 +112,10 @@ class SynergieToolsApp:
         self.train_figure = None
         self.train_axes = None
         self.train_canvas = None
+        self.train_confusion_figure = None
+        self.train_confusion_ax = None
+        self.train_confusion_canvas = None
+        self._train_confusion_colorbar = None
         self.quality_figure = None
         self.quality_axes = None
         self.quality_canvas = None
@@ -592,6 +596,18 @@ class SynergieToolsApp:
         self.train_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._draw_placeholder_training_plot()
 
+    def _build_train_confusion_canvas(self) -> None:
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        from matplotlib.figure import Figure
+
+        figure = Figure(figsize=(4.2, 3.8), dpi=100)
+        axis = figure.add_subplot(111)
+        self.train_confusion_figure = figure
+        self.train_confusion_ax = axis
+        self.train_confusion_canvas = FigureCanvasTkAgg(figure, master=self.train_confusion_container)
+        self.train_confusion_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self._draw_placeholder_confusion_matrix()
+
     def _build_quality_plot_canvas(self) -> None:
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
         from matplotlib.figure import Figure
@@ -713,12 +729,26 @@ class SynergieToolsApp:
         self.train_plot_container.grid(row=0, column=0, sticky="nsew")
         self._build_train_plot_canvas()
 
-        log_frame = ttk.LabelFrame(results, text="Training Log", padding=8)
-        log_frame.grid(row=1, column=0, sticky="nsew")
+        bottom_results = ttk.Frame(results)
+        bottom_results.grid(row=1, column=0, sticky="nsew")
+        bottom_results.columnconfigure(0, weight=1)
+        bottom_results.columnconfigure(1, weight=1)
+        bottom_results.rowconfigure(0, weight=1)
+
+        log_frame = ttk.LabelFrame(bottom_results, text="Training Log", padding=8)
+        log_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         self.train_log = scrolledtext.ScrolledText(log_frame, height=14, wrap=tk.WORD)
         self.train_log.grid(row=0, column=0, sticky="nsew")
+
+        confusion_frame = ttk.LabelFrame(bottom_results, text="Confusion Matrix", padding=8)
+        confusion_frame.grid(row=0, column=1, sticky="nsew")
+        confusion_frame.columnconfigure(0, weight=1)
+        confusion_frame.rowconfigure(0, weight=1)
+        self.train_confusion_container = ttk.Frame(confusion_frame)
+        self.train_confusion_container.grid(row=0, column=0, sticky="nsew")
+        self._build_train_confusion_canvas()
         self._refresh_pretrained_models()
         self._sync_pretrained_controls()
         self._refresh_training_dataset_stats()
@@ -1020,6 +1050,27 @@ class SynergieToolsApp:
         self.train_figure.tight_layout()
         self.train_canvas.draw_idle()
 
+    def _draw_placeholder_confusion_matrix(self) -> None:
+        if self.train_confusion_ax is None:
+            return
+        if self._train_confusion_colorbar is not None:
+            self._train_confusion_colorbar.remove()
+            self._train_confusion_colorbar = None
+        self.train_confusion_ax.clear()
+        self.train_confusion_ax.set_title("Confusion Matrix")
+        self.train_confusion_ax.text(
+            0.5,
+            0.5,
+            "Run a training to see the confusion matrix",
+            ha="center",
+            va="center",
+            transform=self.train_confusion_ax.transAxes,
+        )
+        self.train_confusion_ax.set_xticks([])
+        self.train_confusion_ax.set_yticks([])
+        self.train_confusion_figure.tight_layout()
+        self.train_confusion_canvas.draw_idle()
+
     def _draw_placeholder_quality_plot(self) -> None:
         if self.quality_axes is None:
             return
@@ -1145,6 +1196,69 @@ class SynergieToolsApp:
         accuracy_ax.legend(loc="best", fontsize=8)
         self.train_figure.tight_layout()
         self.train_canvas.draw_idle()
+
+    def _draw_confusion_matrix(self, summary: dict) -> None:
+        if self.train_confusion_ax is None:
+            return
+
+        matrix = summary.get("confusion_matrix") or []
+        if not matrix:
+            self._draw_placeholder_confusion_matrix()
+            return
+
+        import numpy as np
+
+        axis = self.train_confusion_ax
+        axis.clear()
+        matrix_array = np.array(matrix, dtype=float)
+        image = axis.imshow(matrix_array, cmap="YlOrRd")
+        labels = self._confusion_matrix_labels(summary, len(matrix_array))
+        axis.set_title("Confusion Matrix")
+        axis.set_xlabel("Predicted")
+        axis.set_ylabel("True")
+        axis.set_xticks(range(len(labels)))
+        axis.set_yticks(range(len(labels)))
+        axis.set_xticklabels(labels, rotation=25, ha="right")
+        axis.set_yticklabels(labels)
+
+        max_value = float(matrix_array.max()) if matrix_array.size else 0.0
+        threshold = max_value / 2.0 if max_value > 0 else 0.0
+        for row_index in range(matrix_array.shape[0]):
+            for column_index in range(matrix_array.shape[1]):
+                value = matrix_array[row_index, column_index]
+                axis.text(
+                    column_index,
+                    row_index,
+                    f"{int(value)}",
+                    ha="center",
+                    va="center",
+                    color="white" if value > threshold else "black",
+                    fontsize=9,
+                    fontweight="bold",
+                )
+
+        if getattr(self, "_train_confusion_colorbar", None) is not None:
+            self._train_confusion_colorbar.remove()
+        self._train_confusion_colorbar = self.train_confusion_figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
+        self._train_confusion_colorbar.set_label("Samples")
+        self.train_confusion_figure.tight_layout()
+        self.train_confusion_canvas.draw_idle()
+
+    def _confusion_matrix_labels(self, summary: dict, matrix_size: int) -> list[str]:
+        task = summary.get("task", self.train_task_var.get())
+        if task == "success" and matrix_size == 2:
+            return ["Fall", "Success"]
+        if task == "type":
+            type_labels = {
+                0: "Toe",
+                1: "Flip",
+                2: "Lutz",
+                3: "Sal",
+                4: "Loop",
+                5: "Axel",
+            }
+            return [type_labels.get(index, str(index)) for index in range(matrix_size)]
+        return [str(index) for index in range(matrix_size)]
 
     def _refresh_training_dataset_stats(self) -> None:
         try:
@@ -1848,6 +1962,7 @@ class SynergieToolsApp:
         self.train_log.delete("1.0", tk.END)
         self.train_quality_summary_var.set("Training in progress...")
         self._draw_placeholder_training_plot()
+        self._draw_placeholder_confusion_matrix()
 
         def action() -> None:
             epochs = int(self.epochs_var.get())
@@ -1865,6 +1980,7 @@ class SynergieToolsApp:
             summary = operations.train_model(task, self.dataset_var.get(), epochs, architecture, pretrained_model_id=pretrained_model_id)
             formatted_summary = self._format_training_quality_summary(summary)
             self.root.after(0, lambda: self._draw_training_history(summary))
+            self.root.after(0, lambda: self._draw_confusion_matrix(summary))
             self.root.after(0, lambda: self.train_quality_summary_var.set(formatted_summary))
             self.root.after(0, lambda: self._log(self.train_log, formatted_summary))
             self.root.after(0, lambda: self._log(self.train_log, f"Confusion matrix: {summary.get('confusion_matrix', [])}"))

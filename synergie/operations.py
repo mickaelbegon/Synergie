@@ -635,6 +635,7 @@ def train_model(
         )
         summary["saved_model"] = registered
         summary["latest_model_path"] = str(latest_path).replace("\\", "/")
+        summary["task"] = task
         return summary
 
     if task == "success":
@@ -663,6 +664,7 @@ def train_model(
         )
         summary["saved_model"] = registered
         summary["latest_model_path"] = str(latest_path).replace("\\", "/")
+        summary["task"] = task
         return summary
 
     raise ValueError(f"Unsupported training task: {task}")
