@@ -94,6 +94,12 @@ class OperationsTests(unittest.TestCase):
             self.assertEqual(len(files), 1)
             self.assertEqual(files[0]["sensor_id"], "1")
 
+    def test_annotation_turn_options_uses_half_rotations_for_axel(self):
+        self.assertEqual(operations.annotation_turn_options("Axel"), ["1.5", "2.5", "3.5", "4.5"])
+        self.assertEqual(operations.annotation_turn_options(5), ["1.5", "2.5", "3.5", "4.5"])
+        self.assertEqual(operations.annotation_turn_options("Loop"), ["1", "2", "3", "4"])
+        self.assertEqual(operations.annotation_turn_options("exclude"), [])
+
     def test_session_synchro_reads_known_session_metadata(self):
         self.assertEqual(
             operations.session_synchro("1331"),

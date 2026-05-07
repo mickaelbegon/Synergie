@@ -11,6 +11,17 @@ from synergie import pretrained_models
 from synergie import session_store
 
 
+ANNOTATION_JUMP_TYPE_OPTIONS = [
+    ("toe_loop", "Toe loop", 0),
+    ("flip", "Flip", 1),
+    ("lutz", "Lutz", 2),
+    ("salchow", "Salchow", 3),
+    ("loop", "Loop", 4),
+    ("axel", "Axel", 5),
+    ("exclude", "Exclude", 8),
+]
+
+
 def list_sessions() -> list[str]:
     constants.sessions = session_store.load_sessions()
     return sorted(constants.sessions)
@@ -69,6 +80,17 @@ def next_jumplist_output_path(directory: str | Path) -> Path:
         if not candidate.exists():
             return candidate
         index += 1
+
+
+def annotation_turn_options(jump_type: str | int | None) -> list[str]:
+    if jump_type is None:
+        return ["1", "2", "3", "4"]
+    normalized = str(jump_type).strip().lower()
+    if normalized in {"5", "axel"}:
+        return ["1.5", "2.5", "3.5", "4.5"]
+    if normalized in {"8", "exclude", "none"}:
+        return []
+    return ["1", "2", "3", "4"]
 
 
 def parse_new_imu_filename(path: str | Path) -> dict:
