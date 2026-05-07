@@ -363,14 +363,10 @@ class SynergieToolsApp:
         controls.grid(row=3, column=0, sticky="nsew", pady=(12, 0))
         controls.columnconfigure(0, weight=1)
 
-        right_panel = ttk.Frame(parent)
+        right_panel = ttk.Panedwindow(parent, orient=tk.HORIZONTAL)
         right_panel.grid(row=0, column=1, sticky="nsew")
-        right_panel.columnconfigure(0, weight=3)
-        right_panel.columnconfigure(1, weight=2)
-        right_panel.rowconfigure(0, weight=1)
 
         video_frame = ttk.LabelFrame(right_panel, text="Video Review", padding=8)
-        video_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
         video_frame.columnconfigure(1, weight=1)
         video_frame.rowconfigure(2, weight=1)
 
@@ -434,12 +430,13 @@ class SynergieToolsApp:
         ttk.Button(sync_buttons, text="Clear current IMU sync", command=self._clear_current_sensor_sync).grid(row=0, column=1, sticky="w", padx=(6, 0))
 
         plot_frame = ttk.LabelFrame(right_panel, text="Jump Signals", padding=8)
-        plot_frame.grid(row=0, column=1, sticky="nsew")
         plot_frame.columnconfigure(0, weight=1)
         plot_frame.rowconfigure(0, weight=1)
         self.annotation_plot_container = ttk.Frame(plot_frame)
         self.annotation_plot_container.grid(row=0, column=0, sticky="nsew")
         self._build_annotation_plot_canvas()
+        right_panel.add(video_frame, weight=3)
+        right_panel.add(plot_frame, weight=2)
 
         ttk.Label(controls, text="Athlete ID").grid(row=0, column=0, sticky="w")
         ttk.Label(controls, textvariable=self.annotation_athlete_var).grid(row=1, column=0, sticky="w", pady=(0, 8))
