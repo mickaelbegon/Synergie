@@ -7,6 +7,13 @@ from synergie import operations
 from synergie import pretrained_models
 from synergie import session_store
 
+try:
+    import numpy  # noqa: F401
+
+    HAS_NUMPY = True
+except Exception:
+    HAS_NUMPY = False
+
 
 class OperationsTests(unittest.TestCase):
     def test_list_session_csv_files_returns_matching_csvs(self):
@@ -124,6 +131,7 @@ class OperationsTests(unittest.TestCase):
             "not_seen_on_video",
         )
 
+    @unittest.skipUnless(HAS_NUMPY, "numpy is not available")
     def test_analyze_jump_quality_flags_missing_file_and_saturation(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             dataset_root = Path(tmpdir)
@@ -263,8 +271,8 @@ class OperationsTests(unittest.TestCase):
         original_file = pretrained_models.PRETRAINED_MODELS_FILE
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "pretrained_models.json"
-            model_dir = Path(tmpdir) / "existing_model"
-            model_dir.mkdir()
+            model_dir = Path(tmpdir) / "existing_model.keras"
+            model_dir.write_text("placeholder", encoding="utf-8")
             config_path.write_text(
                 "["
                 "{\"id\":\"ok\",\"label\":\"Compatible\",\"task\":\"type\",\"architecture\":\"inceptiontime\",\"path\":\""

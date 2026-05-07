@@ -11,6 +11,11 @@ PRETRAINED_MODELS_FILE = Path("config") / "pretrained_models.json"
 MODEL_ARCHIVE_ROOT = Path("core") / "model" / "saved_models" / "archive"
 
 
+def supports_training_reload(path: str | Path) -> bool:
+    model_path = Path(path)
+    return model_path.is_file() and model_path.suffix.lower() in {".keras", ".h5"}
+
+
 def load_pretrained_models() -> list[dict]:
     if not PRETRAINED_MODELS_FILE.exists():
         return []
@@ -18,6 +23,7 @@ def load_pretrained_models() -> list[dict]:
         models = json.load(handle)
     for model in models:
         model["path_exists"] = Path(model["path"]).exists()
+        model["compatible"] = bool(model.get("compatible", True)) and supports_training_reload(model["path"])
     return models
 
 
@@ -64,7 +70,7 @@ def build_trained_model_id(task: str, architecture: str, trained_at: datetime | 
 
 def build_trained_model_path(task: str, architecture: str, trained_at: datetime | None = None) -> Path:
     model_id = build_trained_model_id(task, architecture, trained_at=trained_at)
-    return MODEL_ARCHIVE_ROOT / _slugify(task) / model_id
+    return MODEL_ARCHIVE_ROOT / _slugify(task) / f"{model_id}.keras"
 
 
 def register_trained_model(

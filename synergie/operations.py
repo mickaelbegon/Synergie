@@ -592,9 +592,10 @@ def train_model(
         pretrained_entry["architecture"] if pretrained_entry else model.default_architecture(task)
     )
     run_path = pretrained_models.build_trained_model_path(task, selected_architecture)
+    run_path.parent.mkdir(parents=True, exist_ok=True)
     if task == "type":
         model_instance = (
-            model.load_model(pretrained_entry["path"])
+            model.load_model(pretrained_entry["path"], for_training=True)
             if pretrained_entry
             else model.build_model(task, selected_architecture)
         )
@@ -607,8 +608,8 @@ def train_model(
         latest_path = Path(constants.modeltype_filepath)
         _promote_trained_model(run_path, latest_path)
         registered = pretrained_models.register_trained_model(
-            model_id=run_path.name,
-            label=f"Type {selected_architecture} {run_path.name}",
+            model_id=run_path.stem,
+            label=f"Type {selected_architecture} {run_path.stem}",
             task=task,
             architecture=selected_architecture,
             path=str(run_path).replace("\\", "/"),
@@ -622,7 +623,7 @@ def train_model(
 
     if task == "success":
         model_instance = (
-            model.load_model(pretrained_entry["path"])
+            model.load_model(pretrained_entry["path"], for_training=True)
             if pretrained_entry
             else model.build_model(task, selected_architecture)
         )
@@ -635,8 +636,8 @@ def train_model(
         latest_path = Path(constants.modelsuccess_filepath)
         _promote_trained_model(run_path, latest_path)
         registered = pretrained_models.register_trained_model(
-            model_id=run_path.name,
-            label=f"Success {selected_architecture} {run_path.name}",
+            model_id=run_path.stem,
+            label=f"Success {selected_architecture} {run_path.stem}",
             task=task,
             architecture=selected_architecture,
             path=str(run_path).replace("\\", "/"),
@@ -653,9 +654,11 @@ def train_model(
 
 def _promote_trained_model(source_path: Path, latest_path: Path) -> None:
     latest_path.parent.mkdir(parents=True, exist_ok=True)
-    if latest_path.exists():
+    if latest_path.is_dir():
         shutil.rmtree(latest_path, onerror=_handle_remove_readonly)
-    shutil.copytree(source_path, latest_path)
+    elif latest_path.exists():
+        latest_path.unlink()
+    shutil.copy2(source_path, latest_path)
 
 
 def _handle_remove_readonly(function, path, _excinfo) -> None:

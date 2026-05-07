@@ -4,8 +4,8 @@ from synergie.session_store import load_sessions
 
 treshold = -0.2
 
-modeltype_filepath = "core/model/saved_models/checkpoint"
-modelsuccess_filepath = "core/model/saved_models/success"
+modeltype_filepath = "core/model/saved_models/checkpoint.keras"
+modelsuccess_filepath = "core/model/saved_models/success.keras"
 
 fields_to_keep = ["Euler_X","Euler_Y","Euler_Z","Gyr_X", "Gyr_Y", "Gyr_Z", "Acc_X", "Acc_Y", "Acc_Z", "Combination"]
 

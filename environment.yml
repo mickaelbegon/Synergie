@@ -13,6 +13,7 @@ dependencies:
   - pip:
       - tensorflow==2.20.0
       - keras==3.14.0
+      - h5py==3.14.0
       - keras-tuner==1.4.7
       - firebase-admin==7.1.0
       - ttkbootstrap==1.10.1

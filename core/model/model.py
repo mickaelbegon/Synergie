@@ -1,4 +1,6 @@
 import keras
+import numpy as np
+import tensorflow as tf
 from keras import layers
 
 from synergie.config import SUCCESS_WINDOW_FRAMES, TYPE_WINDOW_FRAMES
@@ -219,5 +221,43 @@ def save_model(model, path="saved_models/model.keras"):
     keras.saving.save_model(model, path, overwrite=True)
 
 
-def load_model(path="saved_models/model.keras"):
+class LegacySavedModelPredictor:
+    def __init__(self, path: str):
+        self.path = path
+        self._loaded = tf.saved_model.load(path)
+        self._signature = self._loaded.signatures["serving_default"]
+        self._output_key = next(iter(self._signature.structured_outputs))
+
+    def predict(self, data, verbose: int = 0):
+        if isinstance(data, dict):
+            inputs = {
+                key: tf.convert_to_tensor(value, dtype=tf.float32)
+                for key, value in data.items()
+            }
+        else:
+            inputs = {"temporal_input": tf.convert_to_tensor(data, dtype=tf.float32)}
+        outputs = self._signature(**inputs)
+        return outputs[self._output_key].numpy()
+
+
+def _legacy_saved_model_dir(path: str) -> str | None:
+    candidate = path
+    if tf.io.gfile.isdir(candidate):
+        return candidate
+    if path.endswith(".keras") or path.endswith(".h5"):
+        fallback = path.rsplit(".", 1)[0]
+        if tf.io.gfile.isdir(fallback):
+            return fallback
+    return None
+
+
+def load_model(path="saved_models/model.keras", for_training: bool = False):
+    legacy_dir = _legacy_saved_model_dir(path)
+    if legacy_dir is not None and not tf.io.gfile.exists(path):
+        if for_training:
+            raise ValueError(
+                f"Pretrained model '{path}' uses legacy SavedModel format and cannot be reused for training with Keras 3. "
+                "Retrain once to create a new .keras checkpoint."
+            )
+        return LegacySavedModelPredictor(legacy_dir)
     return keras.saving.load_model(path)

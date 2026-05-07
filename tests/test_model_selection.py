@@ -26,8 +26,8 @@ class ModelSelectionTests(unittest.TestCase):
         tcn_model = model.build_model("success", "tcn")
         lstm_model = model.build_model("success", "lstm")
 
-        self.assertEqual(tcn_model.get_layer("temporal_input").input_shape[0][1:], (SUCCESS_WINDOW_FRAMES, 10))
-        self.assertEqual(lstm_model.get_layer("temporal_input").input_shape[0][1:], (SUCCESS_WINDOW_FRAMES, 10))
+        self.assertEqual(tuple(tcn_model.inputs[0].shape[1:]), (SUCCESS_WINDOW_FRAMES, 10))
+        self.assertEqual(tuple(lstm_model.inputs[0].shape[1:]), (SUCCESS_WINDOW_FRAMES, 10))
 
 
 if __name__ == "__main__":
