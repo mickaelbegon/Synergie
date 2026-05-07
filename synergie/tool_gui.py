@@ -28,6 +28,15 @@ class SynergieToolsApp:
         "type": ["inceptiontime", "transformer"],
         "success": ["tcn", "lstm"],
     }
+    ANNOTATION_SHORTCUTS = {
+        "t": "toe_loop",
+        "f": "flip",
+        "z": "lutz",
+        "s": "salchow",
+        "l": "loop",
+        "a": "axel",
+        "x": "exclude",
+    }
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -134,6 +143,7 @@ class SynergieToolsApp:
 
         notebook = ttk.Notebook(self.root)
         notebook.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        self.notebook = notebook
 
         sessions_tab = ttk.Frame(notebook, padding=12)
         process_tab = ttk.Frame(notebook, padding=12)
@@ -170,6 +180,7 @@ class SynergieToolsApp:
         footer.grid(row=2, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
         ttk.Label(footer, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
+        self.root.bind_all("<KeyPress>", self._on_global_keypress)
 
     def _build_process_tab(self, parent: ttk.Frame) -> None:
         for index in range(3):
@@ -436,13 +447,24 @@ class SynergieToolsApp:
         ttk.Label(controls, text="Jump type").grid(row=2, column=0, sticky="w")
         type_frame = ttk.Frame(controls)
         type_frame.grid(row=3, column=0, sticky="w", pady=(0, 8))
-        for index, (key, label, _value) in enumerate(operations.ANNOTATION_JUMP_TYPE_OPTIONS):
+        shortcut_labels = {
+            "toe_loop": ("Toe loop", 0),
+            "flip": ("Flip", 0),
+            "lutz": ("Lutz", 2),
+            "salchow": ("Salchow", 0),
+            "loop": ("Loop", 0),
+            "axel": ("Axel", 0),
+            "exclude": ("Exclude", 1),
+        }
+        for index, (key, _label, _value) in enumerate(operations.ANNOTATION_JUMP_TYPE_OPTIONS):
+            display_label, underline_index = shortcut_labels[key]
             ttk.Radiobutton(
                 type_frame,
-                text=label,
+                text=display_label,
                 value=key,
                 variable=self.annotation_type_var,
                 command=self._sync_annotation_turn_options,
+                underline=underline_index,
             ).grid(row=index, column=0, sticky="w")
 
         ttk.Label(controls, text="Turns").grid(row=4, column=0, sticky="w")
@@ -454,6 +476,7 @@ class SynergieToolsApp:
                 text=turn_value,
                 value=turn_value,
                 variable=self.annotation_turn_var,
+                underline=0,
             ).grid(row=0, column=column_index, sticky="w", padx=(0, 8 if column_index < 3 else 0))
 
         ttk.Label(controls, text="Success").grid(row=6, column=0, sticky="w")
@@ -1062,6 +1085,39 @@ class SynergieToolsApp:
         options = operations.annotation_turn_options(self.annotation_type_var.get())
         if self.annotation_turn_var.get() not in options:
             self.annotation_turn_var.set(options[0] if options else "")
+
+    def _annotate_tab_active(self) -> bool:
+        try:
+            return self.notebook.tab(self.notebook.select(), "text") == "Annotate"
+        except Exception:
+            return False
+
+    def _on_global_keypress(self, event) -> None:
+        if not self._annotate_tab_active():
+            return
+        if self.annotation_dataframe is None or self._selected_annotation_index() is None:
+            return
+
+        widget = event.widget
+        if isinstance(widget, (tk.Entry, tk.Text, scrolledtext.ScrolledText)):
+            return
+
+        key = (event.keysym or event.char or "").lower()
+        if not key:
+            return
+
+        if key in self.ANNOTATION_SHORTCUTS:
+            selected_type = self.ANNOTATION_SHORTCUTS[key]
+            self.annotation_type_var.set(selected_type)
+            self._sync_annotation_turn_options()
+            self.status_var.set(f"Annotation jump type selected: {selected_type}")
+            return
+
+        if key in {"1", "2", "3", "4"}:
+            options = operations.annotation_turn_options(self.annotation_type_var.get())
+            if key in options:
+                self.annotation_turn_var.set(key)
+                self.status_var.set(f"Annotation turns selected: {key}")
 
     def _draw_placeholder_annotation_plot(self) -> None:
         if self.annotation_ax is None:
