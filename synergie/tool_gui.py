@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import TYPE_CHECKING
 
@@ -188,6 +189,7 @@ class SynergieToolsApp:
         self.inspect_session_files = tk.Listbox(controls, listvariable=self.inspect_session_files_var, height=5, exportselection=False)
         self.inspect_session_files.grid(row=2, column=1, columnspan=2, sticky="ew", padx=8)
         self.inspect_session_files.bind("<<ListboxSelect>>", self._on_inspect_file_selected)
+        self.inspect_session_files.bind("<Double-1>", self._on_inspect_file_double_clicked)
 
         ttk.Label(controls, textvariable=self.inspect_folder_summary_var, justify=tk.LEFT).grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
         ttk.Label(controls, textvariable=self.inspect_selected_file_info_var, justify=tk.LEFT).grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 8))
@@ -501,12 +503,15 @@ class SynergieToolsApp:
         def metric(value) -> str:
             return "n/a" if value is None else f"{value:.3f}"
 
+        saved_model = summary.get("saved_model") or {}
+        saved_model_text = saved_model.get("id", "not archived yet")
         return (
             f"Model quality: test_acc={metric(summary.get('test_accuracy'))}, "
             f"best_val_acc={metric(summary.get('best_val_accuracy'))}, "
             f"final_val_acc={metric(summary.get('final_val_accuracy'))}, "
             f"epochs={summary.get('epochs_ran', 0)}, "
-            f"test_samples={summary.get('test_samples', 0)}"
+            f"test_samples={summary.get('test_samples', 0)}\n"
+            f"Saved model: {saved_model_text}"
         )
 
     def _refresh_pretrained_models(self) -> None:
@@ -635,9 +640,22 @@ class SynergieToolsApp:
         path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
         if path:
             self.csv_path_var.set(path)
+            self._set_default_output_path(path)
 
     def _pick_output(self) -> None:
-        path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
+        input_path = self.csv_path_var.get().strip()
+        initialdir = None
+        initialfile = None
+        if input_path:
+            suggested_path = self._suggest_output_path(input_path)
+            initialdir = str(suggested_path.parent)
+            initialfile = suggested_path.name
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialdir=initialdir,
+            initialfile=initialfile,
+        )
         if path:
             self.output_path_var.set(path)
 
@@ -666,6 +684,7 @@ class SynergieToolsApp:
         if selection:
             selected_path = self.process_session_files.get(selection[0])
             self.csv_path_var.set(selected_path)
+            self._set_default_output_path(selected_path)
             self.process_selected_file_info_var.set(self._describe_selected_file(selected_path))
 
     def _on_inspect_file_selected(self, _event=None) -> None:
@@ -674,6 +693,16 @@ class SynergieToolsApp:
             selected_path = self.inspect_session_files.get(selection[0])
             self.inspect_csv_path_var.set(selected_path)
             self.inspect_selected_file_info_var.set(self._describe_selected_file(selected_path))
+
+    def _on_inspect_file_double_clicked(self, _event=None) -> None:
+        self._on_inspect_file_selected()
+        self._run_inspection()
+
+    def _suggest_output_path(self, input_path: str) -> str:
+        return str(operations.next_jumplist_output_path(Path(input_path).parent))
+
+    def _set_default_output_path(self, input_path: str) -> None:
+        self.output_path_var.set(self._suggest_output_path(input_path))
 
     def _log(self, widget: scrolledtext.ScrolledText, message: str) -> None:
         widget.insert(tk.END, message + "\n")
@@ -736,6 +765,9 @@ class SynergieToolsApp:
             self.root.after(0, lambda: self.train_quality_summary_var.set(formatted_summary))
             self.root.after(0, lambda: self._log(self.train_log, formatted_summary))
             self.root.after(0, lambda: self._log(self.train_log, f"Confusion matrix: {summary.get('confusion_matrix', [])}"))
+            self.root.after(0, lambda: self._log(self.train_log, f"Saved model path: {summary.get('saved_model', {}).get('path', 'n/a')}"))
+            self.root.after(0, lambda: self._log(self.train_log, f"Latest model alias: {summary.get('latest_model_path', 'n/a')}"))
+            self.root.after(0, self._refresh_pretrained_models)
             self.root.after(0, lambda: self._log(self.train_log, "Training finished."))
             self.root.after(0, lambda: self.status_var.set("Training completed"))
 

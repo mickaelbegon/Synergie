@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 from synergie import operations
@@ -48,6 +49,16 @@ class OperationsTests(unittest.TestCase):
     def test_parse_training_id_from_csv_path_returns_none_for_invalid_name(self):
         csv_path = Path("data/raw/2009/1331/training42.csv")
         self.assertIsNone(operations.parse_training_id_from_csv_path(csv_path))
+
+    def test_next_jumplist_output_path_returns_first_free_increment(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "jumplist_partie1.csv").write_text("x", encoding="utf-8")
+            (root / "jumplist_partie2.csv").write_text("x", encoding="utf-8")
+
+            candidate = operations.next_jumplist_output_path(root)
+
+            self.assertEqual(candidate, root / "jumplist_partie3.csv")
 
     def test_session_synchro_reads_known_session_metadata(self):
         self.assertEqual(
@@ -142,6 +153,43 @@ class OperationsTests(unittest.TestCase):
             self.assertEqual(models[0]["id"], "ok")
             self.assertIn("acc 0.900", operations.format_pretrained_model_label(models[0]))
         pretrained_models.PRETRAINED_MODELS_FILE = original_file
+
+    def test_register_trained_model_persists_unique_entry(self):
+        original_file = pretrained_models.PRETRAINED_MODELS_FILE
+        original_root = pretrained_models.MODEL_ARCHIVE_ROOT
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "pretrained_models.json"
+            archive_root = Path(tmpdir) / "archive"
+            model_path = archive_root / "type" / "type-inceptiontime-20260507-120000"
+            model_path.mkdir(parents=True)
+            pretrained_models.PRETRAINED_MODELS_FILE = config_path
+            pretrained_models.MODEL_ARCHIVE_ROOT = archive_root
+
+            model_id = pretrained_models.build_trained_model_id(
+                "type",
+                "inceptiontime",
+                trained_at=datetime(2026, 5, 7, 12, 0, 0),
+            )
+            self.assertEqual(model_id, "type-inceptiontime-20260507-120000")
+
+            entry = pretrained_models.register_trained_model(
+                model_id=model_id,
+                label="Type inceptiontime type-inceptiontime-20260507-120000",
+                task="type",
+                architecture="inceptiontime",
+                path=str(model_path).replace("\\", "/"),
+                dataset="data/annotated/total",
+                performance={"test_accuracy": 0.91, "test_samples": 120},
+                notes="test",
+            )
+
+            self.assertTrue(entry["path_exists"])
+            persisted = pretrained_models.load_pretrained_models()
+            self.assertEqual(len(persisted), 1)
+            self.assertEqual(persisted[0]["id"], model_id)
+            self.assertEqual(persisted[0]["performance"]["test_accuracy"], 0.91)
+        pretrained_models.PRETRAINED_MODELS_FILE = original_file
+        pretrained_models.MODEL_ARCHIVE_ROOT = original_root
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import shutil
 from pathlib import Path
 
 import constants
@@ -56,6 +57,16 @@ def describe_file(path: str | Path) -> dict:
         "suffix": file_path.suffix.lower(),
         "size_bytes": stat.st_size,
     }
+
+
+def next_jumplist_output_path(directory: str | Path) -> Path:
+    directory_path = Path(directory)
+    index = 1
+    while True:
+        candidate = directory_path / f"jumplist_partie{index}.csv"
+        if not candidate.exists():
+            return candidate
+        index += 1
 
 
 def parse_training_id_from_csv_path(csv_path: Path) -> str | None:
@@ -140,6 +151,7 @@ def train_model(
     selected_architecture = architecture or (
         pretrained_entry["architecture"] if pretrained_entry else model.default_architecture(task)
     )
+    run_path = pretrained_models.build_trained_model_path(task, selected_architecture)
     if task == "type":
         model_instance = (
             model.load_model(pretrained_entry["path"])
@@ -149,9 +161,24 @@ def train_model(
         trainer = Trainer(
             dataset.get_type_data(),
             model_instance,
-            constants.modeltype_filepath,
+            str(run_path),
         )
-        return trainer.train(epochs=epochs or 10)
+        summary = trainer.train(epochs=epochs or 10)
+        latest_path = Path(constants.modeltype_filepath)
+        _promote_trained_model(run_path, latest_path)
+        registered = pretrained_models.register_trained_model(
+            model_id=run_path.name,
+            label=f"Type {selected_architecture} {run_path.name}",
+            task=task,
+            architecture=selected_architecture,
+            path=str(run_path).replace("\\", "/"),
+            dataset=dataset_path,
+            performance=summary,
+            notes="Automatically registered after GUI/CLI training.",
+        )
+        summary["saved_model"] = registered
+        summary["latest_model_path"] = str(latest_path).replace("\\", "/")
+        return summary
 
     if task == "success":
         model_instance = (
@@ -162,11 +189,33 @@ def train_model(
         trainer = Trainer(
             dataset.get_success_data(),
             model_instance,
-            constants.modelsuccess_filepath,
+            str(run_path),
         )
-        return trainer.train_success(epochs=epochs or 20)
+        summary = trainer.train_success(epochs=epochs or 20)
+        latest_path = Path(constants.modelsuccess_filepath)
+        _promote_trained_model(run_path, latest_path)
+        registered = pretrained_models.register_trained_model(
+            model_id=run_path.name,
+            label=f"Success {selected_architecture} {run_path.name}",
+            task=task,
+            architecture=selected_architecture,
+            path=str(run_path).replace("\\", "/"),
+            dataset=dataset_path,
+            performance=summary,
+            notes="Automatically registered after GUI/CLI training.",
+        )
+        summary["saved_model"] = registered
+        summary["latest_model_path"] = str(latest_path).replace("\\", "/")
+        return summary
 
     raise ValueError(f"Unsupported training task: {task}")
+
+
+def _promote_trained_model(source_path: Path, latest_path: Path) -> None:
+    latest_path.parent.mkdir(parents=True, exist_ok=True)
+    if latest_path.exists():
+        shutil.rmtree(latest_path)
+    shutil.copytree(source_path, latest_path)
 
 
 def process_csv_file(csv_path: str, synchro: int = 0, output_path: str | None = None) -> Path:
