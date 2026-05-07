@@ -390,12 +390,28 @@ def describe_training_dataset(task: str, dataset_path: str, augment_mirror: bool
         counts[label] = counts.get(label, 0) + 1
 
     base_samples = int(len(filtered))
+    recommended_class_weight = {
+        str(label): round(base_samples / (len(counts) * count), 6)
+        for label, count in sorted(counts.items())
+        if count > 0
+    }
+
+    validation_samples = base_samples - int(base_samples * 0.8)
+    stratified_split_possible = (
+        bool(counts)
+        and len(counts) >= 2
+        and min(counts.values()) >= 2
+        and validation_samples >= len(counts)
+    )
+
     return {
         "task": task,
         "base_samples": base_samples,
         "effective_samples": int(base_samples * (2 if augment_mirror else 1)),
         "unique_skaters": len({row["skater"] for row in filtered}),
         "class_counts": {str(label): counts[label] for label in sorted(counts)},
+        "recommended_class_weight": recommended_class_weight,
+        "stratified_split_possible": stratified_split_possible,
         "augment_mirror": bool(augment_mirror),
     }
 

@@ -80,6 +80,13 @@ class Trainer:
             },
         }
 
+    def _dataset_training_metadata(self):
+        return {
+            "class_weight": dict(self.dataset.class_weight or {}),
+            "stratified_split_used": bool(self.dataset.stratified_split_used),
+            "class_counts": dict(self.dataset.class_counts or {}),
+        }
+
     def train(self, epochs: int = 100, plot: bool = True):
         """
         Do the training, and plot the confusion matrix and losses through epochs
@@ -106,6 +113,7 @@ class Trainer:
             self.plot(self.model_filepath)
         summary = self._history_summary(history)
         summary.update(self.evaluate_best_model(self.model_filepath))
+        summary.update(self._dataset_training_metadata())
         return summary
 
     def train_success(self, epochs: int = 100, plot: bool = True):
@@ -125,7 +133,7 @@ class Trainer:
                 epochs=epochs,
                 validation_data=self.dataset.val_dataset,
                 callbacks=[self.model_save_best(self.model_filepath)],
-                class_weight={0 : 10, 1 : 1}
+                class_weight=self.dataset.class_weight or None,
             )
         except KeyboardInterrupt:
             self.plot(self.model_filepath)
@@ -135,4 +143,5 @@ class Trainer:
             self.plot(self.model_filepath)
         summary = self._history_summary(history)
         summary.update(self.evaluate_best_model(self.model_filepath))
+        summary.update(self._dataset_training_metadata())
         return summary

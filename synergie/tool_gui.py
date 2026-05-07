@@ -917,12 +917,18 @@ class SynergieToolsApp:
 
     def _format_training_dataset_stats(self, stats: dict) -> str:
         class_counts = ", ".join(f"{label}: {count}" for label, count in stats["class_counts"].items())
+        class_weight = ", ".join(
+            f"{label}: {weight:.3f}" for label, weight in stats.get("recommended_class_weight", {}).items()
+        ) or "n/a"
         mirror_text = "yes" if stats["augment_mirror"] else "no"
+        stratified_text = "yes" if stats.get("stratified_split_possible") else "fallback to random split"
         return (
             f"Training set stats ({stats['task']}): "
             f"{stats['base_samples']} labelled jumps, {stats['unique_skaters']} skaters, "
             f"{stats['effective_samples']} effective samples with mirror augmentation ({mirror_text}).\n"
-            f"Class distribution: {class_counts}"
+            f"Class distribution: {class_counts}\n"
+            f"Recommended class weights: {class_weight}\n"
+            f"Stratified train/val split possible: {stratified_text}"
         )
 
     def _format_training_quality_summary(self, summary: dict) -> str:
@@ -931,12 +937,17 @@ class SynergieToolsApp:
 
         saved_model = summary.get("saved_model") or {}
         saved_model_text = saved_model.get("id", "not archived yet")
+        class_weight = ", ".join(
+            f"{label}: {weight:.3f}" for label, weight in (summary.get("class_weight") or {}).items()
+        ) or "n/a"
+        stratified_text = "yes" if summary.get("stratified_split_used") else "no"
         return (
             f"Model quality: test_acc={metric(summary.get('test_accuracy'))}, "
             f"best_val_acc={metric(summary.get('best_val_accuracy'))}, "
             f"final_val_acc={metric(summary.get('final_val_accuracy'))}, "
             f"epochs={summary.get('epochs_ran', 0)}, "
             f"test_samples={summary.get('test_samples', 0)}\n"
+            f"Training config: stratified_split={stratified_text}, class_weight={class_weight}\n"
             f"Saved model: {saved_model_text}"
         )
 

@@ -250,6 +250,8 @@ class OperationsTests(unittest.TestCase):
             self.assertEqual(stats["effective_samples"], 6)
             self.assertEqual(stats["unique_skaters"], 2)
             self.assertEqual(stats["class_counts"], {"0": 1, "1": 2})
+            self.assertEqual(stats["recommended_class_weight"], {"0": 1.5, "1": 0.75})
+            self.assertFalse(stats["stratified_split_possible"])
             self.assertTrue(stats["augment_mirror"])
 
     def test_describe_training_dataset_accepts_float_encoded_labels(self):
@@ -266,6 +268,26 @@ class OperationsTests(unittest.TestCase):
 
             self.assertEqual(stats["base_samples"], 2)
             self.assertEqual(stats["class_counts"], {"0": 1, "1": 1})
+
+    def test_describe_training_dataset_reports_stratified_split_for_balanced_success_labels(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dataset_root = Path(tmpdir)
+            (dataset_root / "jumplist.csv").write_text(
+                "type,success,skater\n"
+                "0,0,alice\n"
+                "0,0,alice\n"
+                "1,1,bob\n"
+                "1,1,bob\n"
+                "2,1,charlie\n"
+                "2,0,charlie\n",
+                encoding="utf-8",
+            )
+
+            stats = operations.describe_training_dataset("success", dataset_root)
+
+            self.assertEqual(stats["class_counts"], {"0": 3, "1": 3})
+            self.assertEqual(stats["recommended_class_weight"], {"0": 1.0, "1": 1.0})
+            self.assertTrue(stats["stratified_split_possible"])
 
     def test_list_pretrained_training_models_filters_compatible_entries(self):
         original_file = pretrained_models.PRETRAINED_MODELS_FILE

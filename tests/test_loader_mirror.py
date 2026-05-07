@@ -28,6 +28,16 @@ class LoaderMirrorTests(unittest.TestCase):
         np.testing.assert_array_equal(mirrored[:, 1], features[:, 1])
         np.testing.assert_array_equal(mirrored[:, 3], features[:, 3])
 
+    def test_compute_class_weight_uses_inverse_frequency(self):
+        weights = Loader._compute_class_weight([0, 0, 0, 1])
+
+        self.assertAlmostEqual(weights[0], 4 / (2 * 3))
+        self.assertAlmostEqual(weights[1], 4 / (2 * 1))
+
+    def test_can_use_stratify_requires_enough_examples_per_class(self):
+        self.assertTrue(Loader._can_use_stratify([0, 0, 1, 1, 0, 1], train_ratio=0.8))
+        self.assertFalse(Loader._can_use_stratify([0, 0, 0, 1], train_ratio=0.8))
+
 
 if __name__ == "__main__":
     unittest.main()

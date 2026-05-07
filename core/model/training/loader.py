@@ -19,6 +19,9 @@ class Dataset:
     scalar_features_test : np.array
     labels_test : np.array
     val_dataset : tf.data.Dataset
+    class_weight: dict[int, float] | None = None
+    stratified_split_used: bool = False
+    class_counts: dict[int, int] | None = None
 
 class Loader:
     """
@@ -63,17 +66,27 @@ class Loader:
                     labelssuccess.append(row['success'])
 
         # label one hot encoding
-        labelEncoder = LabelEncoder()
-        labelstype = np.eye(len(set(labelstype)))[labelEncoder.fit_transform(labelstype)]
-        labelssuccess = np.eye(len(set(labelssuccess)))[labelEncoder.fit_transform(labelssuccess)]
+        type_label_encoder = LabelEncoder()
+        encoded_type_labels = type_label_encoder.fit_transform(labelstype)
+        labelstype = np.eye(len(type_label_encoder.classes_))[encoded_type_labels]
+
+        success_label_encoder = LabelEncoder()
+        encoded_success_labels = success_label_encoder.fit_transform(labelssuccess)
+        labelssuccess = np.eye(len(success_label_encoder.classes_))[encoded_success_labels]
 
         # make a training and validation dataset
 
-        features_train, features_val, self.labels_train, self.labels_val = train_test_split(
+        (
+            features_train,
+            features_val,
+            self.labels_train,
+            self.labels_val,
+            self.type_stratified_split_used,
+        ) = self._split_dataset(
             jumps,
             labelstype,
-            train_size=self.training_config.train_ratio,
-            shuffle=True,
+            encoded_type_labels,
+            train_ratio=self.training_config.train_ratio,
         )
 
         self.temporal_features_test = []
@@ -90,12 +103,23 @@ class Loader:
 
         self.val_dataset = tf.data.Dataset.from_tensor_slices(({"temporal_input" : self.temporal_features_test, "scalar_input" : self.scalar_features_test}, self.labels_val)).batch(16)
 
-        features_train_success, features_val_success, self.labels_train_success, self.labels_val_success = train_test_split(
+        (
+            features_train_success,
+            features_val_success,
+            self.labels_train_success,
+            self.labels_val_success,
+            self.success_stratified_split_used,
+        ) = self._split_dataset(
             jumps_success,
             labelssuccess,
-            train_size=self.training_config.train_ratio,
-            shuffle=True,
+            encoded_success_labels,
+            train_ratio=self.training_config.train_ratio,
         )
+
+        self.type_class_counts = self._class_counts(encoded_type_labels)
+        self.success_class_counts = self._class_counts(encoded_success_labels)
+        self.type_class_weight = self._compute_class_weight(encoded_type_labels)
+        self.success_class_weight = self._compute_class_weight(encoded_success_labels)
 
         self.temporal_features_test_success = []
         self.scalar_features_test_success = []
@@ -118,6 +142,54 @@ class Loader:
                 mirrored[:, field_names.index(column_name)] *= -1
         return mirrored
 
+    @staticmethod
+    def _class_counts(encoded_labels) -> dict[int, int]:
+        counts: dict[int, int] = {}
+        for label in encoded_labels:
+            normalized = int(label)
+            counts[normalized] = counts.get(normalized, 0) + 1
+        return counts
+
+    @classmethod
+    def _compute_class_weight(cls, encoded_labels) -> dict[int, float]:
+        counts = cls._class_counts(encoded_labels)
+        total = sum(counts.values())
+        class_count = len(counts)
+        if total == 0 or class_count == 0:
+            return {}
+        return {
+            label: float(total / (class_count * count))
+            for label, count in counts.items()
+            if count > 0
+        }
+
+    @staticmethod
+    def _can_use_stratify(encoded_labels, train_ratio: float) -> bool:
+        if len(encoded_labels) < 2:
+            return False
+        counts: dict[int, int] = {}
+        for label in encoded_labels:
+            normalized = int(label)
+            counts[normalized] = counts.get(normalized, 0) + 1
+        if len(counts) < 2 or min(counts.values()) < 2:
+            return False
+        test_count = len(encoded_labels) - int(len(encoded_labels) * train_ratio)
+        if test_count <= 0 and len(encoded_labels) > 1:
+            test_count = 1
+        return test_count >= len(counts)
+
+    @classmethod
+    def _split_dataset(cls, features, one_hot_labels, encoded_labels, train_ratio: float):
+        use_stratify = cls._can_use_stratify(encoded_labels, train_ratio)
+        features_train, features_val, labels_train, labels_val = train_test_split(
+            features,
+            one_hot_labels,
+            train_size=train_ratio,
+            shuffle=True,
+            stratify=encoded_labels if use_stratify else None,
+        )
+        return features_train, features_val, labels_train, labels_val, use_stratify
+
     def get_type_data(self):
         data = Dataset(
             np.array(self.temporal_features_train),
@@ -126,7 +198,10 @@ class Loader:
             np.array(self.temporal_features_test),
             np.array(self.scalar_features_test),
             self.labels_val,
-            self.val_dataset
+            self.val_dataset,
+            class_weight=self.type_class_weight,
+            stratified_split_used=self.type_stratified_split_used,
+            class_counts=self.type_class_counts,
         )
         return data
     
@@ -138,6 +213,9 @@ class Loader:
             np.array(self.temporal_features_test_success),
             np.array(self.scalar_features_test_success),
             self.labels_val_success,
-            self.val_dataset_success
+            self.val_dataset_success,
+            class_weight=self.success_class_weight,
+            stratified_split_used=self.success_stratified_split_used,
+            class_counts=self.success_class_counts,
         )
         return data
