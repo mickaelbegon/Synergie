@@ -1193,6 +1193,33 @@ class SynergieToolsApp:
             f"Max |Gyr_X|: {record['max_abs_gyr_x']:.1f} | Max |Acc_X|: {record['max_abs_acc_x']:.2f}"
         )
 
+    def _apply_quality_analysis(self, analysis: dict) -> None:
+        self.quality_analysis = analysis
+        self.quality_summary_var.set(self._format_quality_summary(analysis))
+        self._refresh_quality_suspicious_list()
+        self._draw_quality_analysis(analysis)
+        self.status_var.set(
+            f"Quality scan ready: {analysis['suspicious_count']} suspicious jumps over {analysis['total_labelled_jumps']} labelled jumps"
+        )
+
+    def _run_quality_scan(self) -> None:
+        dataset_path = self.quality_dataset_var.get().strip()
+        if not dataset_path:
+            messagebox.showwarning("Synergie Tools", "Select a dataset folder first.")
+            return
+
+        self.status_var.set("Running quality control scan...")
+        self.quality_summary_var.set("Quality scan in progress...")
+        self.quality_details_var.set("No suspicious jump selected.")
+        self.quality_suspicious_var.set([])
+        self._draw_placeholder_quality_plot()
+
+        def action() -> None:
+            analysis = operations.analyze_jump_quality(dataset_path)
+            self.root.after(0, lambda: self._apply_quality_analysis(analysis))
+
+        self._run_in_thread(action, "Unable to run the quality scan.")
+
     def _pick_csv(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
         if path:
