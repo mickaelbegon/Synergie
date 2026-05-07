@@ -36,6 +36,7 @@ def list_pretrained_models(task: str | None = None, compatible_only: bool = Fals
         if compatible_only and not (model.get("compatible") and model.get("path_exists")):
             continue
         filtered.append(model)
+    filtered.sort(key=_model_recency_sort_key, reverse=True)
     return filtered
 
 
@@ -61,6 +62,22 @@ def save_pretrained_models(models: list[dict]) -> None:
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
     return slug or "model"
+
+
+def _model_recency_sort_key(model: dict) -> tuple[datetime, float, str]:
+    model_id = str(model.get("id", ""))
+    timestamp_match = re.search(r"(\d{8}-\d{6})", model_id)
+    if timestamp_match:
+        try:
+            parsed = datetime.strptime(timestamp_match.group(1), "%Y%m%d-%H%M%S")
+            return (parsed, 0.0, model_id)
+        except ValueError:
+            pass
+
+    model_path = Path(model.get("path", ""))
+    if model_path.exists():
+        return (datetime.min, model_path.stat().st_mtime, model_id)
+    return (datetime.min, 0.0, model_id)
 
 
 def build_trained_model_id(task: str, architecture: str, trained_at: datetime | None = None) -> str:

@@ -313,6 +313,32 @@ class OperationsTests(unittest.TestCase):
             self.assertIn("acc 0.900", operations.format_pretrained_model_label(models[0]))
         pretrained_models.PRETRAINED_MODELS_FILE = original_file
 
+    def test_list_pretrained_training_models_orders_most_recent_first(self):
+        original_file = pretrained_models.PRETRAINED_MODELS_FILE
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "pretrained_models.json"
+            older_model = Path(tmpdir) / "older.keras"
+            newer_model = Path(tmpdir) / "newer.keras"
+            older_model.write_text("older", encoding="utf-8")
+            newer_model.write_text("newer", encoding="utf-8")
+            config_path.write_text(
+                "["
+                "{\"id\":\"success-tcn-20260506-235959\",\"label\":\"Older\",\"task\":\"success\",\"architecture\":\"tcn\",\"path\":\""
+                + str(older_model).replace("\\", "\\\\")
+                + "\",\"compatible\":true,\"notes\":\"older\",\"performance\":{\"test_accuracy\":0.8}},"
+                "{\"id\":\"success-tcn-20260507-071710\",\"label\":\"Newer\",\"task\":\"success\",\"architecture\":\"tcn\",\"path\":\""
+                + str(newer_model).replace("\\", "\\\\")
+                + "\",\"compatible\":true,\"notes\":\"newer\",\"performance\":{\"test_accuracy\":0.85}}"
+                "]",
+                encoding="utf-8",
+            )
+            pretrained_models.PRETRAINED_MODELS_FILE = config_path
+
+            models = operations.list_pretrained_training_models(task="success", compatible_only=True)
+
+            self.assertEqual([model["label"] for model in models], ["Newer", "Older"])
+        pretrained_models.PRETRAINED_MODELS_FILE = original_file
+
     def test_register_trained_model_persists_unique_entry(self):
         original_file = pretrained_models.PRETRAINED_MODELS_FILE
         original_root = pretrained_models.MODEL_ARCHIVE_ROOT
