@@ -35,7 +35,6 @@ class SynergieToolsApp:
         "s": "salchow",
         "l": "loop",
         "a": "axel",
-        "x": "exclude",
     }
 
     def __init__(self, root: tk.Tk) -> None:
@@ -79,6 +78,10 @@ class SynergieToolsApp:
         self.use_pretrained_var = tk.BooleanVar(value=False)
         self.pretrained_model_var = tk.StringVar()
         self.pretrained_models_summary_var = tk.StringVar(value="No pretrained model scan yet.")
+        self.quality_dataset_var = tk.StringVar(value="data/annotated/total")
+        self.quality_summary_var = tk.StringVar(value="Run the quality control analysis to inspect suspicious jumps.")
+        self.quality_details_var = tk.StringVar(value="No suspicious jump selected.")
+        self.quality_suspicious_var = tk.StringVar(value=[])
 
         self.inspect_csv_path_var = tk.StringVar()
         self.inspect_session_var = tk.StringVar(value=sorted(constants.sessions)[0])
@@ -108,8 +111,12 @@ class SynergieToolsApp:
         self.train_figure = None
         self.train_axes = None
         self.train_canvas = None
+        self.quality_figure = None
+        self.quality_axes = None
+        self.quality_canvas = None
         self.annotation_dataframe = None
         self.annotation_file_path: Path | None = None
+        self.quality_analysis: dict | None = None
         self.annotation_metadata: dict = {}
         self.annotation_video_capture = None
         self.annotation_video_fps = 0.0
@@ -151,6 +158,7 @@ class SynergieToolsApp:
         annotate_tab = ttk.Frame(notebook, padding=12)
         inspect_tab = ttk.Frame(notebook, padding=12)
         train_tab = ttk.Frame(notebook, padding=12)
+        quality_tab = ttk.Frame(notebook, padding=12)
         notes_tab = ttk.Frame(notebook, padding=12)
         notebook.add(sessions_tab, text="Sessions")
         notebook.add(process_tab, text="Process CSV")
@@ -158,6 +166,7 @@ class SynergieToolsApp:
         notebook.add(annotate_tab, text="Annotate")
         notebook.add(inspect_tab, text="Inspect IMU")
         notebook.add(train_tab, text="Train")
+        notebook.add(quality_tab, text="Quality Control")
         notebook.add(notes_tab, text="Algo Notes")
 
         sessions_tab.columnconfigure(0, weight=1)
@@ -174,6 +183,7 @@ class SynergieToolsApp:
         self._build_annotate_tab(annotate_tab)
         self._build_inspect_tab(inspect_tab)
         self._build_train_tab(train_tab)
+        self._build_quality_tab(quality_tab)
         self._build_notes_tab(notes_tab)
 
         footer = ttk.Frame(self.root, padding=(12, 0, 12, 12))
@@ -447,7 +457,9 @@ class SynergieToolsApp:
 
         ttk.Label(controls, text="Jump type").grid(row=2, column=0, sticky="w")
         type_frame = ttk.Frame(controls)
-        type_frame.grid(row=3, column=0, sticky="w", pady=(0, 8))
+        type_frame.grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        type_frame.columnconfigure(0, weight=1)
+        type_frame.columnconfigure(1, weight=1)
         shortcut_labels = {
             "toe_loop": ("Toe loop", 0),
             "flip": ("Flip", 0),
@@ -455,12 +467,25 @@ class SynergieToolsApp:
             "salchow": ("Salchow", 0),
             "loop": ("Loop", 0),
             "axel": ("Axel", 0),
-            "exclude": ("Exclude", 1),
         }
-        for index, (key, _label, _value) in enumerate(operations.ANNOTATION_JUMP_TYPE_OPTIONS):
+        toe_frame = ttk.LabelFrame(type_frame, text="Piques", padding=6)
+        toe_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        edge_frame = ttk.LabelFrame(type_frame, text="De carre", padding=6)
+        edge_frame.grid(row=0, column=1, sticky="nsew")
+        for index, (key, _label, _value) in enumerate(operations.ANNOTATION_TOE_JUMP_OPTIONS):
             display_label, underline_index = shortcut_labels[key]
             ttk.Radiobutton(
-                type_frame,
+                toe_frame,
+                text=display_label,
+                value=key,
+                variable=self.annotation_type_var,
+                command=self._sync_annotation_turn_options,
+                underline=underline_index,
+            ).grid(row=index, column=0, sticky="w")
+        for index, (key, _label, _value) in enumerate(operations.ANNOTATION_EDGE_JUMP_OPTIONS):
+            display_label, underline_index = shortcut_labels[key]
+            ttk.Radiobutton(
+                edge_frame,
                 text=display_label,
                 value=key,
                 variable=self.annotation_type_var,
@@ -484,13 +509,25 @@ class SynergieToolsApp:
         success_frame = ttk.Frame(controls)
         success_frame.grid(row=7, column=0, sticky="w", pady=(0, 8))
         for label, value in [("Fall", "0"), ("Success", "1"), ("Unknown", "2")]:
-            ttk.Radiobutton(success_frame, text=label, value=value, variable=self.annotation_success_var).pack(anchor="w")
+            column_index = 0 if value == "0" else 1 if value == "1" else 0
+            row_index = 0 if value in {"0", "1"} else 1
+            ttk.Radiobutton(success_frame, text=label, value=value, variable=self.annotation_success_var).grid(
+                row=row_index,
+                column=column_index,
+                sticky="w",
+                padx=(0, 12),
+            )
 
         ttk.Label(controls, text="Review status").grid(row=8, column=0, sticky="w")
         review_frame = ttk.Frame(controls)
         review_frame.grid(row=9, column=0, sticky="w", pady=(0, 8))
-        for value, label in operations.ANNOTATION_REVIEW_STATUS_OPTIONS:
-            ttk.Radiobutton(review_frame, text=label, value=value, variable=self.annotation_review_status_var).pack(anchor="w")
+        for index, (value, label) in enumerate(operations.ANNOTATION_REVIEW_STATUS_OPTIONS):
+            ttk.Radiobutton(review_frame, text=label, value=value, variable=self.annotation_review_status_var).grid(
+                row=index // 2,
+                column=index % 2,
+                sticky="w",
+                padx=(0, 12),
+            )
 
         ttk.Button(controls, text="Save current annotation", command=self._save_current_annotation).grid(row=10, column=0, sticky="w", pady=(8, 0))
         self._refresh_annotation_files()
@@ -520,6 +557,21 @@ class SynergieToolsApp:
         self.train_canvas = FigureCanvasTkAgg(figure, master=self.train_plot_container)
         self.train_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._draw_placeholder_training_plot()
+
+    def _build_quality_plot_canvas(self) -> None:
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        from matplotlib.figure import Figure
+
+        figure = Figure(figsize=(9, 5.6), dpi=100)
+        counts_ax = figure.add_subplot(221)
+        duration_ax = figure.add_subplot(222)
+        gyro_ax = figure.add_subplot(223)
+        scatter_ax = figure.add_subplot(224)
+        self.quality_figure = figure
+        self.quality_axes = (counts_ax, duration_ax, gyro_ax, scatter_ax)
+        self.quality_canvas = FigureCanvasTkAgg(figure, master=self.quality_plot_container)
+        self.quality_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self._draw_placeholder_quality_plot()
 
     def _build_annotation_plot_canvas(self) -> None:
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -636,6 +688,61 @@ class SynergieToolsApp:
         self._refresh_pretrained_models()
         self._sync_pretrained_controls()
         self._refresh_training_dataset_stats()
+
+    def _build_quality_tab(self, parent: ttk.Frame) -> None:
+        parent.columnconfigure(0, weight=0)
+        parent.columnconfigure(1, weight=1)
+        parent.rowconfigure(0, weight=1)
+
+        controls = ttk.LabelFrame(parent, text="Quality Control", padding=12)
+        controls.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        controls.columnconfigure(0, weight=1)
+        controls.rowconfigure(4, weight=1)
+
+        ttk.Label(controls, text="Dataset").grid(row=0, column=0, sticky="w")
+        ttk.Entry(controls, textvariable=self.quality_dataset_var, width=34).grid(row=1, column=0, sticky="ew", pady=(4, 8))
+        buttons = ttk.Frame(controls)
+        buttons.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(buttons, text="Run quality scan", command=self._run_quality_scan).grid(row=0, column=0, sticky="w")
+
+        ttk.Label(
+            controls,
+            textvariable=self.quality_summary_var,
+            justify=tk.LEFT,
+            wraplength=320,
+        ).grid(row=3, column=0, sticky="w", pady=(0, 8))
+
+        suspicious_frame = ttk.LabelFrame(controls, text="Suspicious jumps to review", padding=8)
+        suspicious_frame.grid(row=4, column=0, sticky="nsew")
+        suspicious_frame.columnconfigure(0, weight=1)
+        suspicious_frame.rowconfigure(0, weight=1)
+        self.quality_suspicious_listbox = tk.Listbox(suspicious_frame, listvariable=self.quality_suspicious_var, exportselection=False, height=18, width=42)
+        self.quality_suspicious_listbox.grid(row=0, column=0, sticky="nsew")
+        self.quality_suspicious_listbox.bind("<<ListboxSelect>>", self._on_quality_suspicious_selected)
+
+        results = ttk.Frame(parent)
+        results.grid(row=0, column=1, sticky="nsew")
+        results.columnconfigure(0, weight=1)
+        results.rowconfigure(0, weight=1)
+        results.rowconfigure(1, weight=0)
+
+        plot_frame = ttk.LabelFrame(results, text="Distributions and outliers", padding=8)
+        plot_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
+        plot_frame.columnconfigure(0, weight=1)
+        plot_frame.rowconfigure(0, weight=1)
+        self.quality_plot_container = ttk.Frame(plot_frame)
+        self.quality_plot_container.grid(row=0, column=0, sticky="nsew")
+        self._build_quality_plot_canvas()
+
+        details_frame = ttk.LabelFrame(results, text="Selected jump details", padding=8)
+        details_frame.grid(row=1, column=0, sticky="ew")
+        details_frame.columnconfigure(0, weight=1)
+        ttk.Label(
+            details_frame,
+            textvariable=self.quality_details_var,
+            justify=tk.LEFT,
+            wraplength=760,
+        ).grid(row=0, column=0, sticky="w")
 
     def _build_notes_tab(self, parent: ttk.Frame) -> None:
         notes = scrolledtext.ScrolledText(parent, height=20, wrap=tk.WORD)
@@ -868,6 +975,87 @@ class SynergieToolsApp:
         self.train_figure.tight_layout()
         self.train_canvas.draw_idle()
 
+    def _draw_placeholder_quality_plot(self) -> None:
+        if self.quality_axes is None:
+            return
+        for axis, title in zip(
+            self.quality_axes,
+            [
+                "Counts by jump type",
+                "Duration distribution",
+                "Max |Gyr_X| distribution",
+                "Duration vs max |Gyr_X|",
+            ],
+        ):
+            axis.clear()
+            axis.set_title(title)
+            axis.text(0.5, 0.5, "Run the quality scan", ha="center", va="center", transform=axis.transAxes)
+        self.quality_figure.tight_layout()
+        self.quality_canvas.draw_idle()
+
+    def _draw_quality_analysis(self, analysis: dict) -> None:
+        if self.quality_axes is None:
+            return
+        counts_ax, duration_ax, gyro_ax, scatter_ax = self.quality_axes
+        for axis in self.quality_axes:
+            axis.clear()
+
+        type_summary = analysis.get("type_summary", [])
+        records = analysis.get("records", [])
+        suspicious_records = analysis.get("suspicious_records", [])
+        if not records:
+            self._draw_placeholder_quality_plot()
+            return
+
+        labels = [item["label"] for item in type_summary]
+        counts = [item["count"] for item in type_summary]
+        suspicious_counts = [item["suspicious_count"] for item in type_summary]
+        x_positions = list(range(len(labels)))
+        counts_ax.bar(x_positions, counts, color="steelblue", alpha=0.8, label="All labelled")
+        counts_ax.bar(x_positions, suspicious_counts, color="tomato", alpha=0.9, label="Suspicious")
+        counts_ax.set_xticks(x_positions)
+        counts_ax.set_xticklabels(labels, rotation=30, ha="right")
+        counts_ax.set_title("Counts by jump type")
+        counts_ax.legend(fontsize=8)
+
+        grouped_duration = [[record["duration_ms"] for record in records if record["type_label"] == label] for label in labels]
+        duration_ax.boxplot(grouped_duration, tick_labels=labels, patch_artist=True)
+        duration_ax.set_title("Duration distribution")
+        duration_ax.tick_params(axis="x", rotation=30)
+        duration_ax.set_ylabel("ms")
+
+        grouped_gyro = [[record["max_abs_gyr_x"] for record in records if record["type_label"] == label] for label in labels]
+        gyro_ax.boxplot(grouped_gyro, tick_labels=labels, patch_artist=True)
+        gyro_ax.set_title("Max |Gyr_X| distribution")
+        gyro_ax.tick_params(axis="x", rotation=30)
+        gyro_ax.set_ylabel("deg/s")
+
+        normal_records = [record for record in records if not record["suspicious"]]
+        if normal_records:
+            scatter_ax.scatter(
+                [record["duration_ms"] for record in normal_records],
+                [record["max_abs_gyr_x"] for record in normal_records],
+                color="steelblue",
+                alpha=0.55,
+                label="Normal",
+            )
+        if suspicious_records:
+            scatter_ax.scatter(
+                [record["duration_ms"] for record in suspicious_records],
+                [record["max_abs_gyr_x"] for record in suspicious_records],
+                color="tomato",
+                alpha=0.9,
+                label="Suspicious",
+            )
+        scatter_ax.set_title("Duration vs max |Gyr_X|")
+        scatter_ax.set_xlabel("Duration (ms)")
+        scatter_ax.set_ylabel("Max |Gyr_X|")
+        if normal_records or suspicious_records:
+            scatter_ax.legend(fontsize=8)
+
+        self.quality_figure.tight_layout()
+        self.quality_canvas.draw_idle()
+
     def _draw_training_history(self, summary: dict) -> None:
         if self.train_axes is None:
             return
@@ -920,6 +1108,56 @@ class SynergieToolsApp:
             self.train_dataset_stats_var.set(f"Unable to load dataset stats: {exc}")
             return
         self.train_dataset_stats_var.set(self._format_training_dataset_stats(stats))
+
+    def _format_quality_summary(self, analysis: dict) -> str:
+        return (
+            f"Dataset: {analysis['dataset_path']}\n"
+            f"Labelled jumps analyzed: {analysis['total_labelled_jumps']} | "
+            f"Suspicious: {analysis['suspicious_count']} | "
+            f"Skipped rows: {analysis['skipped_rows']}"
+        )
+
+    def _refresh_quality_suspicious_list(self) -> None:
+        if not self.quality_analysis:
+            self.quality_suspicious_var.set([])
+            return
+        records = self.quality_analysis.get("suspicious_records", [])
+        labels = [
+            f"{index + 1:03d} | {record['type_label']} | skater {record['skater']} | {', '.join(record['reasons'])}"
+            for index, record in enumerate(records)
+        ]
+        self.quality_suspicious_var.set(labels)
+        if labels:
+            self.quality_suspicious_listbox.selection_clear(0, tk.END)
+            self.quality_suspicious_listbox.selection_set(0)
+            self._on_quality_suspicious_selected()
+        else:
+            self.quality_details_var.set("No suspicious jump selected.")
+
+    def _selected_quality_suspicious_record(self) -> dict | None:
+        if not self.quality_analysis:
+            return None
+        selection = self.quality_suspicious_listbox.curselection()
+        if not selection:
+            return None
+        records = self.quality_analysis.get("suspicious_records", [])
+        index = selection[0]
+        if index >= len(records):
+            return None
+        return records[index]
+
+    def _on_quality_suspicious_selected(self, _event=None) -> None:
+        record = self._selected_quality_suspicious_record()
+        if record is None:
+            self.quality_details_var.set("No suspicious jump selected.")
+            return
+        self.quality_details_var.set(
+            f"Type: {record['type_label']} | Skater: {record['skater']} | Success: {record['success']}\n"
+            f"Path: {record['path']}\n"
+            f"Reasons: {', '.join(record['reasons'])}\n"
+            f"Duration: {record['duration_ms']:.1f} ms | Rotations: {record['rotations']:.2f} | "
+            f"Max |Gyr_X|: {record['max_abs_gyr_x']:.1f} | Max |Acc_X|: {record['max_abs_acc_x']:.2f}"
+        )
 
     def _pick_csv(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
@@ -1071,12 +1309,13 @@ class SynergieToolsApp:
         if index is None or self.annotation_dataframe is None:
             return
         row = self.annotation_dataframe.iloc[index]
+        review_status = operations.annotation_review_status_from_row(row)
         type_value = int(float(row.get("type", 8)))
-        type_key = next((key for key, _label, value in operations.ANNOTATION_JUMP_TYPE_OPTIONS if value == type_value), "exclude")
+        type_key = next((key for key, _label, value in operations.ANNOTATION_JUMP_TYPE_OPTIONS if value == type_value), "toe_loop")
         self.annotation_type_var.set(type_key)
         self.annotation_turn_var.set(operations.annotation_turn_value_for_ui(type_key, row.get("turns", "")))
         self.annotation_success_var.set(str(int(float(row.get("success", 2)))))
-        self.annotation_review_status_var.set(operations.annotation_review_status_from_row(row))
+        self.annotation_review_status_var.set(review_status)
         self.annotation_athlete_var.set(str(row.get("athlete_id", row.get("skater", ""))))
         self._sync_annotation_turn_options()
         self._refresh_annotation_video_context()
@@ -1112,6 +1351,16 @@ class SynergieToolsApp:
             self.annotation_type_var.set(selected_type)
             self._sync_annotation_turn_options()
             self.status_var.set(f"Annotation jump type selected: {selected_type}")
+            return
+
+        if key == "u":
+            self.annotation_review_status_var.set("not_seen_on_video")
+            self.status_var.set("Annotation review status selected: unseen on video")
+            return
+
+        if key == "x":
+            self.annotation_review_status_var.set("not_a_jump")
+            self.status_var.set("Annotation review status selected: not a jump")
             return
 
         if key in {"1", "2", "3", "4"}:
@@ -1433,12 +1682,16 @@ class SynergieToolsApp:
             if key == self.annotation_type_var.get()
         )
         backend_status = operations.annotation_review_status_to_backend(self.annotation_review_status_var.get())
-        self.annotation_dataframe.at[index, "type"] = type_value
-        self.annotation_dataframe.at[index, "turns"] = operations.annotation_turn_value_for_storage(
+        is_excluded_by_status = self.annotation_review_status_var.get() in {"not_seen_on_video", "not_a_jump"}
+        stored_type = 8 if is_excluded_by_status else type_value
+        stored_turns = "" if is_excluded_by_status else operations.annotation_turn_value_for_storage(
             self.annotation_type_var.get(),
             self.annotation_turn_var.get(),
         )
-        self.annotation_dataframe.at[index, "success"] = int(self.annotation_success_var.get())
+        stored_success = 2 if is_excluded_by_status else int(self.annotation_success_var.get())
+        self.annotation_dataframe.at[index, "type"] = stored_type
+        self.annotation_dataframe.at[index, "turns"] = stored_turns
+        self.annotation_dataframe.at[index, "success"] = stored_success
         self.annotation_dataframe.at[index, "video_status"] = backend_status["video_status"]
         self.annotation_dataframe.at[index, "detection_status"] = backend_status["detection_status"]
         self.annotation_dataframe.at[index, "athlete_id"] = self.annotation_athlete_var.get()
