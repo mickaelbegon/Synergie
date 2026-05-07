@@ -60,6 +60,40 @@ class OperationsTests(unittest.TestCase):
 
             self.assertEqual(candidate, root / "jumplist_partie3.csv")
 
+    def test_parse_new_imu_filename_extracts_metadata(self):
+        metadata = operations.parse_new_imu_filename("1_D422CD0076F7_20250911_085656.csv")
+
+        self.assertEqual(metadata["sensor_id"], "1")
+        self.assertEqual(metadata["device_id"], "D422CD0076F7")
+        self.assertEqual(metadata["date_token"], "20250911")
+        self.assertEqual(metadata["time_token"], "085656")
+        self.assertEqual(metadata["recorded_at"].year, 2025)
+
+    def test_suggest_for_annotation_output_path_uses_clear_name(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            candidate = operations.suggest_for_annotation_output_path(
+                "1_D422CD0076F7_20250911_085656.csv",
+                pending_root=tmpdir,
+            )
+
+            self.assertEqual(candidate.name, "20250911_085656_sensor1_for_annotation.csv")
+
+    def test_list_new_imu_files_skips_hidden_and_done_directories(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            nested = root / "29092025" / "1002"
+            nested.mkdir(parents=True)
+            (nested / "1_D422CD0076F7_20250929_100230.csv").write_text("x", encoding="utf-8")
+            (nested / "._1_D422CD0076F7_20250929_100230.csv").write_text("x", encoding="utf-8")
+            done_dir = root / "done"
+            done_dir.mkdir()
+            (done_dir / "2_D422CD007712_20250929_100230.csv").write_text("x", encoding="utf-8")
+
+            files = operations.list_new_imu_files(root=root)
+
+            self.assertEqual(len(files), 1)
+            self.assertEqual(files[0]["sensor_id"], "1")
+
     def test_session_synchro_reads_known_session_metadata(self):
         self.assertEqual(
             operations.session_synchro("1331"),

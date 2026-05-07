@@ -6,21 +6,39 @@
     "architecture": "inceptiontime",
     "path": "core/model/saved_models/checkpoint",
     "compatible": true,
-    "notes": "Checkpoint historique du depot, chargeable dans l'environnement actuel.",
+    "notes": "Checkpoint type courant du depot.",
     "performance": {
       "dataset": "data/annotated/total",
-      "test_accuracy": 0.81875,
+      "test_accuracy": 0.184375,
       "test_samples": 640
     }
   },
   {
     "id": "success_legacy_saved_model",
-    "label": "Success legacy saved model",
+    "label": "Success latest tcn",
     "task": "success",
     "architecture": "tcn",
     "path": "core/model/saved_models/success",
-    "compatible": false,
-    "notes": "Modele historique detecte mais non chargeable par Keras dans l'environnement actuel.",
-    "performance": null
+    "compatible": true,
+    "notes": "Modele success courant, chargeable et reutilisable comme point de depart.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.8921875,
+      "test_samples": 640
+    }
+  },
+  {
+    "id": "success-tcn-20260507-071710",
+    "label": "Success tcn success-tcn-20260507-071710",
+    "task": "success",
+    "architecture": "tcn",
+    "path": "core/model/saved_models/archive/success/success-tcn-20260507-071710",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.8453125,
+      "test_samples": 640
+    }
   }
 ]

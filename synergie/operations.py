@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import csv
+import os
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 import constants
@@ -64,6 +66,80 @@ def next_jumplist_output_path(directory: str | Path) -> Path:
     index = 1
     while True:
         candidate = directory_path / f"jumplist_partie{index}.csv"
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def parse_new_imu_filename(path: str | Path) -> dict:
+    file_path = Path(path)
+    stem_parts = file_path.stem.split("_")
+    if len(stem_parts) != 4:
+        raise ValueError(f"Unexpected IMU filename format: {file_path.name}")
+    sensor_id, device_id, date_token, time_token = stem_parts
+    recorded_at = datetime.strptime(f"{date_token}_{time_token}", "%Y%m%d_%H%M%S")
+    return {
+        "path": file_path,
+        "name": file_path.name,
+        "sensor_id": sensor_id,
+        "device_id": device_id,
+        "date_token": date_token,
+        "time_token": time_token,
+        "recorded_at": recorded_at,
+    }
+
+
+def list_new_data_directories(root: str | Path = "data/new") -> list[dict]:
+    root_path = Path(root)
+    directories: list[dict] = []
+    if not root_path.exists():
+        return directories
+    for directory in sorted(root_path.rglob("*")):
+        if not directory.is_dir():
+            continue
+        relative_parts = directory.relative_to(root_path).parts
+        if not relative_parts:
+            continue
+        if any(part.lower() in {"done", "non"} for part in relative_parts):
+            continue
+        directories.append(
+            {
+                "path": directory,
+                "relative_path": str(directory.relative_to(root_path)).replace("\\", "/"),
+                "name": directory.name,
+            }
+        )
+    return directories
+
+
+def list_new_imu_files(root: str | Path = "data/new", directory: str | Path | None = None) -> list[dict]:
+    root_path = Path(root)
+    search_root = root_path / directory if directory else root_path
+    files: list[dict] = []
+    if not search_root.exists():
+        return files
+    for file_path in sorted(search_root.rglob("*.csv")):
+        if file_path.name.startswith("._"):
+            continue
+        if any(part.lower() in {"done", "non"} for part in file_path.parts):
+            continue
+        metadata = parse_new_imu_filename(file_path)
+        metadata["relative_directory"] = str(file_path.parent.relative_to(root_path)).replace("\\", "/")
+        files.append(metadata)
+    return files
+
+
+def suggest_for_annotation_output_path(raw_csv_path: str | Path, pending_root: str | Path = "data/pending") -> Path:
+    metadata = parse_new_imu_filename(raw_csv_path)
+    pending_root_path = Path(pending_root)
+    pending_root_path.mkdir(parents=True, exist_ok=True)
+    base_name = f"{metadata['date_token']}_{metadata['time_token']}_sensor{metadata['sensor_id']}_for_annotation.csv"
+    candidate = pending_root_path / base_name
+    if not candidate.exists():
+        return candidate
+    index = 2
+    while True:
+        candidate = pending_root_path / f"{metadata['date_token']}_{metadata['time_token']}_sensor{metadata['sensor_id']}_for_annotation_{index}.csv"
         if not candidate.exists():
             return candidate
         index += 1
@@ -214,8 +290,13 @@ def train_model(
 def _promote_trained_model(source_path: Path, latest_path: Path) -> None:
     latest_path.parent.mkdir(parents=True, exist_ok=True)
     if latest_path.exists():
-        shutil.rmtree(latest_path)
+        shutil.rmtree(latest_path, onerror=_handle_remove_readonly)
     shutil.copytree(source_path, latest_path)
+
+
+def _handle_remove_readonly(function, path, _excinfo) -> None:
+    os.chmod(path, 0o700)
+    function(path)
 
 
 def process_csv_file(csv_path: str, synchro: int = 0, output_path: str | None = None) -> Path:
@@ -229,6 +310,67 @@ def process_csv_file(csv_path: str, synchro: int = 0, output_path: str | None = 
     destination.parent.mkdir(parents=True, exist_ok=True)
     result.to_csv(destination, index=False)
     return destination
+
+
+def process_new_imu_file_for_annotation(
+    raw_csv_path: str | Path,
+    *,
+    output_path: str | Path | None = None,
+    pending_root: str | Path = "data/pending",
+    sample_time_fine_synchro: int = 0,
+) -> dict:
+    import pandas as pd
+    from core.data_treatment.data_generation.trainingSession import trainingSession
+
+    raw_path = Path(raw_csv_path)
+    metadata = parse_new_imu_filename(raw_path)
+    pending_root_path = Path(pending_root)
+    output_csv_path = Path(output_path) if output_path else suggest_for_annotation_output_path(raw_path, pending_root=pending_root_path)
+    output_csv_path.parent.mkdir(parents=True, exist_ok=True)
+
+    segment_root = pending_root_path / "segments" / f"{metadata['date_token']}_{metadata['time_token']}_sensor{metadata['sensor_id']}"
+    segment_root.mkdir(parents=True, exist_ok=True)
+
+    dataframe = pd.read_csv(raw_path)
+    session = trainingSession(dataframe, sampleTimefineSynchro=sample_time_fine_synchro)
+
+    records: list[dict] = []
+    for jump_index, jump in enumerate(session.jumps, start=1):
+        segment_name = (
+            f"{metadata['date_token']}_{metadata['time_token']}_sensor{metadata['sensor_id']}_"
+            f"jump{jump_index:03d}.csv"
+        )
+        segment_path = segment_root / segment_name
+        jump.df.to_csv(segment_path, index=False)
+        records.append(
+            {
+                "path": str(segment_path).replace("\\", "/"),
+                "videoTimeStamp": _ms_to_timestamp(jump.startTimestamp),
+                "type": 8,
+                "skater": f"{metadata['date_token']}_{metadata['time_token']}_{metadata['sensor_id']}",
+                "success": 2,
+                "rotations": round(jump.rotation, 1),
+                "source_file": raw_path.name,
+                "sensor_id": metadata["sensor_id"],
+                "device_id": metadata["device_id"],
+                "recorded_at": metadata["recorded_at"].isoformat(),
+                "annotation_status": "pending",
+            }
+        )
+
+    annotation_frame = pd.DataFrame(records)
+    annotation_frame.to_csv(output_csv_path, index=False)
+    return {
+        "annotation_csv": output_csv_path,
+        "segment_directory": segment_root,
+        "jump_count": len(records),
+        "source_file": raw_path,
+    }
+
+
+def _ms_to_timestamp(ms: float) -> str:
+    total_seconds = round(ms / 1000)
+    return f"{total_seconds // 60:02d}:{total_seconds % 60:02d}"
 
 
 def repredict_raw_trainings(raw_root: str = "data/raw") -> int:

@@ -39,6 +39,12 @@ class SynergieToolsApp:
         self.session_var = tk.StringVar(value=sorted(constants.sessions)[0])
         self.session_files_var = tk.StringVar(value=[])
         self.session_folder_summary_var = tk.StringVar(value="")
+        new_data_directories = [item["relative_path"] for item in operations.list_new_data_directories()]
+        self.new_data_directory_var = tk.StringVar(value=new_data_directories[0] if new_data_directories else "")
+        self.new_data_files_var = tk.StringVar(value=[])
+        self.new_data_selected_file_var = tk.StringVar()
+        self.new_data_output_var = tk.StringVar()
+        self.new_data_summary_var = tk.StringVar(value="No file selected.")
         self.new_session_id_var = tk.StringVar()
         self.new_session_path_var = tk.StringVar()
         self.new_session_synchro_var = tk.StringVar()
@@ -68,6 +74,7 @@ class SynergieToolsApp:
         self.inspect_dataframe = None
         self.inspect_session = None
         self.detected_jumps: list = []
+        self._new_data_files_cache: list[dict] = []
         self.figure = None
         self.axes = None
         self.canvas = None
@@ -102,11 +109,13 @@ class SynergieToolsApp:
 
         sessions_tab = ttk.Frame(notebook, padding=12)
         process_tab = ttk.Frame(notebook, padding=12)
+        new_data_tab = ttk.Frame(notebook, padding=12)
         inspect_tab = ttk.Frame(notebook, padding=12)
         train_tab = ttk.Frame(notebook, padding=12)
         notes_tab = ttk.Frame(notebook, padding=12)
         notebook.add(sessions_tab, text="Sessions")
         notebook.add(process_tab, text="Process CSV")
+        notebook.add(new_data_tab, text="New Data")
         notebook.add(inspect_tab, text="Inspect IMU")
         notebook.add(train_tab, text="Train")
         notebook.add(notes_tab, text="Algo Notes")
@@ -121,6 +130,7 @@ class SynergieToolsApp:
         ttk.Button(sessions_tab, text="Refresh sessions", command=self._refresh_all_sessions).grid(row=1, column=0, sticky="w", pady=(8, 0))
 
         self._build_process_tab(process_tab)
+        self._build_new_data_tab(new_data_tab)
         self._build_inspect_tab(inspect_tab)
         self._build_train_tab(train_tab)
         self._build_notes_tab(notes_tab)
@@ -253,6 +263,33 @@ class SynergieToolsApp:
         self.plot_container = ttk.Frame(plots_frame)
         self.plot_container.grid(row=0, column=0, sticky="nsew")
         self._build_plot_canvas()
+
+    def _build_new_data_tab(self, parent: ttk.Frame) -> None:
+        for index in range(3):
+            parent.columnconfigure(index, weight=1 if index == 1 else 0)
+        parent.rowconfigure(4, weight=1)
+
+        ttk.Label(parent, text="Folder").grid(row=0, column=0, sticky="w", pady=4)
+        self.new_data_directory_box = ttk.Combobox(parent, textvariable=self.new_data_directory_var, state="readonly")
+        self.new_data_directory_box.grid(row=0, column=1, sticky="ew", padx=8)
+        self.new_data_directory_box.bind("<<ComboboxSelected>>", self._on_new_data_directory_changed)
+
+        ttk.Button(parent, text="Refresh folders", command=self._refresh_new_data_directories).grid(row=0, column=2, sticky="e")
+
+        ttk.Label(parent, text="IMU files").grid(row=1, column=0, sticky="nw", pady=4)
+        self.new_data_files = tk.Listbox(parent, listvariable=self.new_data_files_var, height=8, exportselection=False)
+        self.new_data_files.grid(row=1, column=1, columnspan=2, sticky="nsew", padx=8)
+        self.new_data_files.bind("<<ListboxSelect>>", self._on_new_data_file_selected)
+
+        ttk.Label(parent, text="For annotation CSV").grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Entry(parent, textvariable=self.new_data_output_var).grid(row=2, column=1, sticky="ew", padx=8)
+
+        ttk.Button(parent, text="Process for annotation", command=self._run_process_new_data_file).grid(row=3, column=0, sticky="w", pady=(12, 8))
+        ttk.Label(parent, textvariable=self.new_data_summary_var, justify=tk.LEFT).grid(row=3, column=1, columnspan=2, sticky="w", padx=8)
+
+        self.new_data_log = scrolledtext.ScrolledText(parent, height=14, wrap=tk.WORD)
+        self.new_data_log.grid(row=4, column=0, columnspan=3, sticky="nsew")
+        self._refresh_new_data_directories()
 
     def _build_plot_canvas(self) -> None:
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -454,6 +491,29 @@ class SynergieToolsApp:
         self.session_files_var.set(files)
         self.session_folder_summary_var.set(self._format_folder_summary(session_name, directory, files))
         self.process_selected_file_info_var.set("No file selected.")
+
+    def _refresh_new_data_directories(self) -> None:
+        directories = [item["relative_path"] for item in operations.list_new_data_directories()]
+        self.new_data_directory_box.configure(values=directories)
+        if directories and self.new_data_directory_var.get() not in directories:
+            self.new_data_directory_var.set(directories[0])
+        self._populate_new_data_files()
+
+    def _populate_new_data_files(self) -> None:
+        directory = self.new_data_directory_var.get().strip()
+        files = operations.list_new_imu_files(directory=directory) if directory else operations.list_new_imu_files()
+        labels = [self._format_new_data_file_label(item) for item in files]
+        self._new_data_files_cache = files
+        self.new_data_files_var.set(labels)
+        self.new_data_summary_var.set(f"Files found: {len(files)}")
+        if not files:
+            self.new_data_output_var.set("")
+
+    def _format_new_data_file_label(self, metadata: dict) -> str:
+        return (
+            f"sensor {metadata['sensor_id']} | {metadata['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')} | "
+            f"{metadata['name']}"
+        )
 
     def _populate_inspect_session_files(self) -> None:
         session_name = self.inspect_session_var.get()
@@ -670,6 +730,9 @@ class SynergieToolsApp:
     def _on_inspect_session_changed(self, _event=None) -> None:
         self._populate_inspect_session_files()
 
+    def _on_new_data_directory_changed(self, _event=None) -> None:
+        self._populate_new_data_files()
+
     def _on_train_task_changed(self, _event=None) -> None:
         self._sync_train_architectures()
         self._refresh_pretrained_models()
@@ -693,6 +756,19 @@ class SynergieToolsApp:
             selected_path = self.inspect_session_files.get(selection[0])
             self.inspect_csv_path_var.set(selected_path)
             self.inspect_selected_file_info_var.set(self._describe_selected_file(selected_path))
+
+    def _on_new_data_file_selected(self, _event=None) -> None:
+        selection = self.new_data_files.curselection()
+        if not selection:
+            return
+        metadata = self._new_data_files_cache[selection[0]]
+        self.new_data_selected_file_var.set(str(metadata["path"]))
+        self.new_data_output_var.set(str(operations.suggest_for_annotation_output_path(metadata["path"])))
+        self.new_data_summary_var.set(
+            f"Selected: {metadata['name']}\n"
+            f"Sensor {metadata['sensor_id']} | Device {metadata['device_id']} | "
+            f"{metadata['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')}"
+        )
 
     def _on_inspect_file_double_clicked(self, _event=None) -> None:
         self._on_inspect_file_selected()
@@ -772,6 +848,27 @@ class SynergieToolsApp:
             self.root.after(0, lambda: self.status_var.set("Training completed"))
 
         self._run_in_thread(action, "Unable to run training.")
+
+    def _run_process_new_data_file(self) -> None:
+        raw_file = self.new_data_selected_file_var.get().strip()
+        if not raw_file:
+            messagebox.showwarning("Synergie Tools", "Select an IMU file from New Data first.")
+            return
+
+        self.status_var.set("Processing new IMU file for annotation...")
+        self.new_data_log.delete("1.0", tk.END)
+
+        def action() -> None:
+            result = operations.process_new_imu_file_for_annotation(
+                raw_file,
+                output_path=self.new_data_output_var.get().strip() or None,
+            )
+            self.root.after(0, lambda: self._log(self.new_data_log, f"Created annotation CSV: {result['annotation_csv']}"))
+            self.root.after(0, lambda: self._log(self.new_data_log, f"Created jump segments in: {result['segment_directory']}"))
+            self.root.after(0, lambda: self._log(self.new_data_log, f"Jumps ready for annotation: {result['jump_count']}"))
+            self.root.after(0, lambda: self.status_var.set("New IMU file processed for annotation"))
+
+        self._run_in_thread(action, "Unable to process the new IMU file for annotation.")
 
     def _run_inspection(self) -> None:
         csv_path = self.inspect_csv_path_var.get().strip()
