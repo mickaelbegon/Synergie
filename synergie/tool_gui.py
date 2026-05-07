@@ -56,11 +56,12 @@ class SynergieToolsApp:
         self.new_data_summary_var = tk.StringVar(value="No file selected.")
         self.annotation_files_var = tk.StringVar(value=[])
         self.annotation_summary_var = tk.StringVar(value="No annotation file selected.")
-        self.annotation_type_var = tk.StringVar(value="exclude")
+        self.annotation_type_var = tk.StringVar(value="toe_loop")
         self.annotation_turn_var = tk.StringVar(value="")
         self.annotation_success_var = tk.StringVar(value="2")
         self.annotation_review_status_var = tk.StringVar(value="normal")
         self.annotation_athlete_var = tk.StringVar(value="")
+        self.annotation_exclusion_hint_var = tk.StringVar(value="")
         self.annotation_video_path_var = tk.StringVar()
         self.annotation_video_info_var = tk.StringVar(value="No video loaded.")
         self.annotation_sensor_sync_var = tk.StringVar(value="No sync offset saved for current sensor.")
@@ -117,6 +118,9 @@ class SynergieToolsApp:
         self.annotation_dataframe = None
         self.annotation_file_path: Path | None = None
         self.quality_analysis: dict | None = None
+        self.annotation_type_buttons: list[ttk.Radiobutton] = []
+        self.annotation_turn_buttons: list[ttk.Radiobutton] = []
+        self.annotation_success_buttons: list[ttk.Radiobutton] = []
         self.annotation_metadata: dict = {}
         self.annotation_video_capture = None
         self.annotation_video_fps = 0.0
@@ -472,64 +476,94 @@ class SynergieToolsApp:
         toe_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         edge_frame = ttk.LabelFrame(type_frame, text="De carre", padding=6)
         edge_frame.grid(row=0, column=1, sticky="nsew")
+        self.annotation_type_buttons = []
         for index, (key, _label, _value) in enumerate(operations.ANNOTATION_TOE_JUMP_OPTIONS):
             display_label, underline_index = shortcut_labels[key]
-            ttk.Radiobutton(
+            button = ttk.Radiobutton(
                 toe_frame,
                 text=display_label,
                 value=key,
                 variable=self.annotation_type_var,
                 command=self._sync_annotation_turn_options,
                 underline=underline_index,
-            ).grid(row=index, column=0, sticky="w")
+            )
+            button.grid(row=index, column=0, sticky="w")
+            self.annotation_type_buttons.append(button)
         for index, (key, _label, _value) in enumerate(operations.ANNOTATION_EDGE_JUMP_OPTIONS):
             display_label, underline_index = shortcut_labels[key]
-            ttk.Radiobutton(
+            button = ttk.Radiobutton(
                 edge_frame,
                 text=display_label,
                 value=key,
                 variable=self.annotation_type_var,
                 command=self._sync_annotation_turn_options,
                 underline=underline_index,
-            ).grid(row=index, column=0, sticky="w")
+            )
+            button.grid(row=index, column=0, sticky="w")
+            self.annotation_type_buttons.append(button)
 
         ttk.Label(controls, text="Turns").grid(row=4, column=0, sticky="w")
         turns_frame = ttk.Frame(controls)
         turns_frame.grid(row=5, column=0, sticky="w", pady=(0, 8))
+        self.annotation_turn_buttons = []
         for column_index, turn_value in enumerate(["1", "2", "3", "4"]):
-            ttk.Radiobutton(
+            button = ttk.Radiobutton(
                 turns_frame,
                 text=turn_value,
                 value=turn_value,
                 variable=self.annotation_turn_var,
                 underline=0,
-            ).grid(row=0, column=column_index, sticky="w", padx=(0, 8 if column_index < 3 else 0))
+            )
+            button.grid(row=0, column=column_index, sticky="w", padx=(0, 8 if column_index < 3 else 0))
+            self.annotation_turn_buttons.append(button)
 
         ttk.Label(controls, text="Success").grid(row=6, column=0, sticky="w")
         success_frame = ttk.Frame(controls)
         success_frame.grid(row=7, column=0, sticky="w", pady=(0, 8))
+        success_frame.columnconfigure(0, weight=1)
+        success_frame.columnconfigure(1, weight=1)
+        self.annotation_success_buttons = []
         for label, value in [("Fall", "0"), ("Success", "1"), ("Unknown", "2")]:
             column_index = 0 if value == "0" else 1 if value == "1" else 0
             row_index = 0 if value in {"0", "1"} else 1
-            ttk.Radiobutton(success_frame, text=label, value=value, variable=self.annotation_success_var).grid(
+            button = ttk.Radiobutton(success_frame, text=label, value=value, variable=self.annotation_success_var)
+            button.grid(
                 row=row_index,
                 column=column_index,
                 sticky="w",
                 padx=(0, 12),
             )
+            self.annotation_success_buttons.append(button)
 
         ttk.Label(controls, text="Review status").grid(row=8, column=0, sticky="w")
         review_frame = ttk.Frame(controls)
         review_frame.grid(row=9, column=0, sticky="w", pady=(0, 8))
+        review_frame.columnconfigure(0, weight=1)
+        review_frame.columnconfigure(1, weight=1)
         for index, (value, label) in enumerate(operations.ANNOTATION_REVIEW_STATUS_OPTIONS):
-            ttk.Radiobutton(review_frame, text=label, value=value, variable=self.annotation_review_status_var).grid(
+            ttk.Radiobutton(
+                review_frame,
+                text=label,
+                value=value,
+                variable=self.annotation_review_status_var,
+                command=self._sync_annotation_review_controls,
+            ).grid(
                 row=index // 2,
                 column=index % 2,
                 sticky="w",
                 padx=(0, 12),
             )
 
-        ttk.Button(controls, text="Save current annotation", command=self._save_current_annotation).grid(row=10, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(
+            controls,
+            textvariable=self.annotation_exclusion_hint_var,
+            justify=tk.LEFT,
+            wraplength=360,
+            foreground="firebrick",
+        ).grid(row=10, column=0, sticky="w", pady=(0, 8))
+
+        ttk.Button(controls, text="Save current annotation", command=self._save_current_annotation).grid(row=11, column=0, sticky="w", pady=(8, 0))
+        self._sync_annotation_review_controls()
         self._refresh_annotation_files()
 
     def _build_plot_canvas(self) -> None:
@@ -1318,6 +1352,7 @@ class SynergieToolsApp:
         self.annotation_review_status_var.set(review_status)
         self.annotation_athlete_var.set(str(row.get("athlete_id", row.get("skater", ""))))
         self._sync_annotation_turn_options()
+        self._sync_annotation_review_controls()
         self._refresh_annotation_video_context()
         self._draw_annotation_segment(row)
 
@@ -1325,6 +1360,24 @@ class SynergieToolsApp:
         options = operations.annotation_turn_options(self.annotation_type_var.get())
         if self.annotation_turn_var.get() not in options:
             self.annotation_turn_var.set(options[0] if options else "")
+        self._sync_annotation_review_controls()
+
+    def _sync_annotation_review_controls(self) -> None:
+        excluded = self.annotation_review_status_var.get() in {"not_seen_on_video", "not_a_jump"}
+        hint = ""
+        if self.annotation_review_status_var.get() == "not_seen_on_video":
+            hint = "This jump will be excluded from training because it is marked as unseen on video."
+        elif self.annotation_review_status_var.get() == "not_a_jump":
+            hint = "This jump will be excluded from training because it is marked as not a jump."
+        self.annotation_exclusion_hint_var.set(hint)
+
+        desired_state = "disabled" if excluded else "normal"
+        for button in self.annotation_type_buttons:
+            button.configure(state=desired_state)
+        for button in self.annotation_turn_buttons:
+            button.configure(state=desired_state)
+        for button in self.annotation_success_buttons:
+            button.configure(state=desired_state)
 
     def _annotate_tab_active(self) -> bool:
         try:
@@ -1368,6 +1421,11 @@ class SynergieToolsApp:
             if key in options:
                 self.annotation_turn_var.set(key)
                 self.status_var.set(f"Annotation turns selected: {key}")
+                return
+
+        if key in {"0", "1"}:
+            self.annotation_success_var.set("0" if key == "0" else "1")
+            self.status_var.set("Annotation success selected")
 
     def _draw_placeholder_annotation_plot(self) -> None:
         if self.annotation_ax is None:
