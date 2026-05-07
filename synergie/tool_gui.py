@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
+from importlib import util as importlib_util
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import TYPE_CHECKING
@@ -53,6 +54,11 @@ class SynergieToolsApp:
         self.annotation_video_status_var = tk.StringVar(value="visible")
         self.annotation_detection_status_var = tk.StringVar(value="detected_jump")
         self.annotation_athlete_var = tk.StringVar(value="")
+        self.annotation_video_path_var = tk.StringVar()
+        self.annotation_video_info_var = tk.StringVar(value="No video loaded.")
+        self.annotation_sensor_sync_var = tk.StringVar(value="No sync offset saved for current sensor.")
+        self.annotation_video_time_var = tk.StringVar(value="00:00.000")
+        self.annotation_video_slider_var = tk.DoubleVar(value=0.0)
         self.new_session_id_var = tk.StringVar()
         self.new_session_path_var = tk.StringVar()
         self.new_session_synchro_var = tk.StringVar()
@@ -95,6 +101,14 @@ class SynergieToolsApp:
         self.train_canvas = None
         self.annotation_dataframe = None
         self.annotation_file_path: Path | None = None
+        self.annotation_metadata: dict = {}
+        self.annotation_video_capture = None
+        self.annotation_video_fps = 0.0
+        self.annotation_video_frame_count = 0
+        self.annotation_video_duration_ms = 0.0
+        self.annotation_video_current_ms = 0.0
+        self._annotation_video_photo = None
+        self._annotation_playback_after_id = None
 
         self._build_layout()
         self._populate_sessions()
@@ -335,7 +349,8 @@ class SynergieToolsApp:
         bottom_panel = ttk.Frame(parent)
         bottom_panel.grid(row=1, column=1, sticky="nsew", pady=(12, 0))
         bottom_panel.columnconfigure(0, weight=1)
-        bottom_panel.columnconfigure(1, weight=0)
+        bottom_panel.columnconfigure(1, weight=1)
+        bottom_panel.columnconfigure(2, weight=0)
         bottom_panel.rowconfigure(0, weight=1)
 
         plot_frame = ttk.LabelFrame(bottom_panel, text="Jump Signals", padding=8)
@@ -346,8 +361,72 @@ class SynergieToolsApp:
         self.annotation_plot_container.grid(row=0, column=0, sticky="nsew")
         self._build_annotation_plot_canvas()
 
+        video_frame = ttk.LabelFrame(bottom_panel, text="Video Review", padding=8)
+        video_frame.grid(row=0, column=1, sticky="nsew", padx=(0, 12))
+        video_frame.columnconfigure(1, weight=1)
+        video_frame.rowconfigure(2, weight=1)
+
+        ttk.Label(video_frame, text="Video file").grid(row=0, column=0, sticky="w")
+        ttk.Entry(video_frame, textvariable=self.annotation_video_path_var).grid(row=0, column=1, sticky="ew", padx=8)
+        video_buttons = ttk.Frame(video_frame)
+        video_buttons.grid(row=0, column=2, sticky="e")
+        ttk.Button(video_buttons, text="Browse", command=self._browse_annotation_video).grid(row=0, column=0, sticky="w")
+        ttk.Button(video_buttons, text="Load", command=self._load_annotation_video_from_entry).grid(row=0, column=1, sticky="w", padx=(6, 0))
+
+        ttk.Label(video_frame, textvariable=self.annotation_video_info_var, justify=tk.LEFT, wraplength=360).grid(
+            row=1,
+            column=0,
+            columnspan=3,
+            sticky="w",
+            pady=(6, 8),
+        )
+
+        self.annotation_video_label = ttk.Label(
+            video_frame,
+            text="Load a session video to review jumps.",
+            anchor="center",
+            relief="sunken",
+        )
+        self.annotation_video_label.grid(row=2, column=0, columnspan=3, sticky="nsew")
+
+        video_timeline = ttk.Frame(video_frame)
+        video_timeline.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        video_timeline.columnconfigure(0, weight=1)
+        self.annotation_video_slider = tk.Scale(
+            video_timeline,
+            from_=0,
+            to=100,
+            orient=tk.HORIZONTAL,
+            showvalue=False,
+            variable=self.annotation_video_slider_var,
+            command=lambda _value: self.annotation_video_time_var.set(self._format_video_ms(self.annotation_video_slider_var.get())),
+        )
+        self.annotation_video_slider.grid(row=0, column=0, sticky="ew")
+        self.annotation_video_slider.bind("<ButtonRelease-1>", self._on_annotation_video_slider_released)
+        ttk.Label(video_timeline, textvariable=self.annotation_video_time_var, width=12).grid(row=0, column=1, sticky="e", padx=(8, 0))
+
+        video_controls = ttk.Frame(video_frame)
+        video_controls.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        ttk.Button(video_controls, text="-1s", command=lambda: self._seek_annotation_video_relative(-1000)).grid(row=0, column=0, sticky="w")
+        ttk.Button(video_controls, text="+1s", command=lambda: self._seek_annotation_video_relative(1000)).grid(row=0, column=1, sticky="w", padx=(6, 0))
+        ttk.Button(video_controls, text="Go to jump", command=self._seek_annotation_video_to_current_jump).grid(row=0, column=2, sticky="w", padx=(12, 0))
+        ttk.Button(video_controls, text="Play x5 to jump", command=self._play_annotation_to_current_jump).grid(row=0, column=3, sticky="w", padx=(6, 0))
+        ttk.Button(video_controls, text="Stop", command=self._stop_annotation_playback).grid(row=0, column=4, sticky="w", padx=(6, 0))
+
+        ttk.Label(video_frame, textvariable=self.annotation_sensor_sync_var, justify=tk.LEFT, wraplength=360).grid(
+            row=5,
+            column=0,
+            columnspan=3,
+            sticky="w",
+            pady=(8, 4),
+        )
+        sync_buttons = ttk.Frame(video_frame)
+        sync_buttons.grid(row=6, column=0, columnspan=3, sticky="w")
+        ttk.Button(sync_buttons, text="Sync current IMU at this frame", command=self._sync_current_sensor_to_video).grid(row=0, column=0, sticky="w")
+        ttk.Button(sync_buttons, text="Clear current IMU sync", command=self._clear_current_sensor_sync).grid(row=0, column=1, sticky="w", padx=(6, 0))
+
         controls = ttk.LabelFrame(bottom_panel, text="Annotation", padding=8)
-        controls.grid(row=0, column=1, sticky="ns")
+        controls.grid(row=0, column=2, sticky="ns")
         controls.columnconfigure(0, weight=1)
 
         ttk.Label(controls, text="Athlete ID").grid(row=0, column=0, sticky="w")
@@ -427,6 +506,9 @@ class SynergieToolsApp:
         self.annotation_canvas = FigureCanvasTkAgg(figure, master=self.annotation_plot_container)
         self.annotation_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._draw_placeholder_annotation_plot()
+
+    def _annotation_video_supported(self) -> bool:
+        return bool(importlib_util.find_spec("cv2")) and bool(importlib_util.find_spec("PIL"))
 
     def _build_sessions_side_panel(self, parent: ttk.Frame) -> None:
         panel = ttk.LabelFrame(parent, text="Add Session", padding=12)
@@ -896,6 +978,13 @@ class SynergieToolsApp:
             self.annotation_jump_listbox.delete(0, tk.END)
             self.annotation_dataframe = None
             self.annotation_file_path = None
+            self.annotation_metadata = {}
+            self.annotation_video_path_var.set("")
+            self.annotation_video_info_var.set("No video loaded.")
+            self.annotation_sensor_sync_var.set("No sync offset saved for current sensor.")
+            self._stop_annotation_playback()
+            self._release_annotation_video()
+            self._draw_placeholder_annotation_video()
             self._draw_placeholder_annotation_plot()
 
     def _on_annotation_file_selected(self, _event=None) -> None:
@@ -908,10 +997,22 @@ class SynergieToolsApp:
     def _load_annotation_file(self, file_path: Path) -> None:
         import pandas as pd
 
+        self._stop_annotation_playback()
         self.annotation_file_path = file_path
+        self.annotation_metadata = operations.load_annotation_metadata(file_path)
         self.annotation_dataframe = pd.read_csv(file_path)
         self._refresh_annotation_jump_list()
-        self.annotation_summary_var.set(f"{file_path.name}\nEntries: {len(self.annotation_dataframe)}")
+        sensor_count = 0 if self.annotation_dataframe.empty else self.annotation_dataframe["sensor_id"].nunique()
+        self.annotation_summary_var.set(f"{file_path.name}\nEntries: {len(self.annotation_dataframe)} | Sensors: {sensor_count}")
+        video_path = self.annotation_metadata.get("video_path", "")
+        self.annotation_video_path_var.set(video_path)
+        if video_path and Path(video_path).exists():
+            self._load_annotation_video(video_path, persist=False)
+        else:
+            self._stop_annotation_playback()
+            self._release_annotation_video()
+            self._draw_placeholder_annotation_video()
+            self.annotation_video_info_var.set("No video loaded.")
         if len(self.annotation_dataframe) > 0:
             self.annotation_jump_listbox.selection_clear(0, tk.END)
             self.annotation_jump_listbox.selection_set(0)
@@ -922,8 +1023,11 @@ class SynergieToolsApp:
         if self.annotation_dataframe is None:
             return
         for index, row in self.annotation_dataframe.iterrows():
+            sensor_id = str(row.get("sensor_id", ""))
+            offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, sensor_id)
+            video_label = self._format_video_ms(operations.compute_annotation_jump_video_time_ms(row, offset_ms))
             label = (
-                f"{index + 1:03d} | {row.get('videoTimeStamp', '--:--')} | "
+                f"{index + 1:03d} | {video_label} | "
                 f"{row.get('athlete_id', row.get('skater', 'unknown'))} | "
                 f"{row.get('detection_status', 'detected_jump')}"
             )
@@ -949,6 +1053,7 @@ class SynergieToolsApp:
         self.annotation_detection_status_var.set(str(row.get("detection_status", "detected_jump")))
         self.annotation_athlete_var.set(str(row.get("athlete_id", row.get("skater", ""))))
         self._sync_annotation_turn_options()
+        self._refresh_annotation_video_context()
         self._draw_annotation_segment(row)
 
     def _sync_annotation_turn_options(self) -> None:
@@ -968,6 +1073,262 @@ class SynergieToolsApp:
         self.annotation_figure.tight_layout()
         self.annotation_canvas.draw_idle()
 
+    def _draw_placeholder_annotation_video(self, message: str = "Load a session video to review jumps.") -> None:
+        self._annotation_video_photo = None
+        self.annotation_video_label.configure(image="", text=message)
+
+    def _format_video_ms(self, milliseconds: float) -> str:
+        total_ms = max(0, int(round(float(milliseconds))))
+        minutes, remaining_ms = divmod(total_ms, 60000)
+        seconds, millis = divmod(remaining_ms, 1000)
+        return f"{minutes:02d}:{seconds:02d}.{millis:03d}"
+
+    def _selected_annotation_row(self):
+        index = self._selected_annotation_index()
+        if index is None or self.annotation_dataframe is None:
+            return None
+        return self.annotation_dataframe.iloc[index]
+
+    def _current_annotation_sensor_id(self) -> str | None:
+        row = self._selected_annotation_row()
+        if row is None:
+            return None
+        sensor_id = row.get("sensor_id", "")
+        if sensor_id != sensor_id:
+            return None
+        return str(sensor_id)
+
+    def _refresh_annotation_video_context(self) -> None:
+        row = self._selected_annotation_row()
+        if row is None:
+            self.annotation_sensor_sync_var.set("No sync offset saved for current sensor.")
+            return
+        sensor_id = self._current_annotation_sensor_id()
+        if sensor_id is None:
+            self.annotation_sensor_sync_var.set("No sensor ID available for this entry.")
+            return
+        offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, sensor_id)
+        jump_video_ms = operations.compute_annotation_jump_video_time_ms(row, offset_ms)
+        self.annotation_sensor_sync_var.set(
+            f"Sensor {sensor_id} sync offset: {offset_ms:+.0f} ms | "
+            f"jump at {self._format_video_ms(jump_video_ms)} in video"
+        )
+
+    def _browse_annotation_video(self) -> None:
+        file_path = filedialog.askopenfilename(
+            title="Select session video",
+            filetypes=[
+                ("Video files", "*.mp4 *.mov *.avi *.mkv *.m4v"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not file_path:
+            return
+        self.annotation_video_path_var.set(file_path)
+        self._load_annotation_video(file_path, persist=True)
+
+    def _load_annotation_video_from_entry(self) -> None:
+        video_path = self.annotation_video_path_var.get().strip()
+        if not video_path:
+            messagebox.showwarning("Synergie Tools", "Select a video file first.")
+            return
+        self._load_annotation_video(video_path, persist=True)
+
+    def _release_annotation_video(self) -> None:
+        if self.annotation_video_capture is not None:
+            self.annotation_video_capture.release()
+            self.annotation_video_capture = None
+        self.annotation_video_fps = 0.0
+        self.annotation_video_frame_count = 0
+        self.annotation_video_duration_ms = 0.0
+        self.annotation_video_current_ms = 0.0
+
+    def _load_annotation_video(self, video_path: str | Path, persist: bool = False) -> None:
+        if not self._annotation_video_supported():
+            messagebox.showwarning(
+                "Synergie Tools",
+                "Video review needs 'opencv-python-headless' and 'Pillow' in the synergie-data environment.",
+            )
+            return
+
+        import cv2
+
+        path = Path(video_path)
+        if not path.exists():
+            messagebox.showerror("Synergie Tools", f"Video file not found:\n{path}")
+            return
+
+        self._stop_annotation_playback()
+        self._release_annotation_video()
+        capture = cv2.VideoCapture(str(path))
+        if not capture.isOpened():
+            messagebox.showerror("Synergie Tools", f"Unable to open video:\n{path}")
+            return
+
+        fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        duration_ms = 0.0
+        if fps > 0 and frame_count > 0:
+            duration_ms = frame_count / fps * 1000.0
+
+        self.annotation_video_capture = capture
+        self.annotation_video_fps = fps
+        self.annotation_video_frame_count = frame_count
+        self.annotation_video_duration_ms = duration_ms
+        self.annotation_video_path_var.set(str(path))
+        self.annotation_video_slider.configure(to=max(duration_ms, 1.0))
+        self.annotation_video_info_var.set(f"{path.name} | fps={fps:.2f}")
+        if persist and self.annotation_file_path is not None:
+            self.annotation_metadata = operations.set_annotation_video_path(self.annotation_file_path, path)
+        self._display_annotation_video_frame(0.0)
+        self._refresh_annotation_video_context()
+
+    def _display_annotation_video_frame(self, milliseconds: float) -> None:
+        if self.annotation_video_capture is None:
+            self._draw_placeholder_annotation_video()
+            return
+
+        import cv2
+        from PIL import Image, ImageTk
+
+        target_ms = max(0.0, min(float(milliseconds), self.annotation_video_duration_ms or float(milliseconds)))
+        if self.annotation_video_fps > 0:
+            frame_index = int(round((target_ms / 1000.0) * self.annotation_video_fps))
+            max_frame_index = max(self.annotation_video_frame_count - 1, 0)
+            frame_index = min(frame_index, max_frame_index)
+            self.annotation_video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+        else:
+            self.annotation_video_capture.set(cv2.CAP_PROP_POS_MSEC, target_ms)
+
+        ok, frame = self.annotation_video_capture.read()
+        if not ok:
+            return
+
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        image = Image.fromarray(frame)
+        image.thumbnail((420, 260))
+        photo = ImageTk.PhotoImage(image)
+        self._annotation_video_photo = photo
+        self.annotation_video_label.configure(image=photo, text="")
+        self.annotation_video_current_ms = target_ms
+        self.annotation_video_slider_var.set(target_ms)
+        self.annotation_video_time_var.set(self._format_video_ms(target_ms))
+        duration_text = self._format_video_ms(self.annotation_video_duration_ms) if self.annotation_video_duration_ms else "unknown"
+        self.annotation_video_info_var.set(
+            f"{Path(self.annotation_video_path_var.get()).name} | "
+            f"{self.annotation_video_frame_count} frames | "
+            f"{duration_text}"
+        )
+
+    def _on_annotation_video_slider_released(self, _event=None) -> None:
+        if self.annotation_video_capture is None:
+            return
+        self._stop_annotation_playback()
+        self._display_annotation_video_frame(self.annotation_video_slider_var.get())
+
+    def _seek_annotation_video_relative(self, delta_ms: float) -> None:
+        if self.annotation_video_capture is None:
+            return
+        self._stop_annotation_playback()
+        self._display_annotation_video_frame(self.annotation_video_current_ms + delta_ms)
+
+    def _current_jump_video_time_ms(self) -> float | None:
+        row = self._selected_annotation_row()
+        sensor_id = self._current_annotation_sensor_id()
+        if row is None or sensor_id is None:
+            return None
+        offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, sensor_id)
+        return operations.compute_annotation_jump_video_time_ms(row, offset_ms)
+
+    def _seek_annotation_video_to_current_jump(self) -> None:
+        if self.annotation_video_capture is None:
+            messagebox.showwarning("Synergie Tools", "Load the session video first.")
+            return
+        target_ms = self._current_jump_video_time_ms()
+        if target_ms is None:
+            messagebox.showwarning("Synergie Tools", "Select an annotation entry first.")
+            return
+        self._stop_annotation_playback()
+        self._display_annotation_video_frame(target_ms)
+
+    def _play_annotation_to_current_jump(self) -> None:
+        if self.annotation_video_capture is None:
+            messagebox.showwarning("Synergie Tools", "Load the session video first.")
+            return
+        target_ms = self._current_jump_video_time_ms()
+        if target_ms is None:
+            messagebox.showwarning("Synergie Tools", "Select an annotation entry first.")
+            return
+
+        self._stop_annotation_playback()
+        start_ms = max(target_ms - 5000.0, 0.0)
+        base_frame_ms = 1000.0 / self.annotation_video_fps if self.annotation_video_fps > 0 else 40.0
+        step_ms = max(base_frame_ms * 5.0, 100.0)
+        delay_ms = max(int(round(base_frame_ms)), 20)
+        self._display_annotation_video_frame(start_ms)
+
+        def advance() -> None:
+            if self.annotation_video_capture is None:
+                self._annotation_playback_after_id = None
+                return
+            next_ms = self.annotation_video_current_ms + step_ms
+            if next_ms >= target_ms:
+                self._display_annotation_video_frame(target_ms)
+                self._annotation_playback_after_id = None
+                return
+            self._display_annotation_video_frame(next_ms)
+            self._annotation_playback_after_id = self.root.after(delay_ms, advance)
+
+        self._annotation_playback_after_id = self.root.after(delay_ms, advance)
+
+    def _stop_annotation_playback(self) -> None:
+        if self._annotation_playback_after_id is not None:
+            self.root.after_cancel(self._annotation_playback_after_id)
+            self._annotation_playback_after_id = None
+
+    def _sync_current_sensor_to_video(self) -> None:
+        if self.annotation_file_path is None:
+            messagebox.showwarning("Synergie Tools", "Select an annotation file first.")
+            return
+        if self.annotation_video_capture is None:
+            messagebox.showwarning("Synergie Tools", "Load the session video first.")
+            return
+        row = self._selected_annotation_row()
+        sensor_id = self._current_annotation_sensor_id()
+        if row is None or sensor_id is None:
+            messagebox.showwarning("Synergie Tools", "Select an annotation entry first.")
+            return
+
+        base_ms = operations.compute_annotation_jump_video_time_ms(row, 0.0)
+        offset_ms = self.annotation_video_current_ms - base_ms
+        self.annotation_metadata = operations.set_annotation_sensor_sync_offset(self.annotation_file_path, sensor_id, offset_ms)
+        self._refresh_annotation_jump_list()
+        index = self._selected_annotation_index()
+        if index is not None:
+            self.annotation_jump_listbox.selection_clear(0, tk.END)
+            self.annotation_jump_listbox.selection_set(index)
+        self._refresh_annotation_video_context()
+        self.status_var.set(f"Saved video sync for sensor {sensor_id}")
+
+    def _clear_current_sensor_sync(self) -> None:
+        if self.annotation_file_path is None:
+            return
+        sensor_id = self._current_annotation_sensor_id()
+        if sensor_id is None:
+            return
+        offsets = dict(self.annotation_metadata.get("sensor_sync_offsets_ms", {}))
+        if sensor_id in offsets:
+            offsets.pop(sensor_id)
+            self.annotation_metadata["sensor_sync_offsets_ms"] = offsets
+            operations.save_annotation_metadata(self.annotation_file_path, self.annotation_metadata)
+        self._refresh_annotation_jump_list()
+        index = self._selected_annotation_index()
+        if index is not None:
+            self.annotation_jump_listbox.selection_clear(0, tk.END)
+            self.annotation_jump_listbox.selection_set(index)
+        self._refresh_annotation_video_context()
+        self.status_var.set(f"Cleared video sync for sensor {sensor_id}")
+
     def _draw_annotation_segment(self, row) -> None:
         import pandas as pd
 
@@ -978,13 +1339,16 @@ class SynergieToolsApp:
             self._draw_placeholder_annotation_plot()
             return
         dataframe = pd.read_csv(path)
+        sensor_id = str(row.get("sensor_id", ""))
+        offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, sensor_id)
+        video_time_label = self._format_video_ms(operations.compute_annotation_jump_video_time_ms(row, offset_ms))
         self.annotation_ax.clear()
         self.annotation_ax.plot(dataframe["ms"], dataframe["Gyr_X"], label="Gyr_X", linewidth=1.2)
         self.annotation_ax.plot(dataframe["ms"], dataframe["Acc_X"], label="Acc_X", linewidth=0.9, alpha=0.7)
         self.annotation_ax.set_title(
-            f"{row.get('videoTimeStamp', '--:--')} | "
+            f"{video_time_label} | "
             f"{row.get('athlete_id', row.get('skater', 'unknown'))} | "
-            f"{row.get('source_file', '')}"
+            f"sensor {sensor_id} | {row.get('source_file', '')}"
         )
         self.annotation_ax.set_xlabel("ms")
         self.annotation_ax.set_ylabel("Signal")

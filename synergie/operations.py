@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import os
 import shutil
 from datetime import datetime
@@ -33,6 +34,12 @@ ANNOTATION_DETECTION_STATUS_OPTIONS = [
     ("not_a_jump", "Not a jump"),
     ("manual_missing_jump", "Missed jump added manually"),
 ]
+
+
+ANNOTATION_METADATA_DEFAULTS = {
+    "video_path": "",
+    "sensor_sync_offsets_ms": {},
+}
 
 
 def list_sessions() -> list[str]:
@@ -104,6 +111,80 @@ def annotation_turn_options(jump_type: str | int | None) -> list[str]:
     if normalized in {"8", "exclude", "none"}:
         return []
     return ["1", "2", "3", "4"]
+
+
+def annotation_metadata_path(annotation_csv_path: str | Path) -> Path:
+    path = Path(annotation_csv_path)
+    return path.with_suffix(".annotation_meta.json")
+
+
+def load_annotation_metadata(annotation_csv_path: str | Path) -> dict:
+    metadata_path = annotation_metadata_path(annotation_csv_path)
+    if not metadata_path.exists():
+        return dict(ANNOTATION_METADATA_DEFAULTS)
+
+    with metadata_path.open("r", encoding="utf-8") as handle:
+        loaded = json.load(handle)
+
+    metadata = dict(ANNOTATION_METADATA_DEFAULTS)
+    metadata.update(loaded if isinstance(loaded, dict) else {})
+    metadata["sensor_sync_offsets_ms"] = {
+        str(sensor_id): float(offset_ms)
+        for sensor_id, offset_ms in metadata.get("sensor_sync_offsets_ms", {}).items()
+    }
+    return metadata
+
+
+def save_annotation_metadata(annotation_csv_path: str | Path, metadata: dict) -> Path:
+    metadata_path = annotation_metadata_path(annotation_csv_path)
+    payload = dict(ANNOTATION_METADATA_DEFAULTS)
+    payload.update(metadata)
+    payload["sensor_sync_offsets_ms"] = {
+        str(sensor_id): float(offset_ms)
+        for sensor_id, offset_ms in payload.get("sensor_sync_offsets_ms", {}).items()
+    }
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    with metadata_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=True)
+    return metadata_path
+
+
+def set_annotation_video_path(annotation_csv_path: str | Path, video_path: str | Path) -> dict:
+    metadata = load_annotation_metadata(annotation_csv_path)
+    metadata["video_path"] = str(Path(video_path))
+    save_annotation_metadata(annotation_csv_path, metadata)
+    return metadata
+
+
+def set_annotation_sensor_sync_offset(annotation_csv_path: str | Path, sensor_id: str | int, offset_ms: float) -> dict:
+    metadata = load_annotation_metadata(annotation_csv_path)
+    offsets = dict(metadata.get("sensor_sync_offsets_ms", {}))
+    offsets[str(sensor_id)] = round(float(offset_ms), 3)
+    metadata["sensor_sync_offsets_ms"] = offsets
+    save_annotation_metadata(annotation_csv_path, metadata)
+    return metadata
+
+
+def get_annotation_sensor_sync_offset(metadata: dict | str | Path, sensor_id: str | int) -> float:
+    loaded = load_annotation_metadata(metadata) if isinstance(metadata, (str, Path)) else metadata
+    offsets = loaded.get("sensor_sync_offsets_ms", {})
+    return float(offsets.get(str(sensor_id), 0.0))
+
+
+def compute_annotation_jump_video_time_ms(row, sensor_sync_offset_ms: float = 0.0) -> float:
+    base_ms = _safe_float(row.get("synced_start_ms", row.get("start_ms", 0.0)), default=0.0)
+    return max(base_ms + float(sensor_sync_offset_ms), 0.0)
+
+
+def list_video_files(directory: str | Path) -> list[Path]:
+    directory_path = Path(directory)
+    if not directory_path.exists() or not directory_path.is_dir():
+        return []
+    suffixes = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
+    return sorted(
+        path for path in directory_path.iterdir()
+        if path.is_file() and path.suffix.lower() in suffixes
+    )
 
 
 def parse_new_imu_filename(path: str | Path) -> dict:
@@ -475,6 +556,13 @@ def process_new_imu_session_for_annotation(
 def _ms_to_timestamp(ms: float) -> str:
     total_seconds = round(ms / 1000)
     return f"{total_seconds // 60:02d}:{total_seconds % 60:02d}"
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def estimate_sensor_impact_offset_ms(session_df) -> float:

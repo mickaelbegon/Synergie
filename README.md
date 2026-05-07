@@ -19,6 +19,9 @@ conda env create -f environment.yml
 conda activate synergie-data
 ```
 
+Les sessions de collecte ne sont plus codees dans `constants.py`.
+Elles sont maintenant stockees dans [config/sessions.json](C:\Users\micka\Documents\GIT\Synergie_Data\Synergie_Data\config\sessions.json) et peuvent etre ajoutees depuis l'onglet `Sessions` de `tools_gui.py`.
+
 ### Dependances externes
 
 L'application GUI depend aussi :
@@ -56,6 +59,13 @@ Dans `tools_gui.py`, l'onglet `Inspect IMU` permet aussi :
 - d'ajuster les sliders de detection
 - de selectionner un saut pour afficher un zoom dedie
 - de lire le dossier de session choisi et lister tous les fichiers disponibles avec infos de base sur le fichier selectionne
+
+L'onglet `Annotate` permet maintenant aussi de :
+
+- charger une video de la seance en plus du CSV `for_annotation`
+- memoriser un offset de synchronisation par capteur IMU
+- relire rapidement (`x5`) les 5 secondes qui precedent le saut courant jusqu'a son instant d'apparition estime
+- afficher dynamiquement l'heure video recalculee pour chaque saut selon l'offset du capteur concerne
 
 L'onglet `Train` permet maintenant aussi de choisir explicitement l'architecture d'entrainement selon la tache:
 
@@ -96,6 +106,7 @@ python main.py -repredict
 - `synergie/cli.py` : parsing des commandes
 - `synergie/config.py` : constantes partagees pour fenetres et seuils
 - `synergie/operations.py` : orchestration des workflows CLI
+- `synergie/session_store.py` : lecture/ecriture des sessions dans le fichier JSON
 - `synergie/services/` : logique metier reutilisable hors interface
 - `synergie/tool_gui.py` : interface graphique simple pour les workflows hors capteurs
 - `core/` : logique metier, traitement de donnees, modeles, acces base de donnees

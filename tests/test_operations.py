@@ -114,6 +114,28 @@ class OperationsTests(unittest.TestCase):
             self.assertEqual(len(sessions[0]["files"]), 2)
             self.assertEqual([item["sensor_id"] for item in sessions[0]["files"]], ["1", "2"])
 
+    def test_annotation_metadata_persists_video_path_and_sensor_offsets(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            annotation_csv = Path(tmpdir) / "20250911_085656_for_annotation.csv"
+            annotation_csv.write_text("path,type\n", encoding="utf-8")
+
+            operations.set_annotation_video_path(annotation_csv, Path(tmpdir) / "session.mp4")
+            operations.set_annotation_sensor_sync_offset(annotation_csv, "2", 183.25)
+
+            metadata = operations.load_annotation_metadata(annotation_csv)
+
+            self.assertTrue(operations.annotation_metadata_path(annotation_csv).exists())
+            self.assertTrue(metadata["video_path"].endswith("session.mp4"))
+            self.assertEqual(metadata["sensor_sync_offsets_ms"]["2"], 183.25)
+            self.assertEqual(operations.get_annotation_sensor_sync_offset(metadata, "2"), 183.25)
+
+    def test_compute_annotation_jump_video_time_ms_applies_sensor_offset(self):
+        row = {"synced_start_ms": "1520.5"}
+
+        result = operations.compute_annotation_jump_video_time_ms(row, sensor_sync_offset_ms=180)
+
+        self.assertEqual(result, 1700.5)
+
     def test_session_synchro_reads_known_session_metadata(self):
         self.assertEqual(
             operations.session_synchro("1331"),
