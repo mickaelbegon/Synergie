@@ -1,3 +1,4 @@
+import synergie.runtime  # noqa: F401
 import time
 from PIL import Image, ImageTk
 import ttkbootstrap as ttkb
