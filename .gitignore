@@ -3,6 +3,7 @@ data/
 /s2m-skating-firebase-adminsdk-3ofmb-*.json
 /config/s2m-skating-firebase-adminsdk-3ofmb-*.json
 /local_secrets/
+/local_state/
 .tmp/
 build/
 movelladot_pc_sdk/

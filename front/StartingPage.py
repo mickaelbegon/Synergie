@@ -8,13 +8,17 @@ import ttkbootstrap as ttkb
 
 from core.utils.DotDevice import DotDevice
 from core.database.DatabaseManager import DatabaseManager, TrainingData
+from synergie.sensor_assignment_history import record_assignment, sort_skaters_for_sensor
 
 class StartingPage:
     def __init__(self, device : DotDevice, db_manager : DatabaseManager, userConnected : str) -> None:
         self.device = device
         self.db_manager = db_manager
         self.deviceTag = self.device.deviceTagName
-        self.skaters = self.db_manager.getAllSkaterFromCoach(userConnected)
+        self.skaters = sort_skaters_for_sensor(
+            self.db_manager.getAllSkaterFromCoach(userConnected),
+            self.deviceTag,
+        )
 
         self.window = ttkb.Toplevel(title="Confirmation", size=(1400,400), topmost=True)
         self.window.place_window_center()
@@ -74,6 +78,8 @@ class StartingPage:
         new_training = TrainingData(0, skaterId, 0, deviceId, [])
         self.db_manager.set_current_record(deviceId, self.db_manager.save_training_data(new_training))
         recordStarted = self.device.startRecord()
+        if recordStarted:
+            record_assignment(self.deviceTag, skaterId, skaterName)
         self.canvas.destroy()
         self.label.destroy()
         self.frame = ttkb.Frame(self.window)
