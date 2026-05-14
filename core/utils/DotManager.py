@@ -164,22 +164,19 @@ class DotManager:
         """
         Détection des capteurs connectés en USB afin de capter un branchement ou un débranchement
         """
-        current_ports = set(windows_com_ports()) if os.name == "nt" else None
         connected : List[DotDevice] = []
         for device in self.devices:
-            if current_ports is not None:
-                port_present = device.portInfoUsb.portName() in current_ports
-                device_id = device.deviceId
-                if port_present:
-                    self.usbPresentCounts[device_id] = self.usbPresentCounts.get(device_id, 0) + 1
-                    self.usbMissingCounts[device_id] = 0
-                    if self.usbPresentCounts[device_id] >= self.usbTransitionThreshold:
-                        device.isPlugged = True
-                else:
-                    self.usbMissingCounts[device_id] = self.usbMissingCounts.get(device_id, 0) + 1
-                    self.usbPresentCounts[device_id] = 0
-                    if self.usbMissingCounts[device_id] >= self.usbTransitionThreshold:
-                        device.isPlugged = False
+            device_id = device.deviceId
+            if device.isBatteryCharging:
+                self.usbPresentCounts[device_id] = self.usbPresentCounts.get(device_id, 0) + 1
+                self.usbMissingCounts[device_id] = 0
+                if self.usbPresentCounts[device_id] >= self.usbTransitionThreshold:
+                    device.isPlugged = True
+            else:
+                self.usbMissingCounts[device_id] = self.usbMissingCounts.get(device_id, 0) + 1
+                self.usbPresentCounts[device_id] = 0
+                if self.usbMissingCounts[device_id] >= self.usbTransitionThreshold:
+                    device.isPlugged = False
             if device.isPlugged:
                 connected.append(device)
 

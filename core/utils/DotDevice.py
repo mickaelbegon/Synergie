@@ -71,7 +71,7 @@ class DotDevice(XsDotCallback):
         self.packetsReceived = []
         self.synchroTime = 0
         self.exportDone = False
-        self.isBatteryCharging = False
+        self.isBatteryCharging = True
 
     def _open_bluetooth_with_retries(self, retries: int = 5):
         self.btManager.closePort(self.portInfoBt)
