@@ -1,6 +1,9 @@
 data/
 **/__pycache__
-/s2m-skating-firebase-adminsdk-3ofmb-8552d58146.json
+/s2m-skating-firebase-adminsdk-3ofmb-*.json
+/config/s2m-skating-firebase-adminsdk-3ofmb-*.json
+/local_secrets/
+.tmp/
 build/
 movelladot_pc_sdk/
 dist/

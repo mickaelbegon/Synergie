@@ -53,8 +53,29 @@ class SkaterData:
         return {"skater_name" : self.skater_name}
 
 class DatabaseManager:
-    CREDENTIALS_FILENAME = "s2m-skating-firebase-adminsdk-3ofmb-8552d58146.json"
+    CREDENTIALS_PREFIX = "s2m-skating-firebase-adminsdk-3ofmb-"
+    CREDENTIALS_SUFFIX = ".json"
+    CREDENTIALS_FILENAME = "s2m-skating-firebase-adminsdk-3ofmb-0556d6ac57.json"
+    CREDENTIALS_GLOB = f"{CREDENTIALS_PREFIX}*{CREDENTIALS_SUFFIX}"
     CREDENTIALS_ENV_VARS = ("SYNERGIE_FIREBASE_CREDENTIALS", "GOOGLE_APPLICATION_CREDENTIALS")
+
+    @classmethod
+    def credential_search_directories(cls) -> list[Path]:
+        repo_root = Path(__file__).resolve().parents[2]
+        search_dirs = [Path.cwd(), repo_root, repo_root / "config"]
+        try:
+            search_dirs.insert(0, Path(sys._MEIPASS))
+        except AttributeError:
+            pass
+
+        unique_dirs: list[Path] = []
+        seen: set[str] = set()
+        for directory in search_dirs:
+            normalized = str(directory.resolve(strict=False)).lower()
+            if normalized not in seen:
+                unique_dirs.append(directory)
+                seen.add(normalized)
+        return unique_dirs
 
     @classmethod
     def credential_search_paths(cls) -> list[Path]:
@@ -65,19 +86,8 @@ class DatabaseManager:
             if env_value:
                 candidate_paths.append(Path(env_value).expanduser())
 
-        try:
-            candidate_paths.append(Path(sys._MEIPASS) / cls.CREDENTIALS_FILENAME)
-        except AttributeError:
-            pass
-
-        repo_root = Path(__file__).resolve().parents[2]
-        candidate_paths.extend(
-            [
-                Path.cwd() / cls.CREDENTIALS_FILENAME,
-                repo_root / cls.CREDENTIALS_FILENAME,
-                repo_root / "config" / cls.CREDENTIALS_FILENAME,
-            ]
-        )
+        for search_dir in cls.credential_search_directories():
+            candidate_paths.extend(sorted(search_dir.glob(cls.CREDENTIALS_GLOB)))
 
         unique_candidates: list[Path] = []
         seen: set[str] = set()
@@ -95,12 +105,21 @@ class DatabaseManager:
             if candidate.is_file():
                 return candidate
 
-        searched = "\n".join(f"- {candidate}" for candidate in candidates)
+        checked_directories = cls.credential_search_directories()
+        checked_text = "\n".join(f"- {directory}" for directory in checked_directories)
+        env_text = "\n".join(
+            f"- {env_var}={os.environ.get(env_var)}"
+            for env_var in cls.CREDENTIALS_ENV_VARS
+            if os.environ.get(env_var)
+        ) or "- none"
         raise FileNotFoundError(
             "Firebase credentials file not found.\n"
-            f"Expected filename: {cls.CREDENTIALS_FILENAME}\n"
-            "Checked these locations:\n"
-            f"{searched}\n"
+            f"Expected filename example: {cls.CREDENTIALS_FILENAME}\n"
+            f"Accepted filename pattern: {cls.CREDENTIALS_GLOB}\n"
+            "Checked environment variables:\n"
+            f"{env_text}\n"
+            "Checked directories:\n"
+            f"{checked_text}\n"
             "You can also define SYNERGIE_FIREBASE_CREDENTIALS to point to the JSON file."
         )
 
