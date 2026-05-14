@@ -159,8 +159,11 @@ class DotManager:
         """
         Détection des capteurs connectés en USB afin de capter un branchement ou un débranchement
         """
+        current_ports = set(windows_com_ports()) if os.name == "nt" else None
         connected : List[DotDevice] = []
         for device in self.devices:
+            if current_ports is not None:
+                device.isPlugged = device.portInfoUsb.portName() in current_ports
             if device.isPlugged:
                 connected.append(device)
 
@@ -176,10 +179,13 @@ class DotManager:
                     device.closeUsb()
                     lastDisconnected.append(device)
         elif len(self.previousConnected) < len(connected):
-            for device in connected:
+            for device in connected.copy():
                 if device not in self.previousConnected:
                     if device.openUsb():
                         lastConnected.append(device)
+                    else:
+                        device.isPlugged = False
+                        connected.remove(device)
         else:
             pass
 

@@ -42,6 +42,20 @@ _logger = logging.getLogger(__name__)
 
 waitForConnections = True
 
+def windows_com_ports() -> list[str]:
+    try:
+        completed = subprocess.run(
+            ["cmd", "/c", "mode"],
+            text=True,
+            capture_output=True,
+            timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    matches = re.findall(r"\bCOM\d+\b", completed.stdout or "", flags=re.IGNORECASE)
+    return sorted(set(matches), key=lambda value: int(value[3:]))
+
 def on_press(key):
     global waitForConnections
     waitForConnections = False
@@ -215,18 +229,7 @@ class XdpcHandler(movelladot_pc_sdk.XsDotCallback):
         return True
 
     def _windows_com_ports(self) -> list[str]:
-        try:
-            completed = subprocess.run(
-                ["cmd", "/c", "mode"],
-                text=True,
-                capture_output=True,
-                timeout=10,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return []
-        matches = re.findall(r"\bCOM\d+\b", completed.stdout or "", flags=re.IGNORECASE)
-        return sorted(set(matches), key=lambda value: int(value[3:]))
+        return windows_com_ports()
 
     def detectedDots(self) -> List[XsPortInfo]:
         """
