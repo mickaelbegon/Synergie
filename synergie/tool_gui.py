@@ -63,6 +63,8 @@ class SynergieToolsApp:
         self.annotation_athlete_var = tk.StringVar(value="")
         self.annotation_exclusion_hint_var = tk.StringVar(value="")
         self.annotation_video_path_var = tk.StringVar()
+        self.annotation_video_directory_var = tk.StringVar()
+        self.annotation_video_matches_var = tk.StringVar(value=[])
         self.annotation_video_info_var = tk.StringVar(value="No video loaded.")
         self.annotation_sensor_sync_var = tk.StringVar(value="No sync offset saved for current sensor.")
         self.annotation_video_time_var = tk.StringVar(value="00:00.000")
@@ -102,6 +104,7 @@ class SynergieToolsApp:
         self.detected_jumps: list = []
         self._new_data_files_cache: list[dict] = []
         self._annotation_files_cache: list[Path] = []
+        self._annotation_video_match_cache: list[dict] = []
         self.figure = None
         self.axes = None
         self.canvas = None
@@ -390,13 +393,29 @@ class SynergieToolsApp:
         ttk.Button(video_buttons, text="Browse", command=self._browse_annotation_video).grid(row=0, column=0, sticky="w")
         ttk.Button(video_buttons, text="Load", command=self._load_annotation_video_from_entry).grid(row=0, column=1, sticky="w", padx=(6, 0))
 
+        ttk.Label(video_frame, text="Video folder").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(video_frame, textvariable=self.annotation_video_directory_var).grid(row=1, column=1, sticky="ew", padx=8, pady=(8, 0))
+        folder_buttons = ttk.Frame(video_frame)
+        folder_buttons.grid(row=1, column=2, sticky="e", pady=(8, 0))
+        ttk.Button(folder_buttons, text="Browse folder", command=self._browse_annotation_video_directory).grid(row=0, column=0, sticky="w")
+        ttk.Button(folder_buttons, text="Find match", command=self._find_annotation_video_matches).grid(row=0, column=1, sticky="w", padx=(6, 0))
+
         ttk.Label(video_frame, textvariable=self.annotation_video_info_var, justify=tk.LEFT, wraplength=360).grid(
-            row=1,
+            row=2,
             column=0,
             columnspan=3,
             sticky="w",
             pady=(6, 8),
         )
+
+        self.annotation_video_matches_listbox = tk.Listbox(
+            video_frame,
+            listvariable=self.annotation_video_matches_var,
+            exportselection=False,
+            height=4,
+        )
+        self.annotation_video_matches_listbox.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(0, 8))
+        self.annotation_video_matches_listbox.bind("<<ListboxSelect>>", self._on_annotation_video_match_selected)
 
         self.annotation_video_label = ttk.Label(
             video_frame,
@@ -404,10 +423,10 @@ class SynergieToolsApp:
             anchor="center",
             relief="sunken",
         )
-        self.annotation_video_label.grid(row=2, column=0, columnspan=3, sticky="nsew")
+        self.annotation_video_label.grid(row=4, column=0, columnspan=3, sticky="nsew")
 
         video_timeline = ttk.Frame(video_frame)
-        video_timeline.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        video_timeline.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(8, 0))
         video_timeline.columnconfigure(0, weight=1)
         self.annotation_video_slider = tk.Scale(
             video_timeline,
@@ -423,7 +442,7 @@ class SynergieToolsApp:
         ttk.Label(video_timeline, textvariable=self.annotation_video_time_var, width=12).grid(row=0, column=1, sticky="e", padx=(8, 0))
 
         video_controls = ttk.Frame(video_frame)
-        video_controls.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        video_controls.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(8, 0))
         ttk.Button(video_controls, text="-1s", command=lambda: self._seek_annotation_video_relative(-1000)).grid(row=0, column=0, sticky="w")
         ttk.Button(video_controls, text="+1s", command=lambda: self._seek_annotation_video_relative(1000)).grid(row=0, column=1, sticky="w", padx=(6, 0))
         ttk.Button(video_controls, text="Go to jump", command=self._seek_annotation_video_to_current_jump).grid(row=0, column=2, sticky="w", padx=(12, 0))
@@ -1431,6 +1450,9 @@ class SynergieToolsApp:
             self.annotation_file_path = None
             self.annotation_metadata = {}
             self.annotation_video_path_var.set("")
+            self.annotation_video_directory_var.set("")
+            self.annotation_video_matches_var.set([])
+            self._annotation_video_match_cache = []
             self.annotation_video_info_var.set("No video loaded.")
             self.annotation_sensor_sync_var.set("No sync offset saved for current sensor.")
             self._stop_annotation_playback()
@@ -1456,7 +1478,11 @@ class SynergieToolsApp:
         sensor_count = 0 if self.annotation_dataframe.empty else self.annotation_dataframe["sensor_id"].nunique()
         self.annotation_summary_var.set(f"{file_path.name}\nEntries: {len(self.annotation_dataframe)} | Sensors: {sensor_count}")
         video_path = self.annotation_metadata.get("video_path", "")
+        video_directory = self.annotation_metadata.get("video_directory", "")
         self.annotation_video_path_var.set(video_path)
+        self.annotation_video_directory_var.set(video_directory)
+        self.annotation_video_matches_var.set([])
+        self._annotation_video_match_cache = []
         if video_path and Path(video_path).exists():
             self._load_annotation_video(video_path, persist=False)
         else:
@@ -1464,6 +1490,8 @@ class SynergieToolsApp:
             self._release_annotation_video()
             self._draw_placeholder_annotation_video()
             self.annotation_video_info_var.set("No video loaded.")
+            if video_directory and Path(video_directory).exists():
+                self._find_annotation_video_matches(auto_load=True)
         if len(self.annotation_dataframe) > 0:
             self.annotation_jump_listbox.selection_clear(0, tk.END)
             self.annotation_jump_listbox.selection_set(0)
@@ -1647,6 +1675,76 @@ class SynergieToolsApp:
         self.annotation_video_path_var.set(file_path)
         self._load_annotation_video(file_path, persist=True)
 
+    def _browse_annotation_video_directory(self) -> None:
+        directory = filedialog.askdirectory(title="Select video folder")
+        if not directory:
+            return
+        self.annotation_video_directory_var.set(directory)
+        if self.annotation_file_path is not None:
+            self.annotation_metadata = operations.set_annotation_video_directory(self.annotation_file_path, directory)
+        self._find_annotation_video_matches(auto_load=True)
+
+    def _find_annotation_video_matches(self, auto_load: bool = False) -> None:
+        if self.annotation_file_path is None:
+            messagebox.showwarning("Synergie Tools", "Select an annotation file first.")
+            return
+        video_directory = self.annotation_video_directory_var.get().strip()
+        if not video_directory:
+            messagebox.showwarning("Synergie Tools", "Select a video folder first.")
+            return
+        directory_path = Path(video_directory)
+        if not directory_path.exists():
+            messagebox.showerror("Synergie Tools", f"Video folder not found:\n{directory_path}")
+            return
+
+        if self.annotation_file_path is not None:
+            self.annotation_metadata = operations.set_annotation_video_directory(self.annotation_file_path, directory_path)
+
+        result = operations.find_matching_videos(
+            self.annotation_file_path,
+            directory_path,
+            annotation_rows=self.annotation_dataframe,
+            recursive=True,
+            limit=8,
+        )
+        self._annotation_video_match_cache = result["matches"]
+
+        if not result["matches"]:
+            self.annotation_video_matches_var.set(["No video found in selected folder."])
+            self.annotation_video_info_var.set("No matching video found.")
+            return
+
+        entries = []
+        for match in result["matches"]:
+            delta_seconds = match["delta_seconds"]
+            delta_text = "unknown gap" if delta_seconds is None else f"{int(round(delta_seconds))} s gap"
+            entries.append(
+                f"{match['name']} | {match['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')} | {match['recorded_at_source']} | {delta_text}"
+            )
+        self.annotation_video_matches_var.set(entries)
+
+        reference_datetime = result["reference_datetime"]
+        if reference_datetime is None:
+            self.annotation_video_info_var.set(f"{len(result['matches'])} video candidates found.")
+        else:
+            best_match = result["matches"][0]
+            self.annotation_video_info_var.set(
+                f"Reference: {reference_datetime.strftime('%Y-%m-%d %H:%M:%S')} | "
+                f"best match: {best_match['name']} ({best_match['recorded_at_source']})"
+            )
+
+        self.annotation_video_matches_listbox.selection_clear(0, tk.END)
+        if result["matches"]:
+            self.annotation_video_matches_listbox.selection_set(0)
+            if auto_load:
+                self._load_annotation_video(result["matches"][0]["path"], persist=True)
+
+    def _on_annotation_video_match_selected(self, _event=None) -> None:
+        selection = self.annotation_video_matches_listbox.curselection()
+        if not selection or selection[0] >= len(self._annotation_video_match_cache):
+            return
+        self._load_annotation_video(self._annotation_video_match_cache[selection[0]]["path"], persist=True)
+
     def _load_annotation_video_from_entry(self) -> None:
         video_path = self.annotation_video_path_var.get().strip()
         if not video_path:
@@ -1696,10 +1794,12 @@ class SynergieToolsApp:
         self.annotation_video_frame_count = frame_count
         self.annotation_video_duration_ms = duration_ms
         self.annotation_video_path_var.set(str(path))
+        self.annotation_video_directory_var.set(str(path.parent))
         self.annotation_video_slider.configure(to=max(duration_ms, 1.0))
         self.annotation_video_info_var.set(f"{path.name} | fps={fps:.2f}")
         if persist and self.annotation_file_path is not None:
             self.annotation_metadata = operations.set_annotation_video_path(self.annotation_file_path, path)
+            self.annotation_metadata = operations.set_annotation_video_directory(self.annotation_file_path, path.parent)
         self._display_annotation_video_frame(0.0)
         self._refresh_annotation_video_context()
 

@@ -3,7 +3,9 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -44,6 +46,7 @@ ANNOTATION_REVIEW_STATUS_OPTIONS = [
 
 ANNOTATION_METADATA_DEFAULTS = {
     "video_path": "",
+    "video_directory": "",
     "sensor_sync_offsets_ms": {},
 }
 
@@ -227,6 +230,13 @@ def set_annotation_sensor_sync_offset(annotation_csv_path: str | Path, sensor_id
     return metadata
 
 
+def set_annotation_video_directory(annotation_csv_path: str | Path, video_directory: str | Path) -> dict:
+    metadata = load_annotation_metadata(annotation_csv_path)
+    metadata["video_directory"] = str(Path(video_directory))
+    save_annotation_metadata(annotation_csv_path, metadata)
+    return metadata
+
+
 def get_annotation_sensor_sync_offset(metadata: dict | str | Path, sensor_id: str | int) -> float:
     loaded = load_annotation_metadata(metadata) if isinstance(metadata, (str, Path)) else metadata
     offsets = loaded.get("sensor_sync_offsets_ms", {})
@@ -238,15 +248,106 @@ def compute_annotation_jump_video_time_ms(row, sensor_sync_offset_ms: float = 0.
     return max(base_ms + float(sensor_sync_offset_ms), 0.0)
 
 
-def list_video_files(directory: str | Path) -> list[Path]:
+def list_video_files(directory: str | Path, recursive: bool = False) -> list[Path]:
     directory_path = Path(directory)
     if not directory_path.exists() or not directory_path.is_dir():
         return []
     suffixes = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
+    iterator = directory_path.rglob("*") if recursive else directory_path.iterdir()
     return sorted(
-        path for path in directory_path.iterdir()
+        path for path in iterator
         if path.is_file() and path.suffix.lower() in suffixes
     )
+
+
+def annotation_reference_datetime(annotation_csv_path: str | Path, annotation_rows=None) -> datetime | None:
+    if annotation_rows is not None:
+        candidate_values: list[datetime] = []
+        for value in annotation_rows.get("recorded_at", []):
+            parsed = _parse_datetime_value(value)
+            if parsed is not None:
+                candidate_values.append(parsed)
+        if candidate_values:
+            return min(candidate_values)
+
+    for value in Path(annotation_csv_path).stem.split("_"):
+        parsed = _parse_datetime_from_text(value)
+        if parsed is not None:
+            return parsed
+
+    parsed = _parse_datetime_from_text(Path(annotation_csv_path).stem)
+    if parsed is not None:
+        return parsed
+    return None
+
+
+def read_video_metadata(video_path: str | Path) -> dict:
+    path = Path(video_path)
+    stat = path.stat()
+    candidates: list[tuple[str, datetime]] = []
+
+    ffprobe_datetime = _read_video_creation_time_with_ffprobe(path)
+    if ffprobe_datetime is not None:
+        candidates.append(("ffprobe.creation_time", ffprobe_datetime))
+
+    filename_datetime = _parse_datetime_from_text(path.stem)
+    if filename_datetime is not None:
+        candidates.append(("filename", filename_datetime))
+
+    created_datetime = datetime.fromtimestamp(stat.st_ctime)
+    modified_datetime = datetime.fromtimestamp(stat.st_mtime)
+    candidates.append(("filesystem.created", created_datetime))
+    candidates.append(("filesystem.modified", modified_datetime))
+
+    best_source, best_datetime = candidates[0]
+    return {
+        "path": path,
+        "name": path.name,
+        "recorded_at": best_datetime,
+        "recorded_at_source": best_source,
+        "candidates": [{"source": source, "recorded_at": value} for source, value in candidates],
+    }
+
+
+def find_matching_videos(
+    annotation_csv_path: str | Path,
+    video_directory: str | Path,
+    *,
+    annotation_rows=None,
+    recursive: bool = True,
+    limit: int = 5,
+) -> dict:
+    reference_datetime = annotation_reference_datetime(annotation_csv_path, annotation_rows=annotation_rows)
+    videos = list_video_files(video_directory, recursive=recursive)
+    matches: list[dict] = []
+    for video_path in videos:
+        metadata = read_video_metadata(video_path)
+        delta_seconds = None
+        if reference_datetime is not None:
+            delta_seconds = abs((metadata["recorded_at"] - reference_datetime).total_seconds())
+        matches.append(
+            {
+                "path": metadata["path"],
+                "name": metadata["name"],
+                "recorded_at": metadata["recorded_at"],
+                "recorded_at_source": metadata["recorded_at_source"],
+                "delta_seconds": delta_seconds,
+            }
+        )
+
+    matches.sort(
+        key=lambda item: (
+            float("inf") if item["delta_seconds"] is None else item["delta_seconds"],
+            item["recorded_at"],
+            item["name"].lower(),
+        )
+    )
+    return {
+        "reference_datetime": reference_datetime,
+        "video_directory": Path(video_directory),
+        "matches": matches[:limit],
+        "match_count": len(matches),
+    }
 
 
 def parse_new_imu_filename(path: str | Path) -> dict:
@@ -784,6 +885,73 @@ def process_new_imu_session_for_annotation(
         "session_key": new_imu_session_key(metadata),
         "sensor_count": len(session_files),
     }
+
+
+_TEXT_DATETIME_PATTERNS = (
+    re.compile(r"(?P<date>\d{8})[_-]?(?P<time>\d{6})"),
+    re.compile(r"(?P<date>\d{4}-\d{2}-\d{2})[_T -]?(?P<time>\d{2}[-:]\d{2}[-:]\d{2})"),
+)
+
+
+def _parse_datetime_value(value) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return _parse_datetime_from_text(text)
+
+
+def _parse_datetime_from_text(text: str) -> datetime | None:
+    for pattern in _TEXT_DATETIME_PATTERNS:
+        match = pattern.search(text)
+        if not match:
+            continue
+        date_token = match.group("date").replace("-", "")
+        time_token = match.group("time").replace("-", "").replace(":", "")
+        try:
+            return datetime.strptime(f"{date_token}_{time_token}", "%Y%m%d_%H%M%S")
+        except ValueError:
+            continue
+    return None
+
+
+def _read_video_creation_time_with_ffprobe(video_path: Path) -> datetime | None:
+    ffprobe_path = shutil.which("ffprobe")
+    if ffprobe_path is None:
+        return None
+    try:
+        completed = subprocess.run(
+            [
+                ffprobe_path,
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
+                "-show_entries",
+                "format_tags=creation_time",
+                str(video_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return None
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return None
+    creation_time = (((payload.get("format") or {}).get("tags") or {}).get("creation_time"))
+    return _parse_datetime_value(creation_time)
 
 
 def _ms_to_timestamp(ms: float) -> str:

@@ -181,12 +181,14 @@ class OperationsTests(unittest.TestCase):
             annotation_csv.write_text("path,type\n", encoding="utf-8")
 
             operations.set_annotation_video_path(annotation_csv, Path(tmpdir) / "session.mp4")
+            operations.set_annotation_video_directory(annotation_csv, Path(tmpdir) / "videos")
             operations.set_annotation_sensor_sync_offset(annotation_csv, "2", 183.25)
 
             metadata = operations.load_annotation_metadata(annotation_csv)
 
             self.assertTrue(operations.annotation_metadata_path(annotation_csv).exists())
             self.assertTrue(metadata["video_path"].endswith("session.mp4"))
+            self.assertTrue(metadata["video_directory"].endswith("videos"))
             self.assertEqual(metadata["sensor_sync_offsets_ms"]["2"], 183.25)
             self.assertEqual(operations.get_annotation_sensor_sync_offset(metadata, "2"), 183.25)
 
@@ -196,6 +198,35 @@ class OperationsTests(unittest.TestCase):
         result = operations.compute_annotation_jump_video_time_ms(row, sensor_sync_offset_ms=180)
 
         self.assertEqual(result, 1700.5)
+
+    def test_annotation_reference_datetime_prefers_recorded_at_column(self):
+        annotation_csv = Path("20250911_085656_for_annotation.csv")
+
+        result = operations.annotation_reference_datetime(
+            annotation_csv,
+            annotation_rows={"recorded_at": ["2025-09-11T08:56:58", "2025-09-11T08:56:56"]},
+        )
+
+        self.assertEqual(result, datetime(2025, 9, 11, 8, 56, 56))
+
+    def test_find_matching_videos_ranks_filename_timestamp_closest_first(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            annotation_csv = root / "20250911_085656_for_annotation.csv"
+            annotation_csv.write_text("path,type\n", encoding="utf-8")
+            videos = root / "videos"
+            videos.mkdir()
+            best = videos / "session_20250911_085700.mp4"
+            later = videos / "session_20250911_090500.mp4"
+            earlier = videos / "session_20250911_084000.mp4"
+            for path in (best, later, earlier):
+                path.write_text("video", encoding="utf-8")
+
+            result = operations.find_matching_videos(annotation_csv, videos, recursive=True, limit=3)
+
+            self.assertEqual(result["reference_datetime"], datetime(2025, 9, 11, 8, 56, 56))
+            self.assertEqual([item["path"] for item in result["matches"]], [best, later, earlier])
+            self.assertEqual(result["matches"][0]["recorded_at_source"], "filename")
 
     def test_session_synchro_reads_known_session_metadata(self):
         self.assertEqual(
