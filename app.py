@@ -9,10 +9,10 @@ import threading
 
 from front.ConnectionPage import ConnectionPage
 from core.database.DatabaseManager import *
+from core.utils.sensor_diagnostics import probe_movella_usb_detection
 
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger(__name__)
-SENSOR_INIT_TIMEOUT_SECONDS = 45
 
 class App:
 
@@ -47,55 +47,43 @@ class App:
     def launchMainPage(self):
         from front.MainPage import MainPage
         self.mainPage = MainPage([], self.dot_manager, self.db_manager, self.root)
-        self.initialEvent = threading.Event()
         self.initializationCancelled = False
-        self.initializationStartedAt = time.monotonic()
-        self.initializationTimedOut = False
-        threading.Thread(target=self.initialize, args=([self.initialEvent]), daemon=True).start()
-        self.checkInit()
-    
-    def checkInit(self):
-        if hasattr(self, "mainPage"):
-            status = self.dot_manager.statusMessage or self.dot_manager.lastError
-            self.mainPage.set_waiting_status(status)
-        if self.initialEvent.is_set():
-            if self.initializationCancelled:
-                self.initialEvent.clear()
-                return
-            self.mainPage.dotsConnected = self.dot_manager.getDevices()
-            self.mainPage.make_dot_page()
-            self.initialEvent.clear()
-        elif (
-            not self.initializationTimedOut
-            and time.monotonic() - self.initializationStartedAt > SENSOR_INIT_TIMEOUT_SECONDS
-        ):
-            self.initializationTimedOut = True
-            self.mainPage.set_waiting_status("La detection capteurs prend trop de temps.")
-            self._handle_initialization_timeout()
-        else:
-            self.root.after(500, self.checkInit)
+        self.root.after(100, self.initialize)
 
-    def _handle_initialization_timeout(self):
-        status = self.dot_manager.statusMessage or self.dot_manager.lastError or "Aucun statut disponible."
-        should_retry = messagebox.askretrycancel(
-            "Connexion capteurs",
-            "La detection des capteurs prend plus de temps que prevu.\n\n"
-            f"Etape actuelle: {status}\n\n"
-            "Verifiez que les capteurs sont branches en USB et que le Bluetooth Windows est active.",
-        )
-        if should_retry:
-            self.initialEvent = threading.Event()
-            self.initializationCancelled = False
-            self.initializationStartedAt = time.monotonic()
-            self.initializationTimedOut = False
-            threading.Thread(target=self.initialize, args=([self.initialEvent]), daemon=True).start()
-            self.root.after(100, self.checkInit)
-        else:
-            self.initializationCancelled = True
-            self.initialEvent.set()
+    def initialize(self):
+        probe = probe_movella_usb_detection(timeout_seconds=20)
+        if not probe.ok:
+            if probe.timed_out:
+                retry_message = (
+                    "Le scan USB du SDK Movella ne repond pas.\n\n"
+                    "Windows voit probablement des ports COM, mais le SDK reste bloque pendant la detection.\n"
+                    "Fermez les autres applications Movella/Xsens, puis debranchez et rebranchez les capteurs USB."
+                )
+            else:
+                retry_message = (
+                    "Le diagnostic USB Movella a echoue.\n\n"
+                    f"Detail: {probe.error or probe.output or 'aucun detail disponible'}"
+                )
+            if self._ask_retry_cancel("Connexion capteurs", retry_message):
+                self.root.after(100, self.initialize)
+            else:
+                self.initializationCancelled = True
+            return
 
-    def initialize(self, initialEvent : threading.Event):
+        if probe.detected_count == 0:
+            if self._ask_retry_cancel(
+                "Connexion capteurs",
+                "Aucun capteur Movella DOT detecte en USB.\n\n"
+                "Branchez les capteurs en USB, attendez quelques secondes, puis reessayez.",
+            ):
+                self.root.after(100, self.initialize)
+            else:
+                self.initializationCancelled = True
+            return
+
+        self.mainPage.set_waiting_status(f"{probe.detected_count} capteur(s) USB detecte(s): {', '.join(probe.ports or [])}")
         (check, unconnectedDevice) = self.dot_manager.firstConnection()
+        self.mainPage.set_waiting_status(self.dot_manager.statusMessage or self.dot_manager.lastError)
         while not check:
             deviceMessage = ", ".join(unconnectedDevice)
             if deviceMessage:
@@ -111,11 +99,12 @@ class App:
             if not should_retry:
                 _logger.warning("Sensor initialization cancelled by user.")
                 self.initializationCancelled = True
-                initialEvent.set()
                 return
             (check, unconnectedDevice) = self.dot_manager.firstConnection()
+            self.mainPage.set_waiting_status(self.dot_manager.statusMessage or self.dot_manager.lastError)
 
-        initialEvent.set()
+        self.mainPage.dotsConnected = self.dot_manager.getDevices()
+        self.mainPage.make_dot_page()
 
         usb_detection_thread = threading.Thread(target=self.checkUsbDots, args=([self.startStopping, self.startStarting]))
         usb_detection_thread.daemon = True
@@ -147,16 +136,7 @@ class App:
         StartingPage(device, self.db_manager, self.userConnected)
 
     def _ask_retry_cancel(self, title: str, message: str) -> bool:
-        decision = {"retry": False}
-        event = threading.Event()
-
-        def prompt():
-            decision["retry"] = messagebox.askretrycancel(title, message)
-            event.set()
-
-        self.root.after(0, prompt)
-        event.wait()
-        return bool(decision["retry"])
+        return bool(messagebox.askretrycancel(title, message))
 
 def main():
     root = ttkb.Window(title="Synergie", themename="minty")
