@@ -21,6 +21,7 @@ class ConnectionPage:
         self.accountVar = ttkb.StringVar(self.frame, value="")
         self.entry = ttkb.Entry(self.frame, textvariable=self.accountVar)
         self.entry.grid(row=1, column=0)
+        self.entry.bind("<Return>", self._on_submit)
         buttonStyle = ttkb.Style()
         buttonStyle.configure('home.TButton', font=Font(self.frame, size=20, weight=BOLD))
         self.button = ttkb.Button(self.frame, text="Se connecter", style="home.TButton", command=self.register)
@@ -41,3 +42,6 @@ class ConnectionPage:
                 self.errorVar.set("Erreur : vous avez besoin d'un compte entraîneur")
         else:
             self.errorVar.set("Erreur : cet utilisateur n'existe pas")
+
+    def _on_submit(self, _event=None):
+        self.register()
