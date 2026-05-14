@@ -27,13 +27,20 @@ class MainPage:
         buttonStyle.configure('home.TButton', font=Font(self.frame, size=20, weight=BOLD))
         labelFont = Font(self.root, size=15, weight=BOLD)
         self.waitingFrame = ttkb.Frame(self.frame)
+        self.waitingStatusVar = ttkb.StringVar(self.waitingFrame, value="Initialisation de la connexion aux capteurs")
         waitingLabel= ttkb.Label(self.waitingFrame, text="En attente de connexion aux capteurs", font=labelFont)
-        waitingLabel.grid(row=0,column=0,pady=50)
+        waitingLabel.grid(row=0,column=0,pady=(50, 15))
+        self.waitingStatusLabel = ttkb.Label(self.waitingFrame, textvariable=self.waitingStatusVar)
+        self.waitingStatusLabel.grid(row=1,column=0,pady=(0, 20))
         waitingProgress = ttkb.Progressbar(self.waitingFrame, mode='indeterminate', length=200)
-        waitingProgress.grid(row=1,column=0)
+        waitingProgress.grid(row=2,column=0)
         waitingProgress.start(10)
         self.waitingFrame.grid(row=0,column=0)
         self.frame.grid(sticky="nswe")
+
+    def set_waiting_status(self, message: str):
+        if hasattr(self, "waitingStatusVar") and message:
+            self.waitingStatusVar.set(message)
         
     def make_dot_page(self):
         self.frame.destroy()

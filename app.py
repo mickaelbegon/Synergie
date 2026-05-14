@@ -12,6 +12,7 @@ from core.database.DatabaseManager import *
 
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger(__name__)
+SENSOR_INIT_TIMEOUT_SECONDS = 45
 
 class App:
 
@@ -48,10 +49,15 @@ class App:
         self.mainPage = MainPage([], self.dot_manager, self.db_manager, self.root)
         self.initialEvent = threading.Event()
         self.initializationCancelled = False
+        self.initializationStartedAt = time.monotonic()
+        self.initializationTimedOut = False
         threading.Thread(target=self.initialize, args=([self.initialEvent]), daemon=True).start()
         self.checkInit()
     
     def checkInit(self):
+        if hasattr(self, "mainPage"):
+            status = self.dot_manager.statusMessage or self.dot_manager.lastError
+            self.mainPage.set_waiting_status(status)
         if self.initialEvent.is_set():
             if self.initializationCancelled:
                 self.initialEvent.clear()
@@ -59,8 +65,34 @@ class App:
             self.mainPage.dotsConnected = self.dot_manager.getDevices()
             self.mainPage.make_dot_page()
             self.initialEvent.clear()
+        elif (
+            not self.initializationTimedOut
+            and time.monotonic() - self.initializationStartedAt > SENSOR_INIT_TIMEOUT_SECONDS
+        ):
+            self.initializationTimedOut = True
+            self.mainPage.set_waiting_status("La detection capteurs prend trop de temps.")
+            self._handle_initialization_timeout()
         else:
+            self.root.after(500, self.checkInit)
+
+    def _handle_initialization_timeout(self):
+        status = self.dot_manager.statusMessage or self.dot_manager.lastError or "Aucun statut disponible."
+        should_retry = messagebox.askretrycancel(
+            "Connexion capteurs",
+            "La detection des capteurs prend plus de temps que prevu.\n\n"
+            f"Etape actuelle: {status}\n\n"
+            "Verifiez que les capteurs sont branches en USB et que le Bluetooth Windows est active.",
+        )
+        if should_retry:
+            self.initialEvent = threading.Event()
+            self.initializationCancelled = False
+            self.initializationStartedAt = time.monotonic()
+            self.initializationTimedOut = False
+            threading.Thread(target=self.initialize, args=([self.initialEvent]), daemon=True).start()
             self.root.after(100, self.checkInit)
+        else:
+            self.initializationCancelled = True
+            self.initialEvent.set()
 
     def initialize(self, initialEvent : threading.Event):
         (check, unconnectedDevice) = self.dot_manager.firstConnection()
