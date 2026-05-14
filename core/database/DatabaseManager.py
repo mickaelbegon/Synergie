@@ -1,6 +1,7 @@
 import os
 import sys
 from typing import List
+from pathlib import Path
 import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import firestore
@@ -52,12 +53,60 @@ class SkaterData:
         return {"skater_name" : self.skater_name}
 
 class DatabaseManager:
-    def __init__(self):
+    CREDENTIALS_FILENAME = "s2m-skating-firebase-adminsdk-3ofmb-8552d58146.json"
+    CREDENTIALS_ENV_VARS = ("SYNERGIE_FIREBASE_CREDENTIALS", "GOOGLE_APPLICATION_CREDENTIALS")
+
+    @classmethod
+    def credential_search_paths(cls) -> list[Path]:
+        candidate_paths: list[Path] = []
+
+        for env_var in cls.CREDENTIALS_ENV_VARS:
+            env_value = os.environ.get(env_var)
+            if env_value:
+                candidate_paths.append(Path(env_value).expanduser())
+
         try:
-            json_path = os.path.join(sys._MEIPASS, 's2m-skating-firebase-adminsdk-3ofmb-8552d58146.json')
+            candidate_paths.append(Path(sys._MEIPASS) / cls.CREDENTIALS_FILENAME)
         except AttributeError:
-            json_path = 's2m-skating-firebase-adminsdk-3ofmb-8552d58146.json'
-        cred = credentials.Certificate(json_path)
+            pass
+
+        repo_root = Path(__file__).resolve().parents[2]
+        candidate_paths.extend(
+            [
+                Path.cwd() / cls.CREDENTIALS_FILENAME,
+                repo_root / cls.CREDENTIALS_FILENAME,
+                repo_root / "config" / cls.CREDENTIALS_FILENAME,
+            ]
+        )
+
+        unique_candidates: list[Path] = []
+        seen: set[str] = set()
+        for candidate in candidate_paths:
+            normalized = str(candidate.resolve(strict=False)).lower()
+            if normalized not in seen:
+                unique_candidates.append(candidate)
+                seen.add(normalized)
+        return unique_candidates
+
+    @classmethod
+    def resolve_credentials_path(cls) -> Path:
+        candidates = cls.credential_search_paths()
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate
+
+        searched = "\n".join(f"- {candidate}" for candidate in candidates)
+        raise FileNotFoundError(
+            "Firebase credentials file not found.\n"
+            f"Expected filename: {cls.CREDENTIALS_FILENAME}\n"
+            "Checked these locations:\n"
+            f"{searched}\n"
+            "You can also define SYNERGIE_FIREBASE_CREDENTIALS to point to the JSON file."
+        )
+
+    def __init__(self):
+        json_path = self.resolve_credentials_path()
+        cred = credentials.Certificate(str(json_path))
         try:
             firebase_admin.initialize_app(cred)
         except ValueError:
