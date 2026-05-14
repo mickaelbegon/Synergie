@@ -1,5 +1,6 @@
 import synergie.runtime  # noqa: F401
 import logging
+import sys
 import time
 from PIL import Image, ImageTk
 import ttkbootstrap as ttkb
