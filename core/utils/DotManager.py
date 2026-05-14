@@ -41,6 +41,7 @@ class DotManager:
         self.previousConnected : List[DotDevice] = []
         self.lastError = ""
         self.statusMessage = ""
+        self.usbMonitorPrimed = False
 
     def firstConnection(self) -> tuple[bool, List[str]]:
         """
@@ -150,6 +151,7 @@ class DotManager:
                 check = False
 
         self.previousConnected = self.devices
+        self.usbMonitorPrimed = False
         self.statusMessage = f"{len(self.devices)} sensor(s) ready"
         return (check, unconnectedDevice)
     
@@ -159,11 +161,15 @@ class DotManager:
         """
         connected : List[DotDevice] = []
         for device in self.devices:
-            if device.isBatteryCharging:
+            if device.isPlugged:
                 connected.append(device)
 
         lastConnected = []
         lastDisconnected = []
+        if not self.usbMonitorPrimed:
+            self.previousConnected = connected
+            self.usbMonitorPrimed = True
+            return(lastConnected,lastDisconnected)
         if len(self.previousConnected) > len(connected):
             for device in self.previousConnected:
                 if device not in connected:
