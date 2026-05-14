@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -21,8 +22,9 @@ _BINDING_CANDIDATES = (
 )
 
 
-def _candidate_sdk_locations() -> list[dict]:
-    locations: list[dict] = []
+def _candidate_sdk_locations() -> tuple[list[dict], list[Path]]:
+    importable_locations: list[dict] = []
+    diagnostic_wheels: list[Path] = []
     seen: set[str] = set()
 
     for root in _SDK_SEARCH_ROOTS:
@@ -30,14 +32,9 @@ def _candidate_sdk_locations() -> list[dict]:
             continue
 
         for wheel in root.rglob("movelladot_pc_sdk-*.whl"):
-            record = {
-                "kind": "wheel",
-                "path": wheel,
-                "dll_dir": wheel.parents[2] / "x64" / "lib" if len(wheel.parents) >= 3 else None,
-            }
             normalized = str(wheel).lower()
             if normalized not in seen:
-                locations.append(record)
+                diagnostic_wheels.append(wheel)
                 seen.add(normalized)
 
         for package_init in root.rglob("movelladot_pc_sdk/__init__.py"):
@@ -49,30 +46,28 @@ def _candidate_sdk_locations() -> list[dict]:
             }
             normalized = str(package_root).lower()
             if normalized not in seen:
-                locations.append(record)
+                importable_locations.append(record)
                 seen.add(normalized)
 
-    return locations
+    return importable_locations, diagnostic_wheels
 
 
-def _supported_python_tags(locations: list[dict]) -> list[str]:
+def _supported_python_tags(importable_locations: list[dict], diagnostic_wheels: list[Path]) -> list[str]:
     tags: set[str] = set()
-    for location in locations:
-        path = location["path"]
-        if path.suffix.lower() == ".whl":
-            parts = path.name.split("-")
-            if len(parts) >= 3:
-                tags.add(parts[2])
-        else:
-            package_dir = path / "movelladot_pc_sdk"
-            for module in package_dir.glob("movelladot_pc_sdk_py*_64.py"):
-                suffix = module.stem.replace("movelladot_pc_sdk_py", "").replace("_64", "")
-                tags.add(f"cp{suffix}")
+    for wheel in diagnostic_wheels:
+        parts = wheel.name.split("-")
+        if len(parts) >= 3:
+            tags.add(parts[2])
+    for location in importable_locations:
+        package_dir = location["path"] / "movelladot_pc_sdk"
+        for module in package_dir.glob("movelladot_pc_sdk_py*_64.py"):
+            suffix = module.stem.replace("movelladot_pc_sdk_py", "").replace("_64", "")
+            tags.add(f"cp{suffix}")
     return sorted(tags)
 
 
-def _prepare_sdk_search_path() -> list[dict]:
-    locations = _candidate_sdk_locations()
+def _prepare_sdk_search_path() -> tuple[list[dict], list[Path]]:
+    locations, wheels = _candidate_sdk_locations()
     for location in locations:
         path = location["path"]
         if str(path) not in sys.path:
@@ -83,20 +78,35 @@ def _prepare_sdk_search_path() -> list[dict]:
                 os.add_dll_directory(str(dll_dir))
             except (AttributeError, FileNotFoundError, OSError):
                 pass
-    return locations
+    return locations, wheels
 
 
 def load_sdk_bindings():
-    locations = _prepare_sdk_search_path()
     errors = []
+    installed_spec = importlib.util.find_spec("movelladot_pc_sdk")
+    if installed_spec is not None:
+        for module_name in _BINDING_CANDIDATES:
+            try:
+                return importlib.import_module(module_name)
+            except (ModuleNotFoundError, ImportError) as exc:
+                errors.append(f"{module_name}: {exc}")
+
+    locations, wheels = _prepare_sdk_search_path()
     for module_name in _BINDING_CANDIDATES:
         try:
             return importlib.import_module(module_name)
         except (ModuleNotFoundError, ImportError) as exc:
-            errors.append(f"{module_name}: {exc}")
+            if installed_spec is None or f"{module_name}: {exc}" not in errors:
+                errors.append(f"{module_name}: {exc}")
 
-    supported_tags = _supported_python_tags(locations)
-    searched_locations = "\n".join(f"- {location['path']}" for location in locations) or "- no SDK location found"
+    supported_tags = _supported_python_tags(locations, wheels)
+    searched_entries = []
+    if installed_spec is not None:
+        installed_origin = installed_spec.origin or "installed package"
+        searched_entries.append(f"- installed package: {installed_origin}")
+    searched_entries.extend(f"- {location['path']}" for location in locations)
+    searched_entries.extend(f"- {wheel}" for wheel in wheels)
+    searched_locations = "\n".join(searched_entries) or "- no SDK location found"
     supported_text = ", ".join(supported_tags) if supported_tags else "unknown"
     details = "\n".join(errors)
     raise ModuleNotFoundError(
