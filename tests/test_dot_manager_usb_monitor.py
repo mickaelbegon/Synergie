@@ -104,6 +104,28 @@ class DotManagerUsbMonitorTests(unittest.TestCase):
         self.assertEqual(sensor_1.opened, 1)
         self.assertEqual(sensor_2.opened, 0)
 
+    def test_simultaneous_unplug_and_replug_reports_both_transitions(self):
+        unplugged = FakeDevice("1")
+        stable = FakeDevice("2")
+        replugged = FakeDevice("10", charging=False)
+        replugged.isPlugged = False
+        self.manager.devices = [unplugged, stable, replugged]
+        self.manager.previousConnected = [unplugged, stable]
+        self.manager.usbMonitorPrimed = True
+
+        unplugged.isBatteryCharging = False
+        replugged.isBatteryCharging = True
+
+        self.manager.checkDevices()
+        connected, disconnected = self.manager.checkDevices()
+
+        self.assertEqual(connected, [replugged])
+        self.assertEqual(disconnected, [unplugged])
+        self.assertEqual(unplugged.closed, 1)
+        self.assertEqual(replugged.opened, 1)
+        self.assertEqual(stable.closed, 0)
+        self.assertEqual(stable.opened, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,10 +1,11 @@
 import os
 import logging
+import time
 
 import numpy as np
 from core.utils.DotDevice import DotDevice
 from core.database.DatabaseManager import DatabaseManager
-from core.utils.xdpchandler import *
+from core.utils.xdpchandler import XdpcHandler, XsDotConnectionManager, XsDotDevice, XsPortInfo
 from core.utils.device_support import is_valid_bluetooth_address
 import asyncio
 from typing import List
@@ -32,7 +33,14 @@ async def bluetooth_power(turn_on):
 
 class DotManager:
     """
-    Class pour gérer la première connexion aux capteurs
+    Manage Movella DOT sensors through their USB and Bluetooth lifecycles.
+
+    The initial connection uses USB to identify every physical sensor, then
+    Bluetooth to associate each USB sensor with the athlete-facing device stored
+    in Firebase. During a training session, USB plug/unplug events are inferred
+    from the per-sensor battery charging callback rather than a global COM-port
+    scan. This avoids opening windows for every sensor when Windows temporarily
+    re-enumerates USB ports after one cable is removed.
     """
     def __init__(self, db_manager : DatabaseManager) -> None:
         self.db_manager = db_manager
@@ -162,48 +170,80 @@ class DotManager:
     
     def checkDevices(self) -> tuple[List[DotDevice], List[DotDevice]]:
         """
-        Détection des capteurs connectés en USB afin de capter un branchement ou un débranchement
-        """
-        connected : List[DotDevice] = []
-        for device in self.devices:
-            device_id = device.deviceId
-            if device.isBatteryCharging:
-                self.usbPresentCounts[device_id] = self.usbPresentCounts.get(device_id, 0) + 1
-                self.usbMissingCounts[device_id] = 0
-                if self.usbPresentCounts[device_id] >= self.usbTransitionThreshold:
-                    device.isPlugged = True
-            else:
-                self.usbMissingCounts[device_id] = self.usbMissingCounts.get(device_id, 0) + 1
-                self.usbPresentCounts[device_id] = 0
-                if self.usbMissingCounts[device_id] >= self.usbTransitionThreshold:
-                    device.isPlugged = False
-            if device.isPlugged:
-                connected.append(device)
+        Return devices whose USB state changed since the previous poll.
 
-        lastConnected = []
-        lastDisconnected = []
+        Returns:
+            A tuple ``(lastConnected, lastDisconnected)``. Each list contains
+            only the devices that crossed the debounce threshold during this
+            call, so the UI can open at most one confirmation window per real
+            sensor transition.
+        """
+        connected = self._debounced_usb_connected_devices()
+
         if not self.usbMonitorPrimed:
             self.previousConnected = connected
             self.usbMonitorPrimed = True
-            return(lastConnected,lastDisconnected)
-        if len(self.previousConnected) > len(connected):
-            for device in self.previousConnected:
-                if device not in connected:
-                    device.closeUsb()
-                    lastDisconnected.append(device)
-        elif len(self.previousConnected) < len(connected):
-            for device in connected.copy():
-                if device not in self.previousConnected:
-                    if device.openUsb():
-                        lastConnected.append(device)
-                    else:
-                        device.isPlugged = False
-                        connected.remove(device)
-        else:
-            pass
+            return ([], [])
 
+        lastConnected, lastDisconnected = self._resolve_usb_transitions(connected)
         self.previousConnected = connected
-        return(lastConnected,lastDisconnected)
+        return (lastConnected, lastDisconnected)
+
+    def _debounced_usb_connected_devices(self) -> List[DotDevice]:
+        """
+        Convert noisy charging callbacks into a stable list of plugged devices.
+
+        Movella reports USB presence through battery charging updates. The
+        callback can briefly lag during cable movement, so each sensor must
+        report the same state for ``usbTransitionThreshold`` polls before the
+        public ``isPlugged`` flag is changed.
+        """
+        connected: List[DotDevice] = []
+        for device in self.devices:
+            self._update_usb_debounce(device)
+            if device.isPlugged:
+                connected.append(device)
+        return connected
+
+    def _update_usb_debounce(self, device: DotDevice) -> None:
+        """Update one sensor's stable USB state from its charging callback."""
+        device_id = device.deviceId
+        if device.isBatteryCharging:
+            self.usbPresentCounts[device_id] = self.usbPresentCounts.get(device_id, 0) + 1
+            self.usbMissingCounts[device_id] = 0
+            if self.usbPresentCounts[device_id] >= self.usbTransitionThreshold:
+                device.isPlugged = True
+        else:
+            self.usbMissingCounts[device_id] = self.usbMissingCounts.get(device_id, 0) + 1
+            self.usbPresentCounts[device_id] = 0
+            if self.usbMissingCounts[device_id] >= self.usbTransitionThreshold:
+                device.isPlugged = False
+
+    def _resolve_usb_transitions(self, connected: List[DotDevice]) -> tuple[List[DotDevice], List[DotDevice]]:
+        """
+        Close or reopen USB handles for devices that changed plug state.
+
+        Disconnections and reconnections are computed independently rather than
+        comparing list lengths. This keeps the monitor correct if one sensor is
+        plugged back in during the same poll where another is removed.
+        """
+        lastDisconnected: List[DotDevice] = []
+        lastConnected: List[DotDevice] = []
+
+        for device in self.previousConnected:
+            if device not in connected:
+                device.closeUsb()
+                lastDisconnected.append(device)
+
+        for device in connected.copy():
+            if device not in self.previousConnected:
+                if device.openUsb():
+                    lastConnected.append(device)
+                else:
+                    device.isPlugged = False
+                    connected.remove(device)
+
+        return (lastConnected, lastDisconnected)
 
     def getExportEstimatedTime(self):
         """

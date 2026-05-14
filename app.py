@@ -113,6 +113,14 @@ class App:
         usb_detection_thread.start()
 
     def checkUsbDots(self, callbackStop, callbackStart):
+        """
+        Poll USB sensor transitions and schedule the matching confirmation page.
+
+        A disconnected non-recording sensor should open the start-recording page.
+        A reconnected sensor that is recording, or has stored data, should open
+        the stop/export page. Window ids are tracked so one physical transition
+        cannot create duplicate dialogs while the user is still answering.
+        """
         while True:
             checkUsb = self.dot_manager.checkDevices()
             lastConnected = checkUsb[0]
@@ -120,18 +128,30 @@ class App:
             if lastConnected:
                 _logger.info("USB connection detected")
                 for device in lastConnected:
-                    if device.isRecording or device.recordingCount > 0 :
-                        if device.deviceId not in self.activeStopWindows:
-                            self.activeStopWindows.add(device.deviceId)
-                            self.root.after(0, lambda selected_device=device: callbackStop(selected_device))
+                    self._schedule_stop_window_if_needed(device, callbackStop)
             if lastDisconnected:
                 _logger.info("USB disconnection detected")
                 for device in lastDisconnected:
-                    if not device.isRecording:
-                        if device.deviceId not in self.activeStartWindows:
-                            self.activeStartWindows.add(device.deviceId)
-                            self.root.after(0, lambda selected_device=device: callbackStart(selected_device))
+                    self._schedule_start_window_if_needed(device, callbackStart)
             time.sleep(0.2)
+
+    def _schedule_stop_window_if_needed(self, device, callbackStop):
+        """Open one stop/export dialog for a reconnected sensor with data."""
+        if not (device.isRecording or device.recordingCount > 0):
+            return
+        if device.deviceId in self.activeStopWindows:
+            return
+        self.activeStopWindows.add(device.deviceId)
+        self.root.after(0, lambda selected_device=device: callbackStop(selected_device))
+
+    def _schedule_start_window_if_needed(self, device, callbackStart):
+        """Open one start-recording dialog when a resting sensor is unplugged."""
+        if device.isRecording:
+            return
+        if device.deviceId in self.activeStartWindows:
+            return
+        self.activeStartWindows.add(device.deviceId)
+        self.root.after(0, lambda selected_device=device: callbackStart(selected_device))
 
     def startStopping(self, device):
         from front.StopingPage import StopingPage
