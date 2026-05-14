@@ -66,9 +66,15 @@ class App:
         (check, unconnectedDevice) = self.dot_manager.firstConnection()
         while not check:
             deviceMessage = ", ".join(unconnectedDevice)
+            if deviceMessage:
+                retry_message = f"Veuillez reconnecter les capteurs {deviceMessage}"
+            elif self.dot_manager.lastError:
+                retry_message = self.dot_manager.lastError
+            else:
+                retry_message = "La connexion aux capteurs a echoue. Veuillez reessayer."
             should_retry = self._ask_retry_cancel(
                 "Connexion",
-                f"Veuillez reconnecter les capteurs {deviceMessage}",
+                retry_message,
             )
             if not should_retry:
                 _logger.warning("Sensor initialization cancelled by user.")

@@ -40,6 +40,7 @@ class DotManager:
         self.devices : List[DotDevice] = []
         self.previousConnected : List[DotDevice] = []
         self.lastError = ""
+        self.statusMessage = ""
 
     def firstConnection(self) -> tuple[bool, List[str]]:
         """
@@ -51,18 +52,41 @@ class DotManager:
         self.devices = []
         self.previousConnected = []
         self.lastError = ""
+        self.statusMessage = "Preparing first sensor connection"
         check = True
         self._set_bluetooth_power(False)
         xdpcHandler = XdpcHandler()
         if not xdpcHandler.initialize():
+            self.lastError = "Unable to initialize the Movella DOT connection manager."
             xdpcHandler.cleanup()
+            return (False, [])
+        self.statusMessage = "Detecting USB-connected DOT sensors"
         xdpcHandler.detectUsbDevices()
+        detected_usb_ports = xdpcHandler.detectedDots()
+        if not detected_usb_ports:
+            self.lastError = (
+                "Aucun capteur Movella DOT detecte en USB. "
+                "Au demarrage, les capteurs doivent etre branches en USB "
+                "(pas seulement allumes en Bluetooth)."
+            )
+            xdpcHandler.cleanup()
+            return (False, [])
         self.portInfoUsb = {}
         retries = 10
         while len(xdpcHandler.connectedUsbDots()) < len(xdpcHandler.detectedDots()) and retries > 0:
+            self.statusMessage = (
+                f"Opening USB connections ({len(xdpcHandler.connectedUsbDots())}/"
+                f"{len(xdpcHandler.detectedDots())})"
+            )
             xdpcHandler.connectDots()
             retries -= 1
             time.sleep(0.2)
+        if len(xdpcHandler.connectedUsbDots()) < len(xdpcHandler.detectedDots()):
+            self.lastError = (
+                f"Seulement {len(xdpcHandler.connectedUsbDots())} capteur(s) USB sur "
+                f"{len(xdpcHandler.detectedDots())} ont pu etre ouverts. "
+                "Verifiez les cables USB et rebranchez les capteurs."
+            )
         expected_bluetooth_addresses = []
         for device in xdpcHandler.connectedUsbDots():
             self.portInfoUsb[str(device.deviceId())] = device.portInfo()
@@ -74,9 +98,12 @@ class DotManager:
         self._set_bluetooth_power(True)
         xdpcHandler = XdpcHandler()
         if not xdpcHandler.initialize():
+            self.lastError = "Unable to initialize the Movella DOT Bluetooth scanner."
             xdpcHandler.cleanup()
+            return (False, [])
         scan_attempts = 3
         while scan_attempts > 0:
+            self.statusMessage = "Scanning Bluetooth advertisements from DOT sensors"
             xdpcHandler.scanForDots(white_list=expected_bluetooth_addresses)
             found_addresses = [port_info.bluetoothAddress() for port_info in xdpcHandler.detectedDots()]
             if not expected_bluetooth_addresses or all(address in found_addresses for address in expected_bluetooth_addresses):
@@ -85,6 +112,13 @@ class DotManager:
             time.sleep(1)
         self.portInfoBt = xdpcHandler.detectedDots()
         xdpcHandler.cleanup()
+        if self.portInfoUsb and not self.portInfoBt:
+            self.lastError = (
+                "Les capteurs ont ete vus en USB mais pas retrouves en Bluetooth. "
+                "Laissez le Bluetooth Windows active et attendez quelques secondes, "
+                "puis reessayez."
+            )
+            return (False, [])
 
         unconnectedDevice = []
 
@@ -116,6 +150,7 @@ class DotManager:
                 check = False
 
         self.previousConnected = self.devices
+        self.statusMessage = f"{len(self.devices)} sensor(s) ready"
         return (check, unconnectedDevice)
     
     def checkDevices(self) -> tuple[List[DotDevice], List[DotDevice]]:
