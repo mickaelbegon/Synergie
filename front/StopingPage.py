@@ -10,9 +10,10 @@ from core.database.DatabaseManager import DatabaseManager
 from core.utils.DotDevice import DotDevice
 
 class StopingPage:
-    def __init__(self, device : DotDevice, db_manager : DatabaseManager) -> None:
+    def __init__(self, device : DotDevice, db_manager : DatabaseManager, on_close=None) -> None:
         self.device = device
         self.db_manager = db_manager
+        self.on_close = on_close
         self.deviceTag = self.device.deviceTagName
         self.window = ttkb.Toplevel(title="Confirmation", size=(1000,400), topmost=True)
         self.window.place_window_center()
@@ -41,6 +42,7 @@ class StopingPage:
         self.saveFile.grid(row=3,column=0,sticky="nsew")
         self.frame.grid(sticky ="nswe")
         self.window.grid()
+        self.window.protocol("WM_DELETE_WINDOW", self.close)
 
     def stopRecord(self):
         recordStopped = self.device.stopRecord()
@@ -55,7 +57,7 @@ class StopingPage:
         self.frame.grid()
         self.window.update()
         time.sleep(1)
-        self.window.destroy()
+        self.close()
     
     def stopRecordAndExtract(self):
         recordStopped = self.device.stopRecord()
@@ -102,10 +104,16 @@ class StopingPage:
             self.text.set("Extraction finie")
             self.label.update()
             time.sleep(1)
-            self.window.destroy()
+            self.close()
         self.window.after(1000, self.checkFinish)
     
     def checkProgressBar(self):
         if self.progressExtract["value"] >= self.max_val-1: 
             self.progressExtract.stop()
             self.progressExtract["value"] = self.max_val
+
+    def close(self):
+        if self.on_close is not None:
+            self.on_close()
+            self.on_close = None
+        self.window.destroy()

@@ -20,6 +20,8 @@ class App:
         self.db_manager = DatabaseManager()
         self.root = root
         self.dot_manager = None
+        self.activeStartWindows = set()
+        self.activeStopWindows = set()
 
         try:
             from core.utils.DotManager import DotManager
@@ -119,21 +121,30 @@ class App:
                 _logger.info("USB connection detected")
                 for device in lastConnected:
                     if device.isRecording or device.recordingCount > 0 :
-                        self.root.after(0, lambda selected_device=device: callbackStop(selected_device))
+                        if device.deviceId not in self.activeStopWindows:
+                            self.activeStopWindows.add(device.deviceId)
+                            self.root.after(0, lambda selected_device=device: callbackStop(selected_device))
             if lastDisconnected:
                 _logger.info("USB disconnection detected")
                 for device in lastDisconnected:
                     if not device.isRecording:
-                        self.root.after(0, lambda selected_device=device: callbackStart(selected_device))
+                        if device.deviceId not in self.activeStartWindows:
+                            self.activeStartWindows.add(device.deviceId)
+                            self.root.after(0, lambda selected_device=device: callbackStart(selected_device))
             time.sleep(0.2)
 
     def startStopping(self, device):
         from front.StopingPage import StopingPage
-        StopingPage(device, self.db_manager)
+        StopingPage(device, self.db_manager, on_close=lambda: self.activeStopWindows.discard(device.deviceId))
     
     def startStarting(self, device):
         from front.StartingPage import StartingPage
-        StartingPage(device, self.db_manager, self.userConnected)
+        StartingPage(
+            device,
+            self.db_manager,
+            self.userConnected,
+            on_close=lambda: self.activeStartWindows.discard(device.deviceId),
+        )
 
     def _ask_retry_cancel(self, title: str, message: str) -> bool:
         return bool(messagebox.askretrycancel(title, message))

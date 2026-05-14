@@ -11,9 +11,10 @@ from core.database.DatabaseManager import DatabaseManager, TrainingData
 from synergie.sensor_assignment_history import record_assignment, sort_skaters_for_sensor
 
 class StartingPage:
-    def __init__(self, device : DotDevice, db_manager : DatabaseManager, userConnected : str) -> None:
+    def __init__(self, device : DotDevice, db_manager : DatabaseManager, userConnected : str, on_close=None) -> None:
         self.device = device
         self.db_manager = db_manager
+        self.on_close = on_close
         self.deviceTag = self.device.deviceTagName
         self.skaters = sort_skaters_for_sensor(
             self.db_manager.getAllSkaterFromCoach(userConnected),
@@ -72,6 +73,7 @@ class StartingPage:
         self.canvas.grid(row=1,column=0, sticky="nswe", padx=10)
 
         self.window.grid()
+        self.window.protocol("WM_DELETE_WINDOW", self.close)
 
     def startRecord(self ,skaterId: str, skaterName: str):
         deviceId = self.device.deviceId
@@ -93,6 +95,12 @@ class StartingPage:
         self.window.update()
         time.sleep(1)
         self.canvas.destroy()
+        self.close()
+
+    def close(self):
+        if self.on_close is not None:
+            self.on_close()
+            self.on_close = None
         self.window.destroy()
     
     def _bound_to_mousewheel(self, event):

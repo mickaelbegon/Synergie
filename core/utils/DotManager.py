@@ -42,6 +42,9 @@ class DotManager:
         self.lastError = ""
         self.statusMessage = ""
         self.usbMonitorPrimed = False
+        self.usbMissingCounts: dict[str, int] = {}
+        self.usbPresentCounts: dict[str, int] = {}
+        self.usbTransitionThreshold = 2
 
     def firstConnection(self) -> tuple[bool, List[str]]:
         """
@@ -152,6 +155,8 @@ class DotManager:
 
         self.previousConnected = self.devices
         self.usbMonitorPrimed = False
+        self.usbMissingCounts = {device.deviceId: 0 for device in self.devices}
+        self.usbPresentCounts = {device.deviceId: self.usbTransitionThreshold for device in self.devices}
         self.statusMessage = f"{len(self.devices)} sensor(s) ready"
         return (check, unconnectedDevice)
     
@@ -163,7 +168,18 @@ class DotManager:
         connected : List[DotDevice] = []
         for device in self.devices:
             if current_ports is not None:
-                device.isPlugged = device.portInfoUsb.portName() in current_ports
+                port_present = device.portInfoUsb.portName() in current_ports
+                device_id = device.deviceId
+                if port_present:
+                    self.usbPresentCounts[device_id] = self.usbPresentCounts.get(device_id, 0) + 1
+                    self.usbMissingCounts[device_id] = 0
+                    if self.usbPresentCounts[device_id] >= self.usbTransitionThreshold:
+                        device.isPlugged = True
+                else:
+                    self.usbMissingCounts[device_id] = self.usbMissingCounts.get(device_id, 0) + 1
+                    self.usbPresentCounts[device_id] = 0
+                    if self.usbMissingCounts[device_id] >= self.usbTransitionThreshold:
+                        device.isPlugged = False
             if device.isPlugged:
                 connected.append(device)
 
