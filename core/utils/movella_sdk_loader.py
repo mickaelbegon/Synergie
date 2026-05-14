@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import importlib
 
-import movelladot_pc_sdk
-
 
 _CANDIDATE_BINDINGS = (
     "movelladot_pc_sdk.movelladot_pc_sdk_py311_64",
@@ -17,7 +15,7 @@ def load_sdk_bindings():
     for module_name in _CANDIDATE_BINDINGS:
         try:
             return importlib.import_module(module_name)
-        except ModuleNotFoundError as exc:
+        except (ModuleNotFoundError, ImportError) as exc:
             errors.append(f"{module_name}: {exc}")
 
     details = "\n".join(errors)
@@ -36,4 +34,3 @@ XsDotConnectionManager = sdk_bindings.XsDotConnectionManager
 XsDotCallback = sdk_bindings.XsDotCallback
 XsPortInfo = sdk_bindings.XsPortInfo
 XsDataPacket = sdk_bindings.XsDataPacket
-

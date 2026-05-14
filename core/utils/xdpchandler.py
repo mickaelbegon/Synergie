@@ -27,12 +27,15 @@
 #  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #  
 
+import logging
 from typing import List
-import movelladot_pc_sdk
 from user_settings import *
 import time
 
-from core.utils.movella_sdk_loader import XsDotConnectionManager, XsDotDevice, XsDotUsbDevice, XsPortInfo
+from core.utils.movella_sdk_loader import sdk_bindings as movelladot_pc_sdk, XsDotConnectionManager, XsDotDevice, XsDotUsbDevice, XsPortInfo
+from core.utils.device_support import is_valid_bluetooth_address
+
+_logger = logging.getLogger(__name__)
 
 waitForConnections = True
 
@@ -41,7 +44,7 @@ def on_press(key):
     waitForConnections = False
 
 class XdpcHandler(movelladot_pc_sdk.XsDotCallback):
-    def __init__(self):
+    def __init__(self, whitelist=None):
         movelladot_pc_sdk.XsDotCallback.__init__(self)
 
         self.__manager : XsDotConnectionManager = 0
@@ -50,6 +53,7 @@ class XdpcHandler(movelladot_pc_sdk.XsDotCallback):
         self.__detectedDots = list()
         self.__connectedDots = list()
         self.__connectedUsbDots = list()
+        self.__whitelist = whitelist if whitelist is not None else globals().get("whitelist", [])
 
     def initialize(self):
         """
@@ -65,7 +69,7 @@ class XdpcHandler(movelladot_pc_sdk.XsDotCallback):
         # Create connection manager
         self.__manager = movelladot_pc_sdk.XsDotConnectionManager()
         if self.__manager is None:
-            print("Manager could not be constructed, exiting.")
+            _logger.error("Manager could not be constructed, exiting.")
             return False
 
         # Attach callback handler (self) to connection manager
@@ -78,7 +82,7 @@ class XdpcHandler(movelladot_pc_sdk.XsDotCallback):
         """
         self.__manager.close()
 
-    def scanForDots(self):
+    def scanForDots(self, white_list=None):
         """
         Scan if any Movella DOT devices can be detected via Bluetooth
 
@@ -88,10 +92,10 @@ class XdpcHandler(movelladot_pc_sdk.XsDotCallback):
 
         """
         # Start a scan and wait until we have found one or more DOT Devices
-        print("Scanning for devices...")
+        _logger.info("Scanning for devices...")
         self.__manager.enableDeviceDetection()
 
-        print("Press any key or wait 10 seconds to stop scanning...")
+        allowed_addresses = set(white_list or [])
         connectedDOTCount = 0
         startTime = movelladot_pc_sdk.XsTimeStamp_nowMs()
         while waitForConnections and not self.errorReceived() and movelladot_pc_sdk.XsTimeStamp_nowMs() - startTime <= 10000:
@@ -99,11 +103,17 @@ class XdpcHandler(movelladot_pc_sdk.XsDotCallback):
 
             nextCount = len(self.detectedDots())
             if nextCount != connectedDOTCount:
-                print(f"Number of connected DOTs: {nextCount}. Press any key to start.")
+                _logger.info(f"Number of connected DOTs: {nextCount}.")
                 connectedDOTCount = nextCount
 
+            if allowed_addresses:
+                found_addresses = {dot.bluetoothAddress() for dot in self.detectedDots() if hasattr(dot, "bluetoothAddress")}
+                if allowed_addresses.issubset(found_addresses):
+                    time.sleep(0.5)
+                    break
+
         self.__manager.disableDeviceDetection()
-        print("Stopped scanning for devices.")
+        _logger.info("Stopped scanning for devices.")
 
     def connectDots(self):
         """
@@ -122,9 +132,10 @@ class XdpcHandler(movelladot_pc_sdk.XsDotCallback):
 
                 checkDevice = False
 
-                while not checkDevice:
+                retries = 5
+                while not checkDevice and retries > 0:
                     if not self.__manager.openPort(portInfo):
-                        print(f"Connection to Device {address} failed")
+                        _logger.warning(f"Connection to Device {address} failed")
                         checkDevice = False
                     else:
                         device : XsDotDevice = self.__manager.device(portInfo.deviceId())
@@ -136,13 +147,19 @@ class XdpcHandler(movelladot_pc_sdk.XsDotCallback):
                             devicesId.append(x.deviceId())
 
                         checkDevice = (device.deviceId() not in devicesId) and (device.deviceTagName() != '')
+                    retries -= 1
+                    if not checkDevice:
+                        time.sleep(0.2)
 
-                self.__connectedDots.append(device)
-                print(f"Found a device with Tag: {device.deviceTagName()} @ address: {address}")
+                if checkDevice:
+                    self.__connectedDots.append(device)
+                    _logger.info(f"Found a device with Tag: {device.deviceTagName()} @ address: {address}")
+                else:
+                    _logger.error(f"Unable to connect to bluetooth device {address}")
             else:
-                print(f"Opening DOT with ID: {portInfo.deviceId().toXsString()} @ port: {portInfo.portName()}, baudrate: {portInfo.baudrate()}")
+                _logger.info(f"Opening DOT with ID: {portInfo.deviceId().toXsString()} @ port: {portInfo.portName()}, baudrate: {portInfo.baudrate()}")
                 if not self.__manager.openPort(portInfo):
-                    print(f"Could not open DOT. Reason: {self.__manager.lastResultText()}")
+                    _logger.error(f"Could not open DOT. Reason: {self.__manager.lastResultText()}")
                     continue
 
                 device = self.__manager.usbDevice(portInfo.deviceId())
@@ -150,7 +167,7 @@ class XdpcHandler(movelladot_pc_sdk.XsDotCallback):
                     continue
 
                 self.__connectedUsbDots.append(device)
-                print(f"Device: {device.productCode()}, with ID: {device.deviceId().toXsString()} opened.")
+                _logger.info(f"Device: {device.productCode()}, with ID: {device.deviceId().toXsString()} opened.")
 
     def detectUsbDevices(self):
         """
@@ -205,10 +222,14 @@ class XdpcHandler(movelladot_pc_sdk.XsDotCallback):
         Parameters:
             port_info: The XsPortInfo of the discovered information
         """
-        if not whitelist or port_info.bluetoothAddress() in whitelist:
+        address = port_info.bluetoothAddress()
+        if not is_valid_bluetooth_address(address):
+            _logger.debug(f"Ignoring invalid bluetooth address: {address}")
+            return
+        if not self.__whitelist or address in self.__whitelist:
             self.__detectedDots.append(port_info)
         else:
-            print(f"Ignoring {port_info.bluetoothAddress()}")
+            _logger.debug(f"Ignoring {address}")
 
     def onError(self, result, errorString):
         """
@@ -217,8 +238,8 @@ class XdpcHandler(movelladot_pc_sdk.XsDotCallback):
             result: The XsResultValue related to this error
             errorString: The error string with information on the problem that occurred
         """
-        print(f"{movelladot_pc_sdk.XsResultValueToString(result)}")
-        print(f"Error received: {errorString}")
+        _logger.error(f"{movelladot_pc_sdk.XsResultValueToString(result)}")
+        _logger.error(f"Error received: {errorString}")
         self.__errorReceived = True
 
     def onDeviceUpdateDone(self, portInfo, result):
@@ -228,5 +249,5 @@ class XdpcHandler(movelladot_pc_sdk.XsDotCallback):
             portInfo: The XsPortInfo of the updated device
             result: The XsDotFirmwareUpdateResult of the firmware update
         """
-        print(f"\n{portInfo.bluetoothAddress()}  Firmware Update done. Result: {movelladot_pc_sdk.XsDotFirmwareUpdateResultToString(result)}")
+        _logger.info(f"{portInfo.bluetoothAddress()} Firmware Update done. Result: {movelladot_pc_sdk.XsDotFirmwareUpdateResultToString(result)}")
         self.__updateDone = True
