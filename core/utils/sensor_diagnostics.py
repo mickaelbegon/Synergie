@@ -31,10 +31,13 @@ try:
     else:
         handler.detectUsbDevices()
         ports = []
-        for port in handler.detectedDots():
+        for device in handler.connectedUsbDots():
+            port = device.portInfo()
             ports.append({
                 "port": port.portName(),
-                "device_id": port.deviceId().toXsString(),
+                "device_id": device.deviceId().toXsString(),
+                "tag_name": device.deviceTagName(),
+                "bluetooth_address": device.bluetoothAddress(),
                 "is_bluetooth": bool(port.isBluetooth()),
             })
         print(json.dumps({"ok": True, "detected_count": len(ports), "ports": ports}), flush=True)

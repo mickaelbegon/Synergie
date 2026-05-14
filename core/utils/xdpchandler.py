@@ -31,6 +31,9 @@ import logging
 from typing import List
 from user_settings import *
 import time
+import os
+import re
+import subprocess
 
 from core.utils.movella_sdk_loader import sdk_bindings as movelladot_pc_sdk, XsDotConnectionManager, XsDotDevice, XsDotUsbDevice, XsPortInfo
 from core.utils.device_support import is_valid_bluetooth_address
@@ -173,7 +176,57 @@ class XdpcHandler(movelladot_pc_sdk.XsDotCallback):
         """
         Scans for USB connected Movella DOT devices for data export
         """
+        if os.name == "nt" and self._detect_usb_devices_from_com_ports():
+            return
         self.__detectedDots = self.__manager.detectUsbDevices()
+
+    def _detect_usb_devices_from_com_ports(self) -> bool:
+        ports = self._windows_com_ports()
+        if not ports:
+            return False
+
+        detected_ports = []
+        connected_devices = []
+        for port_name in ports:
+            port_info = movelladot_pc_sdk.XsPortInfo()
+            port_info.setPortName(port_name)
+            port_info.setBaudrate(movelladot_pc_sdk.XBR_921k6)
+            try:
+                if not self.__manager.openPort(port_info):
+                    continue
+                device = self.__manager.usbDevice(port_info.deviceId())
+                if device is None:
+                    self.__manager.closePort(port_info)
+                    continue
+                detected_ports.append(device.portInfo())
+                connected_devices.append(device)
+                _logger.info(
+                    "Opened DOT USB device %s on %s",
+                    device.deviceId().toXsString(),
+                    port_name,
+                )
+            except Exception as exc:
+                _logger.debug("Unable to open %s as Movella DOT USB: %s", port_name, exc)
+
+        if not connected_devices:
+            return False
+        self.__detectedDots = detected_ports
+        self.__connectedUsbDots = connected_devices
+        return True
+
+    def _windows_com_ports(self) -> list[str]:
+        try:
+            completed = subprocess.run(
+                ["cmd", "/c", "mode"],
+                text=True,
+                capture_output=True,
+                timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return []
+        matches = re.findall(r"\bCOM\d+\b", completed.stdout or "", flags=re.IGNORECASE)
+        return sorted(set(matches), key=lambda value: int(value[3:]))
 
     def detectedDots(self) -> List[XsPortInfo]:
         """
