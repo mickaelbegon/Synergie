@@ -7,12 +7,21 @@ from core.database.DatabaseManager import DatabaseManager
 from core.utils.xdpchandler import *
 from core.utils.device_support import is_valid_bluetooth_address
 import asyncio
+from typing import List
 if os.name == 'nt':
-    from winrt.windows.devices import radios
+    try:
+        from winrt.windows.devices import radios
+    except ImportError:
+        radios = None
 
 _logger = logging.getLogger(__name__)
 
 async def bluetooth_power(turn_on):
+    if radios is None:
+        raise RuntimeError(
+            "Windows Bluetooth control module 'winrt' is not available. "
+            "Install the WinRT dependencies or leave Bluetooth enabled manually."
+        )
     all_radios = await radios.Radio.get_radios_async()
     for this_radio in all_radios:
         if this_radio.kind == radios.RadioKind.BLUETOOTH:
@@ -184,4 +193,4 @@ class DotManager:
                 os.system('rfkill unblock bluetooth' if turn_on else 'rfkill block bluetooth')
         except Exception as exc:
             self.lastError = str(exc)
-            _logger.warning(f"Unable to toggle bluetooth power: {exc}")
+            _logger.warning(f"Unable to toggle bluetooth power automatically: {exc}")
