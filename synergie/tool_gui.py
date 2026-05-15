@@ -337,6 +337,9 @@ class SynergieToolsApp:
         batch_process_button = ttk.Button(parent, text="Batch process selected", command=self._run_batch_process_files)
         batch_process_button.grid(row=6, column=1, sticky="w", pady=(12, 12), padx=8)
         self._add_tooltip(batch_process_button, "Traite tous les CSV selectionnes et genere un nom de sortie libre pour chacun.")
+        global_batch_button = ttk.Button(parent, text="Batch process all", command=self._run_global_batch_process_files)
+        global_batch_button.grid(row=6, column=2, sticky="w", pady=(12, 12))
+        self._add_tooltip(global_batch_button, "Traite tous les fichiers CSV disponibles dans la session courante.")
 
         prediction_frame = ttk.LabelFrame(parent, text="Initial model predictions", padding=8)
         prediction_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(0, 12))
@@ -2917,10 +2920,24 @@ class SynergieToolsApp:
             return
 
         input_paths = [self.process_session_files.get(index) for index in selections]
+        self._run_batch_process_paths(input_paths, label="selected")
+
+    def _run_global_batch_process_files(self) -> None:
+        input_paths = [
+            self.process_session_files.get(index)
+            for index in range(self.process_session_files.size())
+            if str(self.process_session_files.get(index)).lower().endswith(".csv")
+        ]
+        if not input_paths:
+            messagebox.showwarning("Synergie Tools", "No CSV files are available in the current session.")
+            return
+        self._run_batch_process_paths(input_paths, label="all")
+
+    def _run_batch_process_paths(self, input_paths: list[str], *, label: str) -> None:
         session = operations.session_metadata(self.session_var.get())
         type_path = self._process_prediction_model_path("type", self.process_type_model_var.get())
         success_path = self._process_prediction_model_path("success", self.process_success_model_var.get())
-        self.status_var.set(f"Batch processing {len(input_paths)} files...")
+        self.status_var.set(f"Batch processing {label}: {len(input_paths)} files...")
         self.process_log.delete("1.0", tk.END)
 
         def action() -> None:
