@@ -638,7 +638,15 @@ class SynergieToolsApp:
             sticky="w",
             pady=(6, 0),
         )
-        ttk.Button(controls, text="Save current annotation", command=self._save_current_annotation).grid(row=13, column=0, sticky="w", pady=(8, 0))
+        annotation_actions = ttk.Frame(controls)
+        annotation_actions.grid(row=13, column=0, sticky="w", pady=(8, 0))
+        ttk.Button(annotation_actions, text="Save current annotation", command=self._save_current_annotation).grid(row=0, column=0, sticky="w")
+        ttk.Button(annotation_actions, text="Finalize annotated file", command=self._finalize_current_annotation_file).grid(
+            row=0,
+            column=1,
+            sticky="w",
+            padx=(8, 0),
+        )
         self._sync_annotation_review_controls()
         self._refresh_annotation_prefill_models()
         self._refresh_annotation_files()
@@ -1180,6 +1188,13 @@ class SynergieToolsApp:
             if stats.get("has_duplicates")
             else "\nDuplicate path check: ok"
         )
+        dataset_state = operations.load_training_dataset_state(self.dataset_var.get())
+        dataset_change_text = ""
+        if dataset_state.get("retraining_recommended"):
+            dataset_change_text = (
+                f"\nDataset changed at {dataset_state.get('changed_at', 'unknown')}: "
+                f"{dataset_state.get('rows_added', 0)} new rows added. Retraining recommended."
+            )
         return (
             f"Training set stats ({stats['task']}): "
             f"{stats['base_samples']} labelled jumps, {stats['unique_skaters']} skaters, "
@@ -1188,6 +1203,7 @@ class SynergieToolsApp:
             f"Recommended class weights: {class_weight}\n"
             f"Stratified train/val split possible: {stratified_text}"
             f"{duplicate_text}"
+            f"{dataset_change_text}"
         )
 
     def _format_training_quality_summary(self, summary: dict) -> str:
@@ -2648,6 +2664,47 @@ class SynergieToolsApp:
         self.annotation_jump_listbox.selection_clear(0, tk.END)
         self.annotation_jump_listbox.selection_set(index)
         self.status_var.set("Annotation saved")
+
+    def _finalize_current_annotation_file(self) -> None:
+        if self.annotation_file_path is None:
+            messagebox.showwarning("Synergie Tools", "Select an annotation file first.")
+            return
+        progress = operations.summarize_annotation_progress(self.annotation_dataframe)
+        if progress["pending"] > 0:
+            messagebox.showwarning(
+                "Synergie Tools",
+                f"Cannot finalize yet: {progress['pending']} annotations are still pending.",
+            )
+            return
+        if not messagebox.askyesno(
+            "Synergie Tools",
+            "Finalize this annotated file, archive the old jumplist, and merge labelled jumps into the training set?",
+        ):
+            return
+        annotation_path = self.annotation_file_path
+        self.status_var.set("Finalizing annotation file...")
+
+        def action() -> None:
+            result = operations.finalize_annotation_file(annotation_path, dataset_path=self.dataset_var.get())
+            self.root.after(0, lambda: self._apply_finalized_annotation_file(result))
+
+        self._run_in_thread(action, "Unable to finalize annotation file.")
+
+    def _apply_finalized_annotation_file(self, result: dict) -> None:
+        self.annotation_dataframe = None
+        self.annotation_file_path = None
+        self._refresh_annotation_files()
+        self._refresh_training_dataset_stats()
+        self.status_var.set(
+            f"Finalized annotation file: {result['rows_added']} rows added; retraining recommended"
+        )
+        messagebox.showinfo(
+            "Synergie Tools",
+            f"Finalization complete.\n\n"
+            f"Rows added: {result['rows_added']}\n"
+            f"Previous jumplist archived at: {result['archive_path']}\n\n"
+            "The training dataset changed; retraining is recommended.",
+        )
 
     def _run_annotation_batch_prefill(self) -> None:
         if self.annotation_dataframe is None or self.annotation_file_path is None:

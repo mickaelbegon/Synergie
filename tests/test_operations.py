@@ -478,6 +478,71 @@ class OperationsTests(unittest.TestCase):
             self.assertEqual(duplicates["duplicate_rows"], 2)
             self.assertEqual(duplicates["duplicate_paths"], ["jump_a.csv"])
 
+    def test_finalize_annotation_file_archives_moves_and_merges_trainable_rows(self):
+        import pandas as pd
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            dataset_root = root / "data" / "annotated" / "total"
+            annotated_root = root / "data" / "annotated"
+            pending_root = root / "data" / "pending"
+            segment_dir = pending_root / "segments" / "session" / "sensor1"
+            dataset_root.mkdir(parents=True)
+            segment_dir.mkdir(parents=True)
+            (dataset_root / "jumplist.csv").write_text(
+                "path,type,success,skater\nexisting.csv,0,1,alice\n",
+                encoding="utf-8",
+            )
+            segment = segment_dir / "jump001.csv"
+            segment.write_text("ms,Gyr_X\n0,0\n", encoding="utf-8")
+            annotation_file = pending_root / "20250911_085656_for_annotation.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "path": segment.as_posix(),
+                        "type": 1,
+                        "success": 1,
+                        "skater": "sensor_1",
+                        "athlete_id": "bob",
+                        "annotation_status": "annotated",
+                        "sensor_id": "1",
+                        "session_key": "20250911_085656",
+                    }
+                ]
+            ).to_csv(annotation_file, index=False)
+
+            result = operations.finalize_annotation_file(
+                annotation_file,
+                dataset_path=dataset_root,
+                annotated_root=annotated_root,
+            )
+
+            merged = pd.read_csv(dataset_root / "jumplist.csv")
+            self.assertEqual(result["rows_added"], 1)
+            self.assertTrue(result["archive_path"].exists())
+            self.assertEqual(len(merged), 2)
+            self.assertEqual(merged.iloc[1]["skater"], "bob")
+            self.assertTrue(Path(merged.iloc[1]["path"]).exists())
+            self.assertFalse(annotation_file.exists())
+            self.assertTrue(result["completed_annotation_path"].exists())
+            self.assertTrue(operations.load_training_dataset_state(dataset_root)["retraining_recommended"])
+
+    def test_finalize_annotation_file_refuses_pending_rows(self):
+        import pandas as pd
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            dataset_root = root / "total"
+            dataset_root.mkdir()
+            (dataset_root / "jumplist.csv").write_text("path,type,success,skater\n", encoding="utf-8")
+            annotation_file = root / "pending_for_annotation.csv"
+            pd.DataFrame(
+                [{"path": "jump.csv", "type": 0, "success": 1, "annotation_status": "pending"}]
+            ).to_csv(annotation_file, index=False)
+
+            with self.assertRaisesRegex(ValueError, "still pending"):
+                operations.finalize_annotation_file(annotation_file, dataset_path=dataset_root, annotated_root=root / "annotated")
+
     def test_list_pretrained_training_models_filters_compatible_entries(self):
         original_file = pretrained_models.PRETRAINED_MODELS_FILE
         with tempfile.TemporaryDirectory() as tmpdir:
