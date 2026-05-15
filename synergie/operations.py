@@ -1602,13 +1602,25 @@ def _handle_remove_readonly(function, path, _excinfo) -> None:
     function(path)
 
 
-def process_csv_file(csv_path: str, synchro: int = 0, output_path: str | None = None) -> Path:
+def process_csv_file(
+    csv_path: str,
+    synchro: int = 0,
+    output_path: str | None = None,
+    *,
+    type_model_path: str | None = None,
+    success_model_path: str | None = None,
+) -> Path:
     from core.data_treatment.data_generation.exporter import export
     import pandas as pd
 
     input_path = Path(csv_path)
     dataframe = pd.read_csv(input_path)
-    result = export(dataframe, sampleTimeFineSynchro=synchro)
+    result = export(
+        dataframe,
+        sampleTimeFineSynchro=synchro,
+        type_model_path=type_model_path,
+        success_model_path=success_model_path,
+    )
     destination = Path(output_path) if output_path else input_path.with_name(f"{input_path.stem}_jumps.csv")
     destination.parent.mkdir(parents=True, exist_ok=True)
     result.to_csv(destination, index=False)
@@ -1621,12 +1633,16 @@ def process_new_imu_file_for_annotation(
     output_path: str | Path | None = None,
     pending_root: str | Path = "data/pending",
     sample_time_fine_synchro: int = 0,
+    type_model_path: str | None = None,
+    success_model_path: str | None = None,
 ) -> dict:
     return process_new_imu_session_for_annotation(
         raw_csv_path,
         output_path=output_path,
         pending_root=pending_root,
         sample_time_fine_synchro=sample_time_fine_synchro,
+        type_model_path=type_model_path,
+        success_model_path=success_model_path,
     )
 
 
@@ -1636,6 +1652,8 @@ def process_new_imu_session_for_annotation(
     output_path: str | Path | None = None,
     pending_root: str | Path = "data/pending",
     sample_time_fine_synchro: int = 0,
+    type_model_path: str | None = None,
+    success_model_path: str | None = None,
 ) -> dict:
     import pandas as pd
     from core.data_treatment.data_generation.trainingSession import trainingSession
@@ -1695,6 +1713,12 @@ def process_new_imu_session_for_annotation(
     if not annotation_frame.empty:
         annotation_frame = annotation_frame.sort_values(by=["synced_start_ms", "sensor_id", "start_ms"]).reset_index(drop=True)
         annotation_frame = annotate_combination_flags(annotation_frame)
+        if type_model_path and success_model_path:
+            annotation_frame = prefill_annotation_predictions(
+                annotation_frame,
+                type_model_path=type_model_path,
+                success_model_path=success_model_path,
+            )["rows"]
     annotation_frame.to_csv(output_csv_path, index=False)
     return {
         "annotation_csv": output_csv_path,

@@ -87,6 +87,25 @@ class OperationsTests(unittest.TestCase):
 
             self.assertEqual(candidate.name, "20250911_085656_for_annotation.csv")
 
+    def test_process_csv_file_forwards_selected_model_paths(self):
+        import pandas as pd
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "raw.csv"
+            output_path = Path(tmpdir) / "out.csv"
+            input_path.write_text("a\n1\n", encoding="utf-8")
+            with mock.patch("core.data_treatment.data_generation.exporter.export", return_value=pd.DataFrame({"x": [1]})) as export_mock:
+                operations.process_csv_file(
+                    str(input_path),
+                    output_path=str(output_path),
+                    type_model_path="type.keras",
+                    success_model_path="success.keras",
+                )
+
+            export_mock.assert_called_once()
+            self.assertEqual(export_mock.call_args.kwargs["type_model_path"], "type.keras")
+            self.assertEqual(export_mock.call_args.kwargs["success_model_path"], "success.keras")
+
     def test_list_new_imu_files_skips_hidden_and_done_directories(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

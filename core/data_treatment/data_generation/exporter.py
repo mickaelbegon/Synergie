@@ -16,7 +16,13 @@ def mstostr(ms: float):
     return "{:02d}:{:02d}".format(s // 60, s % 60)
 
 
-def export(df: pd.DataFrame, sampleTimeFineSynchro: int = 0) -> pd.DataFrame:
+def export(
+    df: pd.DataFrame,
+    sampleTimeFineSynchro: int = 0,
+    *,
+    type_model_path: str | None = None,
+    success_model_path: str | None = None,
+) -> pd.DataFrame:
     from core.data_treatment.data_generation.modelPredictor import ModelPredictor
     from core.data_treatment.data_generation.trainingSession import trainingSession
     from core.model import model
@@ -40,8 +46,8 @@ def export(df: pd.DataFrame, sampleTimeFineSynchro: int = 0) -> pd.DataFrame:
         jumpList.append(jump_copy)
         predict_jump.append(jump_copy.df)
 
-    model_test_type = model.load_model(constants.modeltype_filepath)
-    model_test_success = model.load_model(constants.modelsuccess_filepath)
+    model_test_type = model.load_model(type_model_path or constants.modeltype_filepath)
+    model_test_success = model.load_model(success_model_path or constants.modelsuccess_filepath)
     prediction = ModelPredictor(model_test_type, model_test_success)
     predict_type, predict_success = prediction.predict(predict_jump)
 

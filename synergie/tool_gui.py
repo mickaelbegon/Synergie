@@ -103,8 +103,8 @@ class SynergieToolsApp:
         self.annotation_athlete_var = tk.StringVar(value="")
         self.annotation_exclusion_hint_var = tk.StringVar(value="")
         self.annotation_combination_var = tk.BooleanVar(value=False)
-        self.annotation_type_model_var = tk.StringVar()
-        self.annotation_success_model_var = tk.StringVar()
+        self.process_type_model_var = tk.StringVar()
+        self.process_success_model_var = tk.StringVar()
         self.annotation_video_path_var = tk.StringVar()
         self.annotation_video_directory_var = tk.StringVar()
         self.annotation_video_matches_var = tk.StringVar(value=[])
@@ -329,9 +329,22 @@ class SynergieToolsApp:
         process_button.grid(row=6, column=0, sticky="w", pady=(12, 12))
         self._add_tooltip(process_button, "Detecte les sauts du CSV choisi et exporte une jumplist.")
 
+        prediction_frame = ttk.LabelFrame(parent, text="Initial model predictions", padding=8)
+        prediction_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(0, 12))
+        prediction_frame.columnconfigure(1, weight=1)
+        ttk.Label(prediction_frame, text="Type model").grid(row=0, column=0, sticky="w")
+        self.process_type_model_box = ttk.Combobox(prediction_frame, textvariable=self.process_type_model_var, state="readonly")
+        self.process_type_model_box.grid(row=0, column=1, sticky="ew", padx=(8, 0))
+        self._add_tooltip(self.process_type_model_box, "Modele utilise pour proposer le type initial pendant le traitement.")
+        ttk.Label(prediction_frame, text="Success model").grid(row=1, column=0, sticky="w")
+        self.process_success_model_box = ttk.Combobox(prediction_frame, textvariable=self.process_success_model_var, state="readonly")
+        self.process_success_model_box.grid(row=1, column=1, sticky="ew", padx=(8, 0))
+        self._add_tooltip(self.process_success_model_box, "Modele utilise pour proposer succes ou chute pendant le traitement.")
+        self._refresh_process_prediction_models()
+
         self.process_log = scrolledtext.ScrolledText(parent, height=18, wrap=tk.WORD)
-        self.process_log.grid(row=7, column=0, columnspan=3, sticky="nsew")
-        parent.rowconfigure(7, weight=1)
+        self.process_log.grid(row=8, column=0, columnspan=3, sticky="nsew")
+        parent.rowconfigure(8, weight=1)
 
     def _build_inspect_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=0)
@@ -460,9 +473,14 @@ class SynergieToolsApp:
 
         ttk.Button(parent, text="Process for annotation", command=self._run_process_new_data_file).grid(row=3, column=0, sticky="w", pady=(12, 8))
         ttk.Label(parent, textvariable=self.new_data_summary_var, justify=tk.LEFT).grid(row=3, column=1, columnspan=2, sticky="w", padx=8)
+        ttk.Label(
+            parent,
+            text="Initial labels use the models selected in Process CSV.",
+            foreground="gray",
+        ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(0, 8))
 
         self.new_data_log = scrolledtext.ScrolledText(parent, height=14, wrap=tk.WORD)
-        self.new_data_log.grid(row=4, column=0, columnspan=3, sticky="nsew")
+        self.new_data_log.grid(row=5, column=0, columnspan=3, sticky="nsew")
         self._refresh_new_data_directories()
 
     def _build_annotate_tab(self, parent: ttk.Frame) -> None:
@@ -691,28 +709,8 @@ class SynergieToolsApp:
         combination_check = ttk.Checkbutton(controls, text="Combination jump", variable=self.annotation_combination_var)
         combination_check.grid(row=11, column=0, sticky="w", pady=(0, 8))
         self._add_tooltip(combination_check, "Deux sauts du meme capteur espaces de moins de 1,5 s sont pre-marques comme combinaison.")
-        prefill_frame = ttk.LabelFrame(controls, text="Batch prefill", padding=6)
-        prefill_frame.grid(row=12, column=0, sticky="ew", pady=(0, 8))
-        prefill_frame.columnconfigure(1, weight=1)
-        ttk.Label(prefill_frame, text="Type model").grid(row=0, column=0, sticky="w")
-        self.annotation_type_model_box = ttk.Combobox(prefill_frame, textvariable=self.annotation_type_model_var, state="readonly")
-        self.annotation_type_model_box.grid(row=0, column=1, sticky="ew", padx=(8, 0))
-        self._add_tooltip(self.annotation_type_model_box, "Modele utilise uniquement pour proposer un type initial a verifier.")
-        ttk.Label(prefill_frame, text="Success model").grid(row=1, column=0, sticky="w")
-        self.annotation_success_model_box = ttk.Combobox(prefill_frame, textvariable=self.annotation_success_model_var, state="readonly")
-        self.annotation_success_model_box.grid(row=1, column=1, sticky="ew", padx=(8, 0))
-        self._add_tooltip(self.annotation_success_model_box, "Modele utilise uniquement pour proposer succes ou chute avant relecture.")
-        prefill_button = ttk.Button(prefill_frame, text="Batch prefill current file", command=self._run_annotation_batch_prefill)
-        prefill_button.grid(
-            row=2,
-            column=0,
-            columnspan=2,
-            sticky="w",
-            pady=(6, 0),
-        )
-        self._add_tooltip(prefill_button, "Applique les modeles choisis a tout le fichier courant pour accelerer la relecture.")
         annotation_actions = ttk.Frame(controls)
-        annotation_actions.grid(row=13, column=0, sticky="w", pady=(8, 0))
+        annotation_actions.grid(row=12, column=0, sticky="w", pady=(8, 0))
         save_annotation_button = ttk.Button(annotation_actions, text="Save current annotation", command=self._save_current_annotation)
         save_annotation_button.grid(row=0, column=0, sticky="w")
         self._add_tooltip(save_annotation_button, "Enregistre le label du saut actuellement selectionne.")
@@ -725,7 +723,6 @@ class SynergieToolsApp:
         )
         self._add_tooltip(finalize_button, "Archive le jumplist actuel, deplace les segments et ajoute les labels termines au jeu d'entrainement.")
         self._sync_annotation_review_controls()
-        self._refresh_annotation_prefill_models()
         self._refresh_annotation_files()
 
     def _build_plot_canvas(self) -> None:
@@ -1354,19 +1351,19 @@ class SynergieToolsApp:
             )
         self.pretrained_models_summary_var.set("\n".join(summary_lines))
 
-    def _refresh_annotation_prefill_models(self) -> None:
+    def _refresh_process_prediction_models(self) -> None:
         type_models = operations.list_pretrained_models_by_performance("type")
         success_models = operations.list_pretrained_models_by_performance("success")
         type_labels = [operations.format_pretrained_model_label(item) for item in type_models]
         success_labels = [operations.format_pretrained_model_label(item) for item in success_models]
-        self.annotation_type_model_box.configure(values=type_labels)
-        self.annotation_success_model_box.configure(values=success_labels)
-        if type_labels and self.annotation_type_model_var.get() not in type_labels:
-            self.annotation_type_model_var.set(type_labels[0])
-        if success_labels and self.annotation_success_model_var.get() not in success_labels:
-            self.annotation_success_model_var.set(success_labels[0])
+        self.process_type_model_box.configure(values=type_labels)
+        self.process_success_model_box.configure(values=success_labels)
+        if type_labels and self.process_type_model_var.get() not in type_labels:
+            self.process_type_model_var.set(type_labels[0])
+        if success_labels and self.process_success_model_var.get() not in success_labels:
+            self.process_success_model_var.set(success_labels[0])
 
-    def _annotation_prefill_model_path(self, task: str, selected_label: str) -> str | None:
+    def _process_prediction_model_path(self, task: str, selected_label: str) -> str | None:
         for item in operations.list_pretrained_models_by_performance(task):
             if operations.format_pretrained_model_label(item) == selected_label:
                 return item["path"]
@@ -2810,38 +2807,6 @@ class SynergieToolsApp:
             "The training dataset changed; retraining is recommended.",
         )
 
-    def _run_annotation_batch_prefill(self) -> None:
-        if self.annotation_dataframe is None or self.annotation_file_path is None:
-            messagebox.showwarning("Synergie Tools", "Select an annotation file first.")
-            return
-        type_path = self._annotation_prefill_model_path("type", self.annotation_type_model_var.get())
-        success_path = self._annotation_prefill_model_path("success", self.annotation_success_model_var.get())
-        if not type_path or not success_path:
-            messagebox.showwarning("Synergie Tools", "Select compatible type and success models first.")
-            return
-        self.status_var.set("Running batch prefill...")
-
-        def action() -> None:
-            result = operations.prefill_annotation_predictions(
-                self.annotation_dataframe,
-                type_model_path=type_path,
-                success_model_path=success_path,
-            )
-            result["rows"].to_csv(self.annotation_file_path, index=False)
-            self.root.after(0, lambda: self._apply_annotation_batch_prefill(result))
-
-        self._run_in_thread(action, "Unable to prefill annotation labels.")
-
-    def _apply_annotation_batch_prefill(self, result: dict) -> None:
-        self.annotation_dataframe = result["rows"]
-        self._refresh_annotation_jump_list()
-        self._refresh_annotation_progress()
-        if len(self.annotation_dataframe) > 0:
-            self.annotation_jump_listbox.selection_clear(0, tk.END)
-            self.annotation_jump_listbox.selection_set(0)
-            self._on_annotation_jump_selected()
-        self.status_var.set(f"Batch prefill completed: {result['updated']} updated, {result['skipped']} skipped")
-
     def _refresh_detection_review(self) -> None:
         analysis = operations.analyze_detection_review_labels()
         self.detection_review_summary_var.set(
@@ -2914,6 +2879,8 @@ class SynergieToolsApp:
 
         session = operations.session_metadata(self.session_var.get())
         output_path = self.output_path_var.get().strip() or None
+        type_path = self._process_prediction_model_path("type", self.process_type_model_var.get())
+        success_path = self._process_prediction_model_path("success", self.process_success_model_var.get())
         self.status_var.set("Processing file...")
         self.process_log.delete("1.0", tk.END)
 
@@ -2922,6 +2889,8 @@ class SynergieToolsApp:
                 csv_path,
                 synchro=session["sample_time_fine_synchro"],
                 output_path=output_path,
+                type_model_path=type_path,
+                success_model_path=success_path,
             )
             self.root.after(0, lambda: self._log(self.process_log, f"Created: {destination}"))
             self.root.after(0, lambda: self.status_var.set("Processing completed"))
@@ -2982,9 +2951,13 @@ class SynergieToolsApp:
         self.new_data_log.delete("1.0", tk.END)
 
         def action() -> None:
+            type_path = self._process_prediction_model_path("type", self.process_type_model_var.get())
+            success_path = self._process_prediction_model_path("success", self.process_success_model_var.get())
             result = operations.process_new_imu_file_for_annotation(
                 raw_file,
                 output_path=self.new_data_output_var.get().strip() or None,
+                type_model_path=type_path,
+                success_model_path=success_path,
             )
             self.root.after(0, lambda: self._log(self.new_data_log, f"Created annotation CSV: {result['annotation_csv']}"))
             self.root.after(0, lambda: self._log(self.new_data_log, f"Created jump segments in: {result['segment_directory']}"))
