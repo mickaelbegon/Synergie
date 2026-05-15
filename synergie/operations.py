@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import json
 import os
 import re
@@ -44,6 +43,12 @@ from synergie.services.detection_tuning_service import (
     optimize_detection_parameters,
 )
 from synergie.services.quality_service import analyze_jump_quality
+from synergie.services.training_dataset_service import (
+    describe_training_dataset,
+    find_training_dataset_duplicates,
+    load_training_dataset_state,
+    training_dataset_state_path,
+)
 
 
 def list_sessions() -> list[str]:
@@ -323,103 +328,6 @@ def parse_training_id_from_csv_path(csv_path: Path) -> str | None:
     if len(training_parts) < 2:
         return None
     return training_parts[1]
-
-
-def describe_training_dataset(task: str, dataset_path: str, augment_mirror: bool = True) -> dict:
-    dataset_root = Path(dataset_path)
-    filtered: list[dict] = []
-    duplicate_report = find_training_dataset_duplicates(dataset_path)
-    with (dataset_root / "jumplist.csv").open("r", encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            jump_type = int(float(row["type"]))
-            success = int(float(row["success"]))
-            if success == 2 or jump_type == 8:
-                continue
-            filtered.append({"type": jump_type, "success": success, "skater": row["skater"]})
-
-    if task == "type":
-        labels = [row["type"] for row in filtered]
-    elif task == "success":
-        labels = [row["success"] for row in filtered]
-    else:
-        raise ValueError(f"Unsupported training task: {task}")
-
-    counts: dict[int, int] = {}
-    for label in labels:
-        counts[label] = counts.get(label, 0) + 1
-
-    base_samples = int(len(filtered))
-    recommended_class_weight = {
-        str(label): round(base_samples / (len(counts) * count), 6)
-        for label, count in sorted(counts.items())
-        if count > 0
-    }
-
-    validation_samples = base_samples - int(base_samples * 0.8)
-    stratified_split_possible = (
-        bool(counts)
-        and len(counts) >= 2
-        and min(counts.values()) >= 2
-        and validation_samples >= len(counts)
-    )
-
-    return {
-        "task": task,
-        "base_samples": base_samples,
-        "effective_samples": int(base_samples * (2 if augment_mirror else 1)),
-        "unique_skaters": len({row["skater"] for row in filtered}),
-        "class_counts": {str(label): counts[label] for label in sorted(counts)},
-        "recommended_class_weight": recommended_class_weight,
-        "stratified_split_possible": stratified_split_possible,
-        "augment_mirror": bool(augment_mirror),
-        "duplicate_rows": duplicate_report["duplicate_rows"],
-        "duplicate_paths": duplicate_report["duplicate_paths"],
-        "has_duplicates": duplicate_report["has_duplicates"],
-    }
-
-
-def find_training_dataset_duplicates(dataset_path: str | Path) -> dict:
-    """Detect duplicate training rows, primarily by repeated segment path."""
-    import pandas as pd
-
-    jumplist_path = Path(dataset_path) / "jumplist.csv"
-    if not jumplist_path.exists():
-        raise FileNotFoundError(f"Unable to find jumplist.csv in {dataset_path}")
-
-    frame = pd.read_csv(jumplist_path)
-    if "path" not in frame:
-        return {
-            "has_duplicates": False,
-            "duplicate_paths": [],
-            "duplicate_rows": 0,
-            "rows": [],
-        }
-    normalized_paths = frame["path"].fillna("").astype(str).str.replace("\\", "/", regex=False)
-    duplicate_mask = normalized_paths.duplicated(keep=False) & normalized_paths.ne("")
-    duplicate_rows = frame.loc[duplicate_mask].copy()
-    duplicate_rows["_normalized_path"] = normalized_paths[duplicate_mask]
-    duplicate_paths = sorted(duplicate_rows["_normalized_path"].unique().tolist()) if not duplicate_rows.empty else []
-    return {
-        "has_duplicates": bool(duplicate_paths),
-        "duplicate_paths": duplicate_paths,
-        "duplicate_rows": int(duplicate_mask.sum()),
-        "rows": duplicate_rows.to_dict(orient="records"),
-    }
-
-
-def training_dataset_state_path(dataset_path: str | Path = "data/annotated/total") -> Path:
-    """Return the sidecar file used to record the last training-set update."""
-    return Path(dataset_path) / "dataset_state.json"
-
-
-def load_training_dataset_state(dataset_path: str | Path = "data/annotated/total") -> dict:
-    path = training_dataset_state_path(dataset_path)
-    if not path.exists():
-        return {}
-    with path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-    return payload if isinstance(payload, dict) else {}
 
 
 def finalize_annotation_file(
