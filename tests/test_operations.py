@@ -439,6 +439,7 @@ class OperationsTests(unittest.TestCase):
 
             self.assertEqual(stats["base_samples"], 2)
             self.assertEqual(stats["class_counts"], {"0": 1, "1": 1})
+            self.assertFalse(stats["has_duplicates"])
 
     def test_describe_training_dataset_reports_stratified_split_for_balanced_success_labels(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -459,6 +460,23 @@ class OperationsTests(unittest.TestCase):
             self.assertEqual(stats["class_counts"], {"0": 3, "1": 3})
             self.assertEqual(stats["recommended_class_weight"], {"0": 1.0, "1": 1.0})
             self.assertTrue(stats["stratified_split_possible"])
+
+    def test_find_training_dataset_duplicates_reports_repeated_paths(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dataset_root = Path(tmpdir)
+            (dataset_root / "jumplist.csv").write_text(
+                "path,type,success,skater\n"
+                "jump_a.csv,0,1,a\n"
+                "jump_a.csv,0,1,a\n"
+                "jump_b.csv,1,0,b\n",
+                encoding="utf-8",
+            )
+
+            duplicates = operations.find_training_dataset_duplicates(dataset_root)
+
+            self.assertTrue(duplicates["has_duplicates"])
+            self.assertEqual(duplicates["duplicate_rows"], 2)
+            self.assertEqual(duplicates["duplicate_paths"], ["jump_a.csv"])
 
     def test_list_pretrained_training_models_filters_compatible_entries(self):
         original_file = pretrained_models.PRETRAINED_MODELS_FILE

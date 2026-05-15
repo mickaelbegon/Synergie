@@ -1174,6 +1174,12 @@ class SynergieToolsApp:
         ) or "n/a"
         mirror_text = "yes" if stats["augment_mirror"] else "no"
         stratified_text = "yes" if stats.get("stratified_split_possible") else "fallback to random split"
+        duplicate_text = (
+            f"\nWARNING: {stats['duplicate_rows']} duplicate rows across "
+            f"{len(stats['duplicate_paths'])} repeated paths."
+            if stats.get("has_duplicates")
+            else "\nDuplicate path check: ok"
+        )
         return (
             f"Training set stats ({stats['task']}): "
             f"{stats['base_samples']} labelled jumps, {stats['unique_skaters']} skaters, "
@@ -1181,6 +1187,7 @@ class SynergieToolsApp:
             f"Class distribution: {class_counts}\n"
             f"Recommended class weights: {class_weight}\n"
             f"Stratified train/val split possible: {stratified_text}"
+            f"{duplicate_text}"
         )
 
     def _format_training_quality_summary(self, summary: dict) -> str:

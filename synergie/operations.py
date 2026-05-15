@@ -472,6 +472,7 @@ def parse_training_id_from_csv_path(csv_path: Path) -> str | None:
 def describe_training_dataset(task: str, dataset_path: str, augment_mirror: bool = True) -> dict:
     dataset_root = Path(dataset_path)
     filtered: list[dict] = []
+    duplicate_report = find_training_dataset_duplicates(dataset_path)
     with (dataset_root / "jumplist.csv").open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
@@ -516,6 +517,38 @@ def describe_training_dataset(task: str, dataset_path: str, augment_mirror: bool
         "recommended_class_weight": recommended_class_weight,
         "stratified_split_possible": stratified_split_possible,
         "augment_mirror": bool(augment_mirror),
+        "duplicate_rows": duplicate_report["duplicate_rows"],
+        "duplicate_paths": duplicate_report["duplicate_paths"],
+        "has_duplicates": duplicate_report["has_duplicates"],
+    }
+
+
+def find_training_dataset_duplicates(dataset_path: str | Path) -> dict:
+    """Detect duplicate training rows, primarily by repeated segment path."""
+    import pandas as pd
+
+    jumplist_path = Path(dataset_path) / "jumplist.csv"
+    if not jumplist_path.exists():
+        raise FileNotFoundError(f"Unable to find jumplist.csv in {dataset_path}")
+
+    frame = pd.read_csv(jumplist_path)
+    if "path" not in frame:
+        return {
+            "has_duplicates": False,
+            "duplicate_paths": [],
+            "duplicate_rows": 0,
+            "rows": [],
+        }
+    normalized_paths = frame["path"].fillna("").astype(str).str.replace("\\", "/", regex=False)
+    duplicate_mask = normalized_paths.duplicated(keep=False) & normalized_paths.ne("")
+    duplicate_rows = frame.loc[duplicate_mask].copy()
+    duplicate_rows["_normalized_path"] = normalized_paths[duplicate_mask]
+    duplicate_paths = sorted(duplicate_rows["_normalized_path"].unique().tolist()) if not duplicate_rows.empty else []
+    return {
+        "has_duplicates": bool(duplicate_paths),
+        "duplicate_paths": duplicate_paths,
+        "duplicate_rows": int(duplicate_mask.sum()),
+        "rows": duplicate_rows.to_dict(orient="records"),
     }
 
 
@@ -1352,6 +1385,14 @@ def train_model(
     from core.model.training.loader import Loader
     from core.model.training.training import Trainer
 
+    duplicate_report = find_training_dataset_duplicates(dataset_path)
+    if duplicate_report["has_duplicates"]:
+        preview = ", ".join(duplicate_report["duplicate_paths"][:3])
+        suffix = "..." if len(duplicate_report["duplicate_paths"]) > 3 else ""
+        raise ValueError(
+            f"Training dataset contains duplicate jump paths ({duplicate_report['duplicate_rows']} rows): "
+            f"{preview}{suffix}"
+        )
     dataset = Loader(dataset_path, augment_mirror=True)
     pretrained_entry = None
     if pretrained_model_id:
