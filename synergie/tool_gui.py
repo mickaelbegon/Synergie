@@ -23,6 +23,44 @@ if TYPE_CHECKING:
     from core.data_treatment.data_generation.trainingSession import trainingSession
 
 
+class Tooltip:
+    """Small hover tooltip for Tk widgets."""
+
+    def __init__(self, widget, text: str) -> None:
+        self.widget = widget
+        self.text = text
+        self.window = None
+        widget.bind("<Enter>", self._show, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+
+    def _show(self, _event=None) -> None:
+        if self.window is not None or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 18
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+        self.window = tk.Toplevel(self.widget)
+        self.window.wm_overrideredirect(True)
+        self.window.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(
+            self.window,
+            text=self.text,
+            justify=tk.LEFT,
+            background="#fff7d6",
+            relief=tk.SOLID,
+            borderwidth=1,
+            padx=7,
+            pady=4,
+            wraplength=320,
+        )
+        label.pack()
+
+    def _hide(self, _event=None) -> None:
+        if self.window is not None:
+            self.window.destroy()
+            self.window = None
+
+
 class SynergieToolsApp:
     TRAIN_ARCHITECTURES = {
         "type": ["inceptiontime", "transformer"],
@@ -172,6 +210,7 @@ class SynergieToolsApp:
         self.annotation_video_popup = None
         self.annotation_video_popup_info_label = None
         self.annotation_video_matches_listbox = None
+        self._tooltips: list[Tooltip] = []
 
         self._build_layout()
         self._populate_sessions()
@@ -251,32 +290,44 @@ class SynergieToolsApp:
         ttk.Label(footer, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
         self.root.bind_all("<KeyPress>", self._on_global_keypress)
 
+    def _add_tooltip(self, widget, text: str):
+        self._tooltips.append(Tooltip(widget, text))
+        return widget
+
     def _build_process_tab(self, parent: ttk.Frame) -> None:
         for index in range(3):
             parent.columnconfigure(index, weight=1 if index == 1 else 0)
 
         ttk.Label(parent, text="Input CSV").grid(row=0, column=0, sticky="w", pady=4)
-        ttk.Entry(parent, textvariable=self.csv_path_var).grid(row=0, column=1, sticky="ew", padx=8)
+        input_entry = ttk.Entry(parent, textvariable=self.csv_path_var)
+        input_entry.grid(row=0, column=1, sticky="ew", padx=8)
+        self._add_tooltip(input_entry, "CSV IMU brut a traiter.")
         ttk.Button(parent, text="Browse", command=self._pick_csv).grid(row=0, column=2, sticky="e")
 
         ttk.Label(parent, text="Output CSV").grid(row=1, column=0, sticky="w", pady=4)
-        ttk.Entry(parent, textvariable=self.output_path_var).grid(row=1, column=1, sticky="ew", padx=8)
+        output_entry = ttk.Entry(parent, textvariable=self.output_path_var)
+        output_entry.grid(row=1, column=1, sticky="ew", padx=8)
+        self._add_tooltip(output_entry, "CSV de sortie. Si vide, un fichier voisin est cree automatiquement.")
         ttk.Button(parent, text="Save as", command=self._pick_output).grid(row=1, column=2, sticky="e")
 
         ttk.Label(parent, text="Session").grid(row=2, column=0, sticky="w", pady=4)
         self.process_session_box = ttk.Combobox(parent, textvariable=self.session_var, values=operations.list_sessions(), state="readonly")
         self.process_session_box.grid(row=2, column=1, sticky="w", padx=8)
+        self._add_tooltip(self.process_session_box, "Session utilisee pour recuperer l'offset de synchronisation configure.")
         self.process_session_box.bind("<<ComboboxSelected>>", self._on_process_session_changed)
 
         ttk.Label(parent, text="Session CSV files").grid(row=3, column=0, sticky="nw", pady=4)
         self.process_session_files = tk.Listbox(parent, listvariable=self.session_files_var, height=6, exportselection=False)
         self.process_session_files.grid(row=3, column=1, columnspan=2, sticky="nsew", padx=8)
+        self._add_tooltip(self.process_session_files, "Fichiers disponibles dans le dossier de la session selectionnee.")
         self.process_session_files.bind("<<ListboxSelect>>", self._on_process_file_selected)
 
         ttk.Label(parent, textvariable=self.session_folder_summary_var, justify=tk.LEFT).grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
         ttk.Label(parent, textvariable=self.process_selected_file_info_var, justify=tk.LEFT).grid(row=5, column=0, columnspan=3, sticky="w", pady=(4, 8))
 
-        ttk.Button(parent, text="Process file", command=self._run_process_file).grid(row=6, column=0, sticky="w", pady=(12, 12))
+        process_button = ttk.Button(parent, text="Process file", command=self._run_process_file)
+        process_button.grid(row=6, column=0, sticky="w", pady=(12, 12))
+        self._add_tooltip(process_button, "Detecte les sauts du CSV choisi et exporte une jumplist.")
 
         self.process_log = scrolledtext.ScrolledText(parent, height=18, wrap=tk.WORD)
         self.process_log.grid(row=7, column=0, columnspan=3, sticky="nsew")
@@ -292,7 +343,9 @@ class SynergieToolsApp:
         controls.columnconfigure(1, weight=1)
 
         ttk.Label(controls, text="Input CSV").grid(row=0, column=0, sticky="w", pady=4)
-        ttk.Entry(controls, textvariable=self.inspect_csv_path_var, width=44).grid(row=0, column=1, sticky="ew", padx=8)
+        inspect_entry = ttk.Entry(controls, textvariable=self.inspect_csv_path_var, width=44)
+        inspect_entry.grid(row=0, column=1, sticky="ew", padx=8)
+        self._add_tooltip(inspect_entry, "CSV IMU a inspecter visuellement.")
         ttk.Button(controls, text="Browse", command=self._pick_inspect_csv).grid(row=0, column=2, sticky="e")
 
         ttk.Label(controls, text="Session").grid(row=1, column=0, sticky="w", pady=4)
@@ -304,11 +357,13 @@ class SynergieToolsApp:
             width=16,
         )
         self.inspect_session_box.grid(row=1, column=1, sticky="w", padx=8)
+        self._add_tooltip(self.inspect_session_box, "Session utilisee pour appliquer sa synchronisation.")
         self.inspect_session_box.bind("<<ComboboxSelected>>", self._on_inspect_session_changed)
 
         ttk.Label(controls, text="Session CSV files").grid(row=2, column=0, sticky="nw", pady=(12, 0))
         self.inspect_session_files = tk.Listbox(controls, listvariable=self.inspect_session_files_var, height=5, exportselection=False)
         self.inspect_session_files.grid(row=2, column=1, columnspan=2, sticky="ew", padx=8)
+        self._add_tooltip(self.inspect_session_files, "Double-cliquer sur un CSV pour le charger et lancer la detection.")
         self.inspect_session_files.bind("<<ListboxSelect>>", self._on_inspect_file_selected)
         self.inspect_session_files.bind("<Double-1>", self._on_inspect_file_double_clicked)
 
@@ -316,7 +371,7 @@ class SynergieToolsApp:
         ttk.Label(controls, textvariable=self.inspect_selected_file_info_var, justify=tk.LEFT).grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 8))
 
         ttk.Label(controls, text="2nd derivative threshold").grid(row=5, column=0, sticky="w", pady=(12, 0))
-        tk.Scale(
+        threshold_scale = tk.Scale(
             controls,
             from_=-2.0,
             to=0.5,
@@ -325,11 +380,13 @@ class SynergieToolsApp:
             variable=self.threshold_var,
             command=lambda _value: self._sync_slider_labels(),
             length=260,
-        ).grid(row=5, column=1, sticky="ew", padx=8)
+        )
+        threshold_scale.grid(row=5, column=1, sticky="ew", padx=8)
+        self._add_tooltip(threshold_scale, "Seuil applique a la derivee seconde. Plus proche de zero = detection plus permissive.")
         ttk.Label(controls, textvariable=self.threshold_label_var).grid(row=5, column=2, sticky="w")
 
         ttk.Label(controls, text="Smoothing sigma").grid(row=6, column=0, sticky="w", pady=(12, 0))
-        tk.Scale(
+        sigma_scale = tk.Scale(
             controls,
             from_=1,
             to=60,
@@ -338,11 +395,13 @@ class SynergieToolsApp:
             variable=self.sigma_var,
             command=lambda _value: self._sync_slider_labels(),
             length=260,
-        ).grid(row=6, column=1, sticky="ew", padx=8)
+        )
+        sigma_scale.grid(row=6, column=1, sticky="ew", padx=8)
+        self._add_tooltip(sigma_scale, "Lissage du gyroscope avant detection. Plus grand = signal plus lisse mais moins reactif.")
         ttk.Label(controls, textvariable=self.sigma_label_var).grid(row=6, column=2, sticky="w")
 
         ttk.Label(controls, text="Combination gap (frames)").grid(row=7, column=0, sticky="w", pady=(12, 0))
-        tk.Scale(
+        gap_scale = tk.Scale(
             controls,
             from_=60,
             to=360,
@@ -351,12 +410,16 @@ class SynergieToolsApp:
             variable=self.gap_var,
             command=lambda _value: self._sync_slider_labels(),
             length=260,
-        ).grid(row=7, column=1, sticky="ew", padx=8)
+        )
+        gap_scale.grid(row=7, column=1, sticky="ew", padx=8)
+        self._add_tooltip(gap_scale, "Deux sauts proches de moins que cet ecart sont marques comme combinaison.")
         ttk.Label(controls, textvariable=self.gap_label_var).grid(row=7, column=2, sticky="w")
 
         actions = ttk.Frame(controls)
         actions.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(12, 0))
-        ttk.Button(actions, text="Load and detect", command=self._run_inspection).grid(row=0, column=0, sticky="w")
+        inspect_button = ttk.Button(actions, text="Load and detect", command=self._run_inspection)
+        inspect_button.grid(row=0, column=0, sticky="w")
+        self._add_tooltip(inspect_button, "Charge le CSV et recalcule les sauts avec les seuils visibles.")
         ttk.Button(actions, text="Refresh plots", command=self._redraw_plots).grid(row=0, column=1, sticky="w", padx=(8, 0))
 
         jump_frame = ttk.LabelFrame(parent, text="Detected Jumps", padding=12)
@@ -416,6 +479,7 @@ class SynergieToolsApp:
         ttk.Button(left_panel, text="Refresh annotation files", command=self._refresh_annotation_files).grid(row=0, column=0, sticky="w", pady=(0, 8))
         self.annotation_files_listbox = tk.Listbox(left_panel, listvariable=self.annotation_files_var, exportselection=False, height=5, width=34)
         self.annotation_files_listbox.grid(row=1, column=0, sticky="ew")
+        self._add_tooltip(self.annotation_files_listbox, "Fichiers a annoter. Le compteur montre les sauts encore non traites.")
         self.annotation_files_listbox.bind("<<ListboxSelect>>", self._on_annotation_file_selected)
 
         jumps_panel = ttk.LabelFrame(left_panel, text="Session Timeline", padding=8)
@@ -427,6 +491,7 @@ class SynergieToolsApp:
         ttk.Label(jumps_panel, textvariable=self.annotation_global_progress_var, justify=tk.LEFT).grid(row=2, column=0, sticky="w", pady=(0, 8))
         self.annotation_jump_listbox = tk.Listbox(jumps_panel, exportselection=False, height=16)
         self.annotation_jump_listbox.grid(row=3, column=0, sticky="nsew")
+        self._add_tooltip(self.annotation_jump_listbox, "Tous les candidats de la seance, tries par temps video synchronise.")
         self.annotation_jump_listbox.bind("<<ListboxSelect>>", self._on_annotation_jump_selected)
 
         right_panel = ttk.Panedwindow(parent, orient=tk.HORIZONTAL)
@@ -459,6 +524,7 @@ class SynergieToolsApp:
             relief="sunken",
         )
         self.annotation_video_label.grid(row=2, column=0, columnspan=3, sticky="nsew")
+        self._add_tooltip(self.annotation_video_label, "Video de la seance utilisee pour verifier les labels.")
 
         video_timeline = ttk.Frame(video_frame)
         video_timeline.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 0))
@@ -473,6 +539,7 @@ class SynergieToolsApp:
             command=lambda _value: self.annotation_video_time_var.set(self._format_video_ms(self.annotation_video_slider_var.get())),
         )
         self.annotation_video_slider.grid(row=0, column=0, sticky="ew")
+        self._add_tooltip(self.annotation_video_slider, "Position courante dans la video.")
         self.annotation_video_slider.bind("<ButtonRelease-1>", self._on_annotation_video_slider_released)
         ttk.Label(video_timeline, textvariable=self.annotation_video_time_var, width=12).grid(row=0, column=1, sticky="e", padx=(8, 0))
 
@@ -621,32 +688,42 @@ class SynergieToolsApp:
             foreground="firebrick",
         ).grid(row=10, column=0, sticky="w", pady=(0, 8))
 
-        ttk.Checkbutton(controls, text="Combination jump", variable=self.annotation_combination_var).grid(row=11, column=0, sticky="w", pady=(0, 8))
+        combination_check = ttk.Checkbutton(controls, text="Combination jump", variable=self.annotation_combination_var)
+        combination_check.grid(row=11, column=0, sticky="w", pady=(0, 8))
+        self._add_tooltip(combination_check, "Deux sauts du meme capteur espaces de moins de 1,5 s sont pre-marques comme combinaison.")
         prefill_frame = ttk.LabelFrame(controls, text="Batch prefill", padding=6)
         prefill_frame.grid(row=12, column=0, sticky="ew", pady=(0, 8))
         prefill_frame.columnconfigure(1, weight=1)
         ttk.Label(prefill_frame, text="Type model").grid(row=0, column=0, sticky="w")
         self.annotation_type_model_box = ttk.Combobox(prefill_frame, textvariable=self.annotation_type_model_var, state="readonly")
         self.annotation_type_model_box.grid(row=0, column=1, sticky="ew", padx=(8, 0))
+        self._add_tooltip(self.annotation_type_model_box, "Modele utilise uniquement pour proposer un type initial a verifier.")
         ttk.Label(prefill_frame, text="Success model").grid(row=1, column=0, sticky="w")
         self.annotation_success_model_box = ttk.Combobox(prefill_frame, textvariable=self.annotation_success_model_var, state="readonly")
         self.annotation_success_model_box.grid(row=1, column=1, sticky="ew", padx=(8, 0))
-        ttk.Button(prefill_frame, text="Batch prefill current file", command=self._run_annotation_batch_prefill).grid(
+        self._add_tooltip(self.annotation_success_model_box, "Modele utilise uniquement pour proposer succes ou chute avant relecture.")
+        prefill_button = ttk.Button(prefill_frame, text="Batch prefill current file", command=self._run_annotation_batch_prefill)
+        prefill_button.grid(
             row=2,
             column=0,
             columnspan=2,
             sticky="w",
             pady=(6, 0),
         )
+        self._add_tooltip(prefill_button, "Applique les modeles choisis a tout le fichier courant pour accelerer la relecture.")
         annotation_actions = ttk.Frame(controls)
         annotation_actions.grid(row=13, column=0, sticky="w", pady=(8, 0))
-        ttk.Button(annotation_actions, text="Save current annotation", command=self._save_current_annotation).grid(row=0, column=0, sticky="w")
-        ttk.Button(annotation_actions, text="Finalize annotated file", command=self._finalize_current_annotation_file).grid(
+        save_annotation_button = ttk.Button(annotation_actions, text="Save current annotation", command=self._save_current_annotation)
+        save_annotation_button.grid(row=0, column=0, sticky="w")
+        self._add_tooltip(save_annotation_button, "Enregistre le label du saut actuellement selectionne.")
+        finalize_button = ttk.Button(annotation_actions, text="Finalize annotated file", command=self._finalize_current_annotation_file)
+        finalize_button.grid(
             row=0,
             column=1,
             sticky="w",
             padx=(8, 0),
         )
+        self._add_tooltip(finalize_button, "Archive le jumplist actuel, deplace les segments et ajoute les labels termines au jeu d'entrainement.")
         self._sync_annotation_review_controls()
         self._refresh_annotation_prefill_models()
         self._refresh_annotation_files()
@@ -773,45 +850,68 @@ class SynergieToolsApp:
         ttk.Label(controls, text="Task").grid(row=0, column=0, sticky="w", pady=4)
         train_task_box = ttk.Combobox(controls, textvariable=self.train_task_var, values=["type", "success"], state="readonly", width=18)
         train_task_box.grid(row=0, column=1, sticky="ew")
+        self._add_tooltip(train_task_box, "Choisit la cible a apprendre: type de saut ou succes/chute.")
         train_task_box.bind("<<ComboboxSelected>>", self._on_train_task_changed)
 
         ttk.Label(controls, text="Architecture").grid(row=1, column=0, sticky="w", pady=4)
         self.train_architecture_box = ttk.Combobox(controls, textvariable=self.train_architecture_var, state="readonly", width=24)
         self.train_architecture_box.grid(row=1, column=1, sticky="ew")
+        self._add_tooltip(self.train_architecture_box, "Architecture du reseau pour un nouvel entrainement.")
         self._sync_train_architectures()
 
         ttk.Label(controls, text="Dataset").grid(row=2, column=0, sticky="w", pady=4)
-        ttk.Entry(controls, textvariable=self.dataset_var, width=34).grid(row=2, column=1, sticky="ew")
+        dataset_entry = ttk.Entry(controls, textvariable=self.dataset_var, width=34)
+        dataset_entry.grid(row=2, column=1, sticky="ew")
+        self._add_tooltip(dataset_entry, "Dossier contenant jumplist.csv et skaterData.csv pour l'entrainement.")
 
         ttk.Label(controls, text="Epochs").grid(row=3, column=0, sticky="w", pady=4)
-        ttk.Entry(controls, textvariable=self.epochs_var, width=10).grid(row=3, column=1, sticky="w")
+        epochs_entry = ttk.Entry(controls, textvariable=self.epochs_var, width=10)
+        epochs_entry.grid(row=3, column=1, sticky="w")
+        self._add_tooltip(epochs_entry, "Nombre maximal de passes sur le jeu d'entrainement.")
 
         ttk.Label(controls, text="Batch size").grid(row=4, column=0, sticky="w", pady=4)
-        ttk.Entry(controls, textvariable=self.train_batch_size_var, width=10).grid(row=4, column=1, sticky="w")
+        batch_entry = ttk.Entry(controls, textvariable=self.train_batch_size_var, width=10)
+        batch_entry.grid(row=4, column=1, sticky="w")
+        self._add_tooltip(batch_entry, "Nombre d'exemples traites avant chaque mise a jour des poids. Vide = valeur Keras par defaut.")
         ttk.Label(controls, text="Learning rate").grid(row=5, column=0, sticky="w", pady=4)
-        ttk.Entry(controls, textvariable=self.train_learning_rate_var, width=10).grid(row=5, column=1, sticky="w")
+        learning_rate_entry = ttk.Entry(controls, textvariable=self.train_learning_rate_var, width=10)
+        learning_rate_entry.grid(row=5, column=1, sticky="w")
+        self._add_tooltip(learning_rate_entry, "Taille des mises a jour de l'optimiseur. Vide = valeur de l'architecture.")
         ttk.Label(controls, text="Dropout").grid(row=6, column=0, sticky="w", pady=4)
-        ttk.Entry(controls, textvariable=self.train_dropout_var, width=10).grid(row=6, column=1, sticky="w")
+        dropout_entry = ttk.Entry(controls, textvariable=self.train_dropout_var, width=10)
+        dropout_entry.grid(row=6, column=1, sticky="w")
+        self._add_tooltip(dropout_entry, "Part de neurones coupes pendant l'entrainement pour limiter le surapprentissage.")
         ttk.Label(controls, text="Filters / units").grid(row=7, column=0, sticky="w", pady=4)
-        ttk.Entry(controls, textvariable=self.train_filters_var, width=10).grid(row=7, column=1, sticky="w")
+        filters_entry = ttk.Entry(controls, textvariable=self.train_filters_var, width=10)
+        filters_entry.grid(row=7, column=1, sticky="w")
+        self._add_tooltip(filters_entry, "Largeur principale du modele: filtres convolutionnels ou unites LSTM selon l'architecture.")
         ttk.Label(controls, text="Modules / blocks").grid(row=8, column=0, sticky="w", pady=4)
-        ttk.Entry(controls, textvariable=self.train_modules_var, width=10).grid(row=8, column=1, sticky="w")
+        modules_entry = ttk.Entry(controls, textvariable=self.train_modules_var, width=10)
+        modules_entry.grid(row=8, column=1, sticky="w")
+        self._add_tooltip(modules_entry, "Profondeur principale: modules Inception ou blocs Transformer selon l'architecture.")
 
-        ttk.Checkbutton(
+        pretrained_check = ttk.Checkbutton(
             controls,
             text="Start from pretrained model",
             variable=self.use_pretrained_var,
             command=self._sync_pretrained_controls,
-        ).grid(row=9, column=0, columnspan=2, sticky="w", pady=(12, 4))
+        )
+        pretrained_check.grid(row=9, column=0, columnspan=2, sticky="w", pady=(12, 4))
+        self._add_tooltip(pretrained_check, "Reprend un modele existant compatible au lieu de repartir de zero.")
 
         self.pretrained_model_box = ttk.Combobox(controls, textvariable=self.pretrained_model_var, state="readonly", width=34)
         self.pretrained_model_box.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        self._add_tooltip(self.pretrained_model_box, "Modeles compatibles classes du plus recent au moins recent.")
         self.pretrained_model_box.bind("<<ComboboxSelected>>", self._on_pretrained_model_changed)
 
         buttons = ttk.Frame(controls)
         buttons.grid(row=11, column=0, columnspan=2, sticky="ew", pady=(4, 8))
-        ttk.Button(buttons, text="Run training", command=self._run_train).grid(row=0, column=0, sticky="w")
-        ttk.Button(buttons, text="Refresh dataset stats", command=self._refresh_training_dataset_stats).grid(row=0, column=1, sticky="w", padx=(8, 0))
+        train_button = ttk.Button(buttons, text="Run training", command=self._run_train)
+        train_button.grid(row=0, column=0, sticky="w")
+        self._add_tooltip(train_button, "Lance l'entrainement avec les options visibles.")
+        refresh_stats_button = ttk.Button(buttons, text="Refresh dataset stats", command=self._refresh_training_dataset_stats)
+        refresh_stats_button.grid(row=0, column=1, sticky="w", padx=(8, 0))
+        self._add_tooltip(refresh_stats_button, "Recharge les comptes de classes, doublons et statut de reentrainement.")
 
         ttk.Label(
             controls,
@@ -1815,7 +1915,9 @@ class SynergieToolsApp:
         controls.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
         controls.columnconfigure(0, weight=1)
         controls.rowconfigure(2, weight=1)
-        ttk.Button(controls, text="Refresh reviewed errors", command=self._refresh_detection_review).grid(row=0, column=0, sticky="w")
+        refresh_errors_button = ttk.Button(controls, text="Refresh reviewed errors", command=self._refresh_detection_review)
+        refresh_errors_button.grid(row=0, column=0, sticky="w")
+        self._add_tooltip(refresh_errors_button, "Recharge les faux positifs et faux negatifs marques pendant l'annotation.")
         ttk.Label(controls, textvariable=self.detection_review_summary_var, justify=tk.LEFT, wraplength=320).grid(
             row=1,
             column=0,
@@ -1824,12 +1926,14 @@ class SynergieToolsApp:
         )
         self.detection_review_listbox = tk.Listbox(controls, listvariable=self.detection_review_records_var, width=48)
         self.detection_review_listbox.grid(row=2, column=0, sticky="nsew")
-        ttk.Button(controls, text="Run threshold sweep", command=self._run_detection_parameter_sweep).grid(
+        threshold_sweep_button = ttk.Button(controls, text="Run threshold sweep", command=self._run_detection_parameter_sweep)
+        threshold_sweep_button.grid(
             row=3,
             column=0,
             sticky="w",
             pady=(8, 0),
         )
+        self._add_tooltip(threshold_sweep_button, "Teste plusieurs seuils et sigmas sur les exemples revus pour proposer un compromis.")
         ttk.Label(controls, textvariable=self.detection_tuning_summary_var, justify=tk.LEFT, wraplength=320).grid(
             row=4,
             column=0,
