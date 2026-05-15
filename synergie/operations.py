@@ -1609,7 +1609,7 @@ def process_csv_file(
     *,
     type_model_path: str | None = None,
     success_model_path: str | None = None,
-) -> Path:
+) -> dict:
     from core.data_treatment.data_generation.exporter import export
     import pandas as pd
 
@@ -1624,7 +1624,10 @@ def process_csv_file(
     destination = Path(output_path) if output_path else input_path.with_name(f"{input_path.stem}_jumps.csv")
     destination.parent.mkdir(parents=True, exist_ok=True)
     result.to_csv(destination, index=False)
-    return destination
+    return {
+        "path": destination,
+        "prediction_status": result.attrs.get("prediction_status", "unknown"),
+    }
 
 
 def process_new_imu_file_for_annotation(
@@ -1714,11 +1717,15 @@ def process_new_imu_session_for_annotation(
         annotation_frame = annotation_frame.sort_values(by=["synced_start_ms", "sensor_id", "start_ms"]).reset_index(drop=True)
         annotation_frame = annotate_combination_flags(annotation_frame)
         if type_model_path and success_model_path:
-            annotation_frame = prefill_annotation_predictions(
-                annotation_frame,
-                type_model_path=type_model_path,
-                success_model_path=success_model_path,
-            )["rows"]
+            try:
+                annotation_frame = prefill_annotation_predictions(
+                    annotation_frame,
+                    type_model_path=type_model_path,
+                    success_model_path=success_model_path,
+                )["rows"]
+            except ModuleNotFoundError as exc:
+                if exc.name not in {"tensorflow", "keras"}:
+                    raise
     annotation_frame.to_csv(output_csv_path, index=False)
     return {
         "annotation_csv": output_csv_path,

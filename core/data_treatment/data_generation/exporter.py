@@ -23,9 +23,7 @@ def export(
     type_model_path: str | None = None,
     success_model_path: str | None = None,
 ) -> pd.DataFrame:
-    from core.data_treatment.data_generation.modelPredictor import ModelPredictor
     from core.data_treatment.data_generation.trainingSession import trainingSession
-    from core.model import model
     """
     exports the data to a folder, in order to be used by the ML model
     :param folder_name: the folder where to export the data
@@ -46,10 +44,21 @@ def export(
         jumpList.append(jump_copy)
         predict_jump.append(jump_copy.df)
 
-    model_test_type = model.load_model(type_model_path or constants.modeltype_filepath)
-    model_test_success = model.load_model(success_model_path or constants.modelsuccess_filepath)
-    prediction = ModelPredictor(model_test_type, model_test_success)
-    predict_type, predict_success = prediction.predict(predict_jump)
+    predict_type = [8] * len(predict_jump)
+    predict_success = [2] * len(predict_jump)
+    prediction_status = "skipped_missing_model_runtime"
+    try:
+        from core.data_treatment.data_generation.modelPredictor import ModelPredictor
+        from core.model import model
+
+        model_test_type = model.load_model(type_model_path or constants.modeltype_filepath)
+        model_test_success = model.load_model(success_model_path or constants.modelsuccess_filepath)
+        prediction = ModelPredictor(model_test_type, model_test_success)
+        predict_type, predict_success = prediction.predict(predict_jump)
+        prediction_status = "predicted"
+    except ModuleNotFoundError as exc:
+        if exc.name not in {"tensorflow", "keras"}:
+            raise
 
     jumpDictCSV = []
     for i,jump in enumerate(jumpList):
@@ -70,6 +79,7 @@ def export(
 
     jumpListdf = pd.DataFrame(jumpDictCSV)
     jumpListdf = jumpListdf.sort_values(by=['videoTimeStamp'])
+    jumpListdf.attrs["prediction_status"] = prediction_status
 
     return jumpListdf
 

@@ -2901,14 +2901,16 @@ class SynergieToolsApp:
         self.process_log.delete("1.0", tk.END)
 
         def action() -> None:
-            destination = operations.process_csv_file(
+            result = operations.process_csv_file(
                 csv_path,
                 synchro=session["sample_time_fine_synchro"],
                 output_path=output_path,
                 type_model_path=type_path,
                 success_model_path=success_path,
             )
-            self.root.after(0, lambda: self._log(self.process_log, f"Created: {destination}"))
+            self.root.after(0, lambda: self._log(self.process_log, f"Created: {result['path']}"))
+            if result["prediction_status"] != "predicted":
+                self.root.after(0, lambda: self._log(self.process_log, "Prediction skipped: TensorFlow/Keras is not available in this environment."))
             self.root.after(0, lambda: self.status_var.set("Processing completed"))
 
         self._run_in_thread(action, "Unable to process file.")
@@ -2943,15 +2945,17 @@ class SynergieToolsApp:
         def action() -> None:
             created = []
             for csv_path in input_paths:
-                destination = operations.process_csv_file(
+                result = operations.process_csv_file(
                     csv_path,
                     synchro=session["sample_time_fine_synchro"],
                     output_path=self._suggest_output_path(csv_path),
                     type_model_path=type_path,
                     success_model_path=success_path,
                 )
-                created.append(destination)
-                self.root.after(0, lambda path=destination: self._log(self.process_log, f"Created: {path}"))
+                created.append(result["path"])
+                self.root.after(0, lambda path=result["path"]: self._log(self.process_log, f"Created: {path}"))
+                if result["prediction_status"] != "predicted":
+                    self.root.after(0, lambda: self._log(self.process_log, "Prediction skipped: TensorFlow/Keras is not available in this environment."))
             self.root.after(0, lambda: self.status_var.set(f"Batch processing completed: {len(created)} files"))
 
         self._run_in_thread(action, "Unable to batch process files.")

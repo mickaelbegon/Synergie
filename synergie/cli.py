@@ -91,8 +91,8 @@ def run_command(args: argparse.Namespace) -> int:
         return 0
 
     if args.command == "process-file":
-        destination = operations.process_csv_file(args.csv_path, args.synchro, args.output)
-        print(destination)
+        result = operations.process_csv_file(args.csv_path, args.synchro, args.output)
+        print(result["path"])
         return 0
 
     if args.command == "benchmark":
