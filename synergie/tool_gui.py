@@ -57,12 +57,16 @@ class SynergieToolsApp:
         self.annotation_files_var = tk.StringVar(value=[])
         self.annotation_summary_var = tk.StringVar(value="No annotation file selected.")
         self.annotation_progress_var = tk.StringVar(value="Pending annotations: 0")
+        self.annotation_global_progress_var = tk.StringVar(value="All files pending annotations: 0")
         self.annotation_type_var = tk.StringVar(value="toe_loop")
         self.annotation_turn_var = tk.StringVar(value="")
         self.annotation_success_var = tk.StringVar(value="2")
         self.annotation_review_status_var = tk.StringVar(value="normal")
         self.annotation_athlete_var = tk.StringVar(value="")
         self.annotation_exclusion_hint_var = tk.StringVar(value="")
+        self.annotation_combination_var = tk.BooleanVar(value=False)
+        self.annotation_type_model_var = tk.StringVar()
+        self.annotation_success_model_var = tk.StringVar()
         self.annotation_video_path_var = tk.StringVar()
         self.annotation_video_directory_var = tk.StringVar()
         self.annotation_video_matches_var = tk.StringVar(value=[])
@@ -78,6 +82,11 @@ class SynergieToolsApp:
         self.train_architecture_var = tk.StringVar(value=self.TRAIN_ARCHITECTURES["type"][0])
         self.dataset_var = tk.StringVar(value="data/annotated/total")
         self.epochs_var = tk.StringVar(value="10")
+        self.train_batch_size_var = tk.StringVar(value="")
+        self.train_learning_rate_var = tk.StringVar(value="")
+        self.train_dropout_var = tk.StringVar(value="")
+        self.train_filters_var = tk.StringVar(value="")
+        self.train_modules_var = tk.StringVar(value="")
         self.train_dataset_stats_var = tk.StringVar(value="Dataset stats not loaded yet.")
         self.train_quality_summary_var = tk.StringVar(value="No training run yet.")
         self.use_pretrained_var = tk.BooleanVar(value=False)
@@ -100,6 +109,8 @@ class SynergieToolsApp:
         self.tuner_trials_var = tk.StringVar(value="6")
         self.tuner_epochs_var = tk.StringVar(value="8")
         self.tuner_summary_var = tk.StringVar(value="Run a bounded validation search to compare candidates.")
+        self.detection_review_summary_var = tk.StringVar(value="Run the review scan to inspect false positives and false negatives.")
+        self.detection_review_records_var = tk.StringVar(value=[])
 
         self.inspect_csv_path_var = tk.StringVar()
         self.inspect_session_var = tk.StringVar(value=sorted(constants.sessions)[0])
@@ -196,6 +207,7 @@ class SynergieToolsApp:
         model_audit_tab = ttk.Frame(notebook, padding=12)
         signal_tab = ttk.Frame(notebook, padding=12)
         tuner_tab = ttk.Frame(notebook, padding=12)
+        detection_tuning_tab = ttk.Frame(notebook, padding=12)
         quality_tab = ttk.Frame(notebook, padding=12)
         notes_tab = ttk.Frame(notebook, padding=12)
         notebook.add(sessions_tab, text="Sessions")
@@ -207,6 +219,7 @@ class SynergieToolsApp:
         notebook.add(model_audit_tab, text="Model Audit")
         notebook.add(signal_tab, text="Signal Importance")
         notebook.add(tuner_tab, text="Hyperparameter Search")
+        notebook.add(detection_tuning_tab, text="Detection Tuning")
         notebook.add(quality_tab, text="Quality Control")
         notebook.add(notes_tab, text="Algo Notes")
 
@@ -227,6 +240,7 @@ class SynergieToolsApp:
         self._build_model_audit_tab(model_audit_tab)
         self._build_signal_importance_tab(signal_tab)
         self._build_hyperparameter_tab(tuner_tab)
+        self._build_detection_tuning_tab(detection_tuning_tab)
         self._build_quality_tab(quality_tab)
         self._build_notes_tab(notes_tab)
 
@@ -406,11 +420,12 @@ class SynergieToolsApp:
         jumps_panel = ttk.LabelFrame(left_panel, text="Session Timeline", padding=8)
         jumps_panel.grid(row=2, column=0, sticky="nsew", pady=(12, 0))
         jumps_panel.columnconfigure(0, weight=1)
-        jumps_panel.rowconfigure(2, weight=1)
+        jumps_panel.rowconfigure(3, weight=1)
         ttk.Label(jumps_panel, textvariable=self.annotation_summary_var, justify=tk.LEFT).grid(row=0, column=0, sticky="w", pady=(0, 8))
         ttk.Label(jumps_panel, textvariable=self.annotation_progress_var, justify=tk.LEFT, foreground="firebrick").grid(row=1, column=0, sticky="w", pady=(0, 8))
+        ttk.Label(jumps_panel, textvariable=self.annotation_global_progress_var, justify=tk.LEFT).grid(row=2, column=0, sticky="w", pady=(0, 8))
         self.annotation_jump_listbox = tk.Listbox(jumps_panel, exportselection=False, height=16)
-        self.annotation_jump_listbox.grid(row=2, column=0, sticky="nsew")
+        self.annotation_jump_listbox.grid(row=3, column=0, sticky="nsew")
         self.annotation_jump_listbox.bind("<<ListboxSelect>>", self._on_annotation_jump_selected)
 
         right_panel = ttk.Panedwindow(parent, orient=tk.HORIZONTAL)
@@ -605,8 +620,26 @@ class SynergieToolsApp:
             foreground="firebrick",
         ).grid(row=10, column=0, sticky="w", pady=(0, 8))
 
-        ttk.Button(controls, text="Save current annotation", command=self._save_current_annotation).grid(row=11, column=0, sticky="w", pady=(8, 0))
+        ttk.Checkbutton(controls, text="Combination jump", variable=self.annotation_combination_var).grid(row=11, column=0, sticky="w", pady=(0, 8))
+        prefill_frame = ttk.LabelFrame(controls, text="Batch prefill", padding=6)
+        prefill_frame.grid(row=12, column=0, sticky="ew", pady=(0, 8))
+        prefill_frame.columnconfigure(1, weight=1)
+        ttk.Label(prefill_frame, text="Type model").grid(row=0, column=0, sticky="w")
+        self.annotation_type_model_box = ttk.Combobox(prefill_frame, textvariable=self.annotation_type_model_var, state="readonly")
+        self.annotation_type_model_box.grid(row=0, column=1, sticky="ew", padx=(8, 0))
+        ttk.Label(prefill_frame, text="Success model").grid(row=1, column=0, sticky="w")
+        self.annotation_success_model_box = ttk.Combobox(prefill_frame, textvariable=self.annotation_success_model_var, state="readonly")
+        self.annotation_success_model_box.grid(row=1, column=1, sticky="ew", padx=(8, 0))
+        ttk.Button(prefill_frame, text="Batch prefill current file", command=self._run_annotation_batch_prefill).grid(
+            row=2,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(6, 0),
+        )
+        ttk.Button(controls, text="Save current annotation", command=self._save_current_annotation).grid(row=13, column=0, sticky="w", pady=(8, 0))
         self._sync_annotation_review_controls()
+        self._refresh_annotation_prefill_models()
         self._refresh_annotation_files()
 
     def _build_plot_canvas(self) -> None:
@@ -744,19 +777,30 @@ class SynergieToolsApp:
         ttk.Label(controls, text="Epochs").grid(row=3, column=0, sticky="w", pady=4)
         ttk.Entry(controls, textvariable=self.epochs_var, width=10).grid(row=3, column=1, sticky="w")
 
+        ttk.Label(controls, text="Batch size").grid(row=4, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.train_batch_size_var, width=10).grid(row=4, column=1, sticky="w")
+        ttk.Label(controls, text="Learning rate").grid(row=5, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.train_learning_rate_var, width=10).grid(row=5, column=1, sticky="w")
+        ttk.Label(controls, text="Dropout").grid(row=6, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.train_dropout_var, width=10).grid(row=6, column=1, sticky="w")
+        ttk.Label(controls, text="Filters / units").grid(row=7, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.train_filters_var, width=10).grid(row=7, column=1, sticky="w")
+        ttk.Label(controls, text="Modules / blocks").grid(row=8, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.train_modules_var, width=10).grid(row=8, column=1, sticky="w")
+
         ttk.Checkbutton(
             controls,
             text="Start from pretrained model",
             variable=self.use_pretrained_var,
             command=self._sync_pretrained_controls,
-        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(12, 4))
+        ).grid(row=9, column=0, columnspan=2, sticky="w", pady=(12, 4))
 
         self.pretrained_model_box = ttk.Combobox(controls, textvariable=self.pretrained_model_var, state="readonly", width=34)
-        self.pretrained_model_box.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        self.pretrained_model_box.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         self.pretrained_model_box.bind("<<ComboboxSelected>>", self._on_pretrained_model_changed)
 
         buttons = ttk.Frame(controls)
-        buttons.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(4, 8))
+        buttons.grid(row=11, column=0, columnspan=2, sticky="ew", pady=(4, 8))
         ttk.Button(buttons, text="Run training", command=self._run_train).grid(row=0, column=0, sticky="w")
         ttk.Button(buttons, text="Refresh dataset stats", command=self._refresh_training_dataset_stats).grid(row=0, column=1, sticky="w", padx=(8, 0))
 
@@ -765,19 +809,19 @@ class SynergieToolsApp:
             textvariable=self.pretrained_models_summary_var,
             justify=tk.LEFT,
             wraplength=340,
-        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        ).grid(row=12, column=0, columnspan=2, sticky="w", pady=(0, 8))
         ttk.Label(
             controls,
             textvariable=self.train_dataset_stats_var,
             justify=tk.LEFT,
             wraplength=340,
-        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        ).grid(row=13, column=0, columnspan=2, sticky="w", pady=(0, 8))
         ttk.Label(
             controls,
             textvariable=self.train_quality_summary_var,
             justify=tk.LEFT,
             wraplength=340,
-        ).grid(row=9, column=0, columnspan=2, sticky="w")
+        ).grid(row=14, column=0, columnspan=2, sticky="w")
 
         results = ttk.Frame(parent)
         results.grid(row=0, column=1, rowspan=2, sticky="nsew")
@@ -1186,6 +1230,24 @@ class SynergieToolsApp:
             )
         self.pretrained_models_summary_var.set("\n".join(summary_lines))
 
+    def _refresh_annotation_prefill_models(self) -> None:
+        type_models = operations.list_pretrained_models_by_performance("type")
+        success_models = operations.list_pretrained_models_by_performance("success")
+        type_labels = [operations.format_pretrained_model_label(item) for item in type_models]
+        success_labels = [operations.format_pretrained_model_label(item) for item in success_models]
+        self.annotation_type_model_box.configure(values=type_labels)
+        self.annotation_success_model_box.configure(values=success_labels)
+        if type_labels and self.annotation_type_model_var.get() not in type_labels:
+            self.annotation_type_model_var.set(type_labels[0])
+        if success_labels and self.annotation_success_model_var.get() not in success_labels:
+            self.annotation_success_model_var.set(success_labels[0])
+
+    def _annotation_prefill_model_path(self, task: str, selected_label: str) -> str | None:
+        for item in operations.list_pretrained_models_by_performance(task):
+            if operations.format_pretrained_model_label(item) == selected_label:
+                return item["path"]
+        return None
+
     def _selected_pretrained_model_id(self) -> str | None:
         selected_label = self.pretrained_model_var.get()
         if not selected_label:
@@ -1194,6 +1256,31 @@ class SynergieToolsApp:
             if operations.format_pretrained_model_label(model) == selected_label:
                 return model["id"]
         return None
+
+    def _training_overrides_from_gui(self) -> tuple[dict, int | None]:
+        overrides: dict = {}
+        learning_rate = self.train_learning_rate_var.get().strip()
+        dropout = self.train_dropout_var.get().strip()
+        filters = self.train_filters_var.get().strip()
+        modules = self.train_modules_var.get().strip()
+        batch_size = self.train_batch_size_var.get().strip()
+        architecture = self.train_architecture_var.get()
+        task = self.train_task_var.get()
+        if learning_rate:
+            overrides["learning_rate"] = float(learning_rate)
+        if dropout:
+            overrides["dropout"] = float(dropout)
+        if filters:
+            if task == "success" and architecture == "lstm":
+                overrides["first_units"] = int(filters)
+            else:
+                overrides["filters"] = int(filters)
+        if modules:
+            if task == "type" and architecture == "transformer":
+                overrides["num_transformer_blocks"] = int(modules)
+            elif task == "type" and architecture == "inceptiontime":
+                overrides["modules"] = int(modules)
+        return overrides, (int(batch_size) if batch_size else None)
 
     def _sync_pretrained_controls(self) -> None:
         self.pretrained_model_box.configure(state="readonly" if self.use_pretrained_var.get() else "disabled")
@@ -1695,6 +1782,41 @@ class SynergieToolsApp:
 
         self._run_in_thread(action, "Unable to run hyperparameter search.")
 
+    def _build_detection_tuning_tab(self, parent: ttk.Frame) -> None:
+        parent.columnconfigure(0, weight=0)
+        parent.columnconfigure(1, weight=1)
+        parent.rowconfigure(0, weight=1)
+
+        controls = ttk.LabelFrame(parent, text="Reviewed Detection Errors", padding=12)
+        controls.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        controls.columnconfigure(0, weight=1)
+        controls.rowconfigure(2, weight=1)
+        ttk.Button(controls, text="Refresh reviewed errors", command=self._refresh_detection_review).grid(row=0, column=0, sticky="w")
+        ttk.Label(controls, textvariable=self.detection_review_summary_var, justify=tk.LEFT, wraplength=320).grid(
+            row=1,
+            column=0,
+            sticky="w",
+            pady=(8, 8),
+        )
+        self.detection_review_listbox = tk.Listbox(controls, listvariable=self.detection_review_records_var, width=48)
+        self.detection_review_listbox.grid(row=2, column=0, sticky="nsew")
+
+        notes = ttk.LabelFrame(parent, text="How to use this tab", padding=12)
+        notes.grid(row=0, column=1, sticky="nsew")
+        notes.columnconfigure(0, weight=1)
+        ttk.Label(
+            notes,
+            justify=tk.LEFT,
+            wraplength=700,
+            text=(
+                "Rows marked 'Not a jump' become false positives; rows added manually become false negatives.\n\n"
+                "Use this reviewed set before changing thresholds: false positives show where the detector is too permissive, "
+                "false negatives show missed events. A later publication-ready version should replay the raw sessions across a "
+                "grid of threshold/smoothing settings and optimize balanced error rates on held-out sessions."
+            ),
+        ).grid(row=0, column=0, sticky="nw")
+        self._refresh_detection_review()
+
     def _pick_csv(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
         if path:
@@ -1785,7 +1907,18 @@ class SynergieToolsApp:
     def _refresh_annotation_files(self) -> None:
         files = operations.list_pending_annotation_files()
         self._annotation_files_cache = files
-        self.annotation_files_var.set([path.name for path in files])
+        global_progress = operations.summarize_pending_annotation_files()
+        per_file = {item["path"]: item for item in global_progress["files"]}
+        self.annotation_files_var.set(
+            [
+                f"{path.name} | pending {per_file[path]['pending']} / {per_file[path]['total']}"
+                for path in files
+            ]
+        )
+        self.annotation_global_progress_var.set(
+            f"All files pending annotations: {global_progress['pending']} | "
+            f"Completed: {global_progress['completed']} / {global_progress['total']}"
+        )
         if not files:
             self.annotation_summary_var.set("No pending annotation file found.")
             self.annotation_progress_var.set("Pending annotations: 0")
@@ -1865,6 +1998,11 @@ class SynergieToolsApp:
         self.annotation_progress_var.set(
             f"Pending annotations: {progress['pending']} | Completed: {progress['completed']} / {progress['total']}"
         )
+        global_progress = operations.summarize_pending_annotation_files()
+        self.annotation_global_progress_var.set(
+            f"All files pending annotations: {global_progress['pending']} | "
+            f"Completed: {global_progress['completed']} / {global_progress['total']}"
+        )
 
     def _selected_annotation_index(self) -> int | None:
         selection = self.annotation_jump_listbox.curselection()
@@ -1885,6 +2023,7 @@ class SynergieToolsApp:
         self.annotation_success_var.set(str(int(float(row.get("success", 2)))))
         self.annotation_review_status_var.set(review_status)
         self.annotation_athlete_var.set(str(row.get("athlete_id", row.get("skater", ""))))
+        self.annotation_combination_var.set(bool(row.get("combination", False)))
         self._sync_annotation_turn_options()
         self._sync_annotation_review_controls()
         self._refresh_annotation_video_context()
@@ -2421,8 +2560,25 @@ class SynergieToolsApp:
             self.annotation_acc_ax.remove()
             self.annotation_acc_ax = None
         self.annotation_acc_ax = self.annotation_ax.twinx()
-        gyro_line = self.annotation_ax.plot(dataframe["ms"], dataframe["Gyr_X"], label="Gyr_X", linewidth=1.2, color="#1f77b4")[0]
+        gyro_column = "Gyr_X_smoothed" if "Gyr_X_smoothed" in dataframe else "Gyr_X"
+        raw_line = self.annotation_ax.plot(dataframe["ms"], dataframe["Gyr_X"], label="Gyr_X raw", linewidth=0.8, alpha=0.35, color="#1f77b4")[0]
+        gyro_line = self.annotation_ax.plot(dataframe["ms"], dataframe[gyro_column], label="Gyr_X smoothed", linewidth=1.2, color="#1f77b4")[0]
         acc_line = self.annotation_acc_ax.plot(dataframe["ms"], dataframe["Acc_X"], label="Acc_X", linewidth=0.9, alpha=0.8, color="#ff7f0e")[0]
+        derivative_line = None
+        if "X_gyr_second_derivative" in dataframe:
+            derivative_line = self.annotation_acc_ax.plot(
+                dataframe["ms"],
+                dataframe["X_gyr_second_derivative"],
+                label="2nd derivative",
+                linewidth=0.9,
+                alpha=0.8,
+                color="crimson",
+            )[0]
+            self.annotation_acc_ax.axhline(DEFAULT_DETECTION_THRESHOLD, color="crimson", linestyle="--", linewidth=0.9, label="Detection threshold")
+        if row.get("start_ms", "") != "":
+            self.annotation_ax.axvline(float(row["start_ms"]), color="black", linestyle="--", linewidth=1.0, label="Takeoff")
+        if row.get("end_ms", "") != "":
+            self.annotation_ax.axvline(float(row["end_ms"]), color="black", linestyle=":", linewidth=1.0, label="Landing")
         self.annotation_ax.set_title(
             f"{video_time_label} | "
             f"{row.get('athlete_id', row.get('skater', 'unknown'))} | "
@@ -2431,7 +2587,12 @@ class SynergieToolsApp:
         self.annotation_ax.set_xlabel("ms")
         self.annotation_ax.set_ylabel("Gyroscope")
         self.annotation_acc_ax.set_ylabel("Acceleration")
-        self.annotation_ax.legend([gyro_line, acc_line], ["Gyr_X", "Acc_X"], loc="upper right", fontsize=8)
+        handles = [raw_line, gyro_line, acc_line]
+        labels = ["Gyr_X raw", "Gyr_X smoothed", "Acc_X"]
+        if derivative_line is not None:
+            handles.append(derivative_line)
+            labels.append("2nd derivative")
+        self.annotation_ax.legend(handles, labels, loc="upper right", fontsize=8)
         self.annotation_figure.tight_layout()
         self.annotation_canvas.draw_idle()
 
@@ -2459,6 +2620,7 @@ class SynergieToolsApp:
         self.annotation_dataframe.at[index, "video_status"] = backend_status["video_status"]
         self.annotation_dataframe.at[index, "detection_status"] = backend_status["detection_status"]
         self.annotation_dataframe.at[index, "athlete_id"] = self.annotation_athlete_var.get()
+        self.annotation_dataframe.at[index, "combination"] = bool(self.annotation_combination_var.get())
         self.annotation_dataframe.at[index, "annotation_status"] = "annotated"
         self.annotation_dataframe.to_csv(self.annotation_file_path, index=False)
         self._refresh_annotation_jump_list()
@@ -2466,6 +2628,52 @@ class SynergieToolsApp:
         self.annotation_jump_listbox.selection_clear(0, tk.END)
         self.annotation_jump_listbox.selection_set(index)
         self.status_var.set("Annotation saved")
+
+    def _run_annotation_batch_prefill(self) -> None:
+        if self.annotation_dataframe is None or self.annotation_file_path is None:
+            messagebox.showwarning("Synergie Tools", "Select an annotation file first.")
+            return
+        type_path = self._annotation_prefill_model_path("type", self.annotation_type_model_var.get())
+        success_path = self._annotation_prefill_model_path("success", self.annotation_success_model_var.get())
+        if not type_path or not success_path:
+            messagebox.showwarning("Synergie Tools", "Select compatible type and success models first.")
+            return
+        self.status_var.set("Running batch prefill...")
+
+        def action() -> None:
+            result = operations.prefill_annotation_predictions(
+                self.annotation_dataframe,
+                type_model_path=type_path,
+                success_model_path=success_path,
+            )
+            result["rows"].to_csv(self.annotation_file_path, index=False)
+            self.root.after(0, lambda: self._apply_annotation_batch_prefill(result))
+
+        self._run_in_thread(action, "Unable to prefill annotation labels.")
+
+    def _apply_annotation_batch_prefill(self, result: dict) -> None:
+        self.annotation_dataframe = result["rows"]
+        self._refresh_annotation_jump_list()
+        self._refresh_annotation_progress()
+        if len(self.annotation_dataframe) > 0:
+            self.annotation_jump_listbox.selection_clear(0, tk.END)
+            self.annotation_jump_listbox.selection_set(0)
+            self._on_annotation_jump_selected()
+        self.status_var.set(f"Batch prefill completed: {result['updated']} updated, {result['skipped']} skipped")
+
+    def _refresh_detection_review(self) -> None:
+        analysis = operations.analyze_detection_review_labels()
+        self.detection_review_summary_var.set(
+            f"Reviewed detections: {analysis['reviewed_detected']}\n"
+            f"False positives: {analysis['false_positive_count']}\n"
+            f"False negatives: {analysis['false_negative_count']}"
+        )
+        labels = []
+        for record in analysis["false_positives"]:
+            labels.append(f"FP | sensor {record['sensor_id']} | {record['annotation_file']} | row {record['row_index'] + 1}")
+        for record in analysis["false_negatives"]:
+            labels.append(f"FN | sensor {record['sensor_id']} | {record['annotation_file']} | row {record['row_index'] + 1}")
+        self.detection_review_records_var.set(labels)
 
     def _on_inspect_file_double_clicked(self, _event=None) -> None:
         self._on_inspect_file_selected()
@@ -2538,7 +2746,16 @@ class SynergieToolsApp:
                     f"Running training: task={task}, architecture={self.train_architecture_var.get()}, epochs={epochs}{pretrained_text}",
                 ),
             )
-            summary = operations.train_model(task, self.dataset_var.get(), epochs, architecture, pretrained_model_id=pretrained_model_id)
+            model_overrides, batch_size = self._training_overrides_from_gui()
+            summary = operations.train_model(
+                task,
+                self.dataset_var.get(),
+                epochs,
+                architecture,
+                pretrained_model_id=pretrained_model_id,
+                model_overrides=model_overrides,
+                batch_size=batch_size,
+            )
             formatted_summary = self._format_training_quality_summary(summary)
             self.root.after(0, lambda: self._draw_training_history(summary))
             self.root.after(0, lambda: self._draw_confusion_matrix(summary))
@@ -2658,6 +2875,8 @@ class SynergieToolsApp:
         bounds = self._jump_window_bounds_ms(session_df, jump)
         axis.axvspan(bounds["type"][0], bounds["type"][1], color="royalblue", alpha=0.10 * alpha_scale)
         axis.axvspan(bounds["success"][0], bounds["success"][1], color="seagreen", alpha=0.10 * alpha_scale)
+        axis.axvline(bounds["detected"][0], color="black", linestyle="--", linewidth=1.0)
+        axis.axvline(bounds["detected"][1], color="black", linestyle=":", linewidth=1.0)
         if self._jump_has_gyro_saturation(session_df, jump):
             axis.axvspan(bounds["detected"][0], bounds["detected"][1], color="crimson", alpha=0.12 * alpha_scale)
             axis.axvline(bounds["detected"][0], color="crimson", linestyle=":", linewidth=1.2)

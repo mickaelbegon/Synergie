@@ -1,4 +1,7 @@
 from tkinter.font import BOLD, Font
+import json
+from pathlib import Path
+
 import ttkbootstrap as ttkb
 from core.database.DatabaseManager import DatabaseManager
 
@@ -18,7 +21,7 @@ class ConnectionPage:
         labelFont = Font(self.root, size=15, weight=BOLD)
         self.label = ttkb.Label(self.frame, text="Veuillez entrer votre adresse mail", font=labelFont)
         self.label.grid(row=0, column=0, sticky="s")
-        self.accountVar = ttkb.StringVar(self.frame, value="")
+        self.accountVar = ttkb.StringVar(self.frame, value=self._default_email())
         self.entry = ttkb.Entry(self.frame, textvariable=self.accountVar)
         self.entry.grid(row=1, column=0)
         self.entry.bind("<Return>", self._on_submit)
@@ -45,3 +48,16 @@ class ConnectionPage:
 
     def _on_submit(self, _event=None):
         self.register()
+
+    def _default_email(self) -> str:
+        config_path = Path(__file__).resolve().parents[1] / "config" / "local_debug.json"
+        if config_path.is_file():
+            try:
+                payload = json.loads(config_path.read_text(encoding="utf-8"))
+                if isinstance(payload, dict):
+                    value = payload.get("default_coach_email")
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+            except (OSError, json.JSONDecodeError):
+                pass
+        return ""

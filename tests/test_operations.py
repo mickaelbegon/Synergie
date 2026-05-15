@@ -149,6 +149,63 @@ class OperationsTests(unittest.TestCase):
             {"total": 3, "pending": 1, "completed": 2},
         )
 
+    def test_summarize_pending_annotation_files_aggregates_all_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "a_for_annotation.csv").write_text(
+                "annotation_status,type,success\npending,8,2\nannotated,0,1\n",
+                encoding="utf-8",
+            )
+            (root / "b_for_annotation.csv").write_text(
+                "annotation_status,type,success\npending,8,2\npending,8,2\n",
+                encoding="utf-8",
+            )
+
+            summary = operations.summarize_pending_annotation_files(root)
+
+            self.assertEqual(summary["pending"], 3)
+            self.assertEqual(summary["completed"], 1)
+            self.assertEqual(summary["total"], 4)
+            self.assertEqual(len(summary["files"]), 2)
+
+    def test_annotate_combination_flags_marks_close_jumps_per_sensor(self):
+        import pandas as pd
+
+        rows = pd.DataFrame(
+            [
+                {"sensor_id": "1", "synced_start_ms": 1000.0},
+                {"sensor_id": "1", "synced_start_ms": 2200.0},
+                {"sensor_id": "1", "synced_start_ms": 5000.0},
+                {"sensor_id": "2", "synced_start_ms": 2100.0},
+            ]
+        )
+
+        result = operations.annotate_combination_flags(rows)
+
+        self.assertEqual(result["combination"].tolist(), [True, True, False, False])
+
+    def test_suggest_turns_from_rotation_bounds_result(self):
+        self.assertEqual(operations.suggest_turns_from_rotation(0.6), "1")
+        self.assertEqual(operations.suggest_turns_from_rotation(2.3), "2")
+        self.assertEqual(operations.suggest_turns_from_rotation(5.1), "4")
+
+    def test_analyze_detection_review_labels_collects_false_positive_and_negative(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "a_for_annotation.csv").write_text(
+                "sensor_id,path,start_ms,synced_start_ms,video_status,detection_status\n"
+                "1,a.csv,10,10,visible,not_a_jump\n"
+                "2,b.csv,20,20,visible,manual_missing_jump\n"
+                "3,c.csv,30,30,visible,detected_jump\n",
+                encoding="utf-8",
+            )
+
+            analysis = operations.analyze_detection_review_labels(root)
+
+            self.assertEqual(analysis["false_positive_count"], 1)
+            self.assertEqual(analysis["false_negative_count"], 1)
+            self.assertEqual(analysis["reviewed_detected"], 1)
+
     def test_sample_hyperparameter_trials_is_reproducible_and_bounded(self):
         first = operations.sample_hyperparameter_trials("success", "tcn", 4, random_seed=7)
         second = operations.sample_hyperparameter_trials("success", "tcn", 4, random_seed=7)

@@ -87,7 +87,7 @@ class Trainer:
             "class_counts": dict(self.dataset.class_counts or {}),
         }
 
-    def train(self, epochs: int = 100, plot: bool = True):
+    def train(self, epochs: int = 100, plot: bool = True, batch_size: int | None = None):
         """
         Do the training, and plot the confusion matrix and losses through epochs
         :param epochs:
@@ -102,6 +102,7 @@ class Trainer:
                 {"temporal_input" : self.dataset.temporal_features_train, "scalar_input" : self.dataset.scalar_features_train},
                 self.dataset.labels_train,
                 epochs=epochs,
+                batch_size=batch_size,
                 validation_data=self.dataset.val_dataset,
                 callbacks=[self.model_save_best(self.model_filepath)],
             )
@@ -116,7 +117,7 @@ class Trainer:
         summary.update(self._dataset_training_metadata())
         return summary
 
-    def train_success(self, epochs: int = 100, plot: bool = True):
+    def train_success(self, epochs: int = 100, plot: bool = True, batch_size: int | None = None):
         """
         Do the training, and plot the confusion matrix and losses through epochs
         :param epochs:
@@ -131,6 +132,7 @@ class Trainer:
                 {"temporal_input" : self.dataset.temporal_features_train, "scalar_input" : self.dataset.scalar_features_train},
                 self.dataset.labels_train,
                 epochs=epochs,
+                batch_size=batch_size,
                 validation_data=self.dataset.val_dataset,
                 callbacks=[self.model_save_best(self.model_filepath)],
                 class_weight=self.dataset.class_weight or None,

@@ -721,6 +721,176 @@ def summarize_annotation_progress(annotation_rows) -> dict:
     return {"total": total, "pending": pending, "completed": total - pending}
 
 
+def summarize_pending_annotation_files(root: str | Path = "data/pending") -> dict:
+    """Return per-file and global pending annotation counts."""
+    import pandas as pd
+
+    file_summaries: list[dict] = []
+    global_summary = {"total": 0, "pending": 0, "completed": 0}
+    for path in list_pending_annotation_files(root):
+        frame = pd.read_csv(path)
+        summary = summarize_annotation_progress(frame)
+        file_summaries.append({"path": path, **summary})
+        for key in global_summary:
+            global_summary[key] += summary[key]
+    return {"files": file_summaries, **global_summary}
+
+
+def annotate_combination_flags(annotation_rows, max_gap_ms: float = 1500.0):
+    """
+    Mark jumps occurring close together on the same sensor as combinations.
+
+    The first jump in a pair remains marked too, so a reviewer can see the whole
+    combination rather than only the second element.
+    """
+    frame = annotation_rows.copy()
+    if frame.empty:
+        frame["combination"] = []
+        return frame
+
+    if "combination" not in frame:
+        frame["combination"] = False
+    else:
+        frame["combination"] = frame["combination"].fillna(False).astype(bool)
+    for _sensor_id, sensor_rows in frame.groupby("sensor_id", sort=False):
+        ordered = sensor_rows.sort_values("synced_start_ms")
+        previous_index = None
+        previous_start = None
+        for index, row in ordered.iterrows():
+            current_start = _safe_float(row.get("synced_start_ms", row.get("start_ms", 0.0)))
+            if previous_index is not None and current_start - previous_start < max_gap_ms:
+                frame.at[previous_index, "combination"] = True
+                frame.at[index, "combination"] = True
+            previous_index = index
+            previous_start = current_start
+    return frame
+
+
+def list_pretrained_models_by_performance(task: str) -> list[dict]:
+    """Return compatible models ordered by reported test accuracy."""
+    models = list_pretrained_training_models(task=task, compatible_only=True)
+    return sorted(
+        models,
+        key=lambda item: (
+            item.get("performance", {}).get("test_accuracy") is not None,
+            item.get("performance", {}).get("test_accuracy") or -1.0,
+        ),
+        reverse=True,
+    )
+
+
+def suggest_turns_from_rotation(rotation_value) -> str:
+    """Convert a measured absolute rotation into a conservative 1-4 turn guess."""
+    turns = int(round(_safe_float(rotation_value, default=1.0)))
+    return str(min(4, max(1, turns)))
+
+
+def prefill_annotation_predictions(
+    annotation_rows,
+    *,
+    type_model_path: str,
+    success_model_path: str,
+) -> dict:
+    """
+    Predict type/success labels for annotation rows and prefill turn guesses.
+
+    Annotation candidates are not yet linked to a validated athlete profile, so
+    this V1 uses neutral scalar inputs. These predictions are intended as review
+    aids only; the human annotation remains authoritative.
+    """
+    import numpy as np
+    import pandas as pd
+    from core.model import model
+    from synergie.config import SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES
+
+    frame = annotation_rows.copy()
+    if frame.empty:
+        return {"rows": frame, "updated": 0, "skipped": 0}
+
+    type_predictor = model.load_model(type_model_path, for_training=False)
+    success_predictor = model.load_model(success_model_path, for_training=False)
+    type_temporal = []
+    success_temporal = []
+    valid_indices = []
+    for index, row in frame.iterrows():
+        path = Path(str(row.get("path", "")))
+        if not path.exists():
+            continue
+        segment = pd.read_csv(path)
+        if len(segment) < TYPE_WINDOW_FRAMES:
+            continue
+        temporal = np.nan_to_num(
+            segment[constants.fields_to_keep].to_numpy(),
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0,
+        )
+        type_temporal.append(temporal[:TYPE_WINDOW_FRAMES])
+        success_temporal.append(temporal[SUCCESS_WINDOW_START:])
+        valid_indices.append(index)
+
+    if not valid_indices:
+        return {"rows": frame, "updated": 0, "skipped": int(len(frame))}
+
+    scalar_features = np.zeros((len(valid_indices), 2), dtype=float)
+    type_predictions = type_predictor.predict(
+        {"temporal_input": np.asarray(type_temporal), "scalar_input": scalar_features},
+        verbose=0,
+    )
+    success_predictions = success_predictor.predict(
+        {"temporal_input": np.asarray(success_temporal), "scalar_input": scalar_features},
+        verbose=0,
+    )
+    for row_position, index in enumerate(valid_indices):
+        frame.at[index, "type"] = int(np.argmax(type_predictions[row_position]))
+        frame.at[index, "success"] = int(np.argmax(success_predictions[row_position]))
+        frame.at[index, "turns"] = suggest_turns_from_rotation(frame.at[index, "rotations"])
+        frame.at[index, "prediction_source"] = "batch_model_prefill"
+
+    return {
+        "rows": frame,
+        "updated": len(valid_indices),
+        "skipped": int(len(frame) - len(valid_indices)),
+    }
+
+
+def analyze_detection_review_labels(root: str | Path = "data/pending") -> dict:
+    """Collect reviewed false positives and false negatives across annotation files."""
+    import pandas as pd
+
+    false_positives: list[dict] = []
+    false_negatives: list[dict] = []
+    reviewed_detected = 0
+    for path in list_pending_annotation_files(root):
+        frame = pd.read_csv(path)
+        for index, row in frame.iterrows():
+            status = annotation_review_status_from_row(row)
+            record = {
+                "annotation_file": str(path),
+                "row_index": int(index),
+                "sensor_id": str(row.get("sensor_id", "")),
+                "athlete_id": str(row.get("athlete_id", row.get("skater", ""))),
+                "path": str(row.get("path", "")),
+                "start_ms": _safe_float(row.get("start_ms", 0.0)),
+                "synced_start_ms": _safe_float(row.get("synced_start_ms", row.get("start_ms", 0.0))),
+            }
+            if status == "not_a_jump":
+                false_positives.append(record)
+            elif status == "manual_missing_jump":
+                false_negatives.append(record)
+            elif status == "normal":
+                reviewed_detected += 1
+    total_reviewed = reviewed_detected + len(false_positives) + len(false_negatives)
+    return {
+        "reviewed_detected": reviewed_detected,
+        "false_positive_count": len(false_positives),
+        "false_negative_count": len(false_negatives),
+        "total_reviewed": total_reviewed,
+        "false_positives": false_positives,
+        "false_negatives": false_negatives,
+    }
+
+
 def audit_saved_models() -> list[dict]:
     """
     Inspect active and registered models under the current Python environment.
@@ -1094,6 +1264,8 @@ def train_model(
     epochs: int | None = None,
     architecture: str | None = None,
     pretrained_model_id: str | None = None,
+    model_overrides: dict | None = None,
+    batch_size: int | None = None,
 ) -> dict:
     from core.model import model
     from core.model.training.loader import Loader
@@ -1117,14 +1289,14 @@ def train_model(
         model_instance = (
             model.load_model(pretrained_entry["path"], for_training=True)
             if pretrained_entry
-            else model.build_model(task, selected_architecture)
+            else model.build_model(task, selected_architecture, **(model_overrides or {}))
         )
         trainer = Trainer(
             dataset.get_type_data(),
             model_instance,
             str(run_path),
         )
-        summary = trainer.train(epochs=epochs or 10)
+        summary = trainer.train(epochs=epochs or 10, batch_size=batch_size)
         latest_path = Path(constants.modeltype_filepath)
         _promote_trained_model(run_path, latest_path)
         registered = pretrained_models.register_trained_model(
@@ -1146,14 +1318,14 @@ def train_model(
         model_instance = (
             model.load_model(pretrained_entry["path"], for_training=True)
             if pretrained_entry
-            else model.build_model(task, selected_architecture)
+            else model.build_model(task, selected_architecture, **(model_overrides or {}))
         )
         trainer = Trainer(
             dataset.get_success_data(),
             model_instance,
             str(run_path),
         )
-        summary = trainer.train_success(epochs=epochs or 20)
+        summary = trainer.train_success(epochs=epochs or 20, batch_size=batch_size)
         latest_path = Path(constants.modelsuccess_filepath)
         _promote_trained_model(run_path, latest_path)
         registered = pretrained_models.register_trained_model(
@@ -1271,6 +1443,7 @@ def process_new_imu_session_for_annotation(
                     "detection_status": "detected_jump",
                     "impact_offset_ms": round(impact_offset_ms, 3),
                     "start_ms": round(jump.startTimestamp, 3),
+                    "end_ms": round(jump.endTimestamp, 3),
                     "synced_start_ms": synced_start_ms,
                     "session_key": new_imu_session_key(file_metadata),
                 }
@@ -1279,6 +1452,7 @@ def process_new_imu_session_for_annotation(
     annotation_frame = pd.DataFrame(records)
     if not annotation_frame.empty:
         annotation_frame = annotation_frame.sort_values(by=["synced_start_ms", "sensor_id", "start_ms"]).reset_index(drop=True)
+        annotation_frame = annotate_combination_flags(annotation_frame)
     annotation_frame.to_csv(output_csv_path, index=False)
     return {
         "annotation_csv": output_csv_path,

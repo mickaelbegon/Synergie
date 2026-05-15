@@ -2,6 +2,7 @@ data/
 **/__pycache__
 /s2m-skating-firebase-adminsdk-3ofmb-*.json
 /config/s2m-skating-firebase-adminsdk-3ofmb-*.json
+/config/local_debug.json
 /local_secrets/
 /local_state/
 .tmp/
