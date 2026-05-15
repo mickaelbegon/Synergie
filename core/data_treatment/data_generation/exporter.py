@@ -48,13 +48,13 @@ def export(
     predict_success = [2] * len(predict_jump)
     prediction_status = "skipped_missing_model_runtime"
     try:
-        from core.data_treatment.data_generation.modelPredictor import ModelPredictor
-        from core.model import model
+        from synergie.services.prediction_service import PredictionService
 
-        model_test_type = model.load_model(type_model_path or constants.modeltype_filepath)
-        model_test_success = model.load_model(success_model_path or constants.modelsuccess_filepath)
-        prediction = ModelPredictor(model_test_type, model_test_success)
-        predict_type, predict_success = prediction.predict(predict_jump)
+        prediction = PredictionService.from_paths(
+            type_model_path or constants.modeltype_filepath,
+            success_model_path or constants.modelsuccess_filepath,
+        )
+        predict_type, predict_success = prediction.predict_segments(predict_jump)
         prediction_status = "predicted"
     except ModuleNotFoundError as exc:
         if exc.name not in {"tensorflow", "keras"}:

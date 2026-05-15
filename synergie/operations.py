@@ -951,60 +951,22 @@ def prefill_annotation_predictions(
     this V1 uses neutral scalar inputs. These predictions are intended as review
     aids only; the human annotation remains authoritative.
     """
-    import numpy as np
-    import pandas as pd
-    from core.model import model
-    from synergie.config import SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES
+    from synergie.services.prediction_service import PredictionService
 
     frame = annotation_rows.copy()
     if frame.empty:
         return {"rows": frame, "updated": 0, "skipped": 0}
 
-    type_predictor = model.load_model(type_model_path, for_training=False)
-    success_predictor = model.load_model(success_model_path, for_training=False)
-    type_temporal = []
-    success_temporal = []
-    valid_indices = []
-    for index, row in frame.iterrows():
-        path = Path(str(row.get("path", "")))
-        if not path.exists():
+    service = PredictionService.from_paths(type_model_path, success_model_path)
+    result = service.prefill_annotation_rows(frame)
+    frame = result["rows"]
+    for index in frame.index:
+        if frame.at[index, "type"] == 8:
             continue
-        segment = pd.read_csv(path)
-        if len(segment) < TYPE_WINDOW_FRAMES:
-            continue
-        temporal = np.nan_to_num(
-            segment[constants.fields_to_keep].to_numpy(),
-            nan=0.0,
-            posinf=0.0,
-            neginf=0.0,
-        )
-        type_temporal.append(temporal[:TYPE_WINDOW_FRAMES])
-        success_temporal.append(temporal[SUCCESS_WINDOW_START:])
-        valid_indices.append(index)
-
-    if not valid_indices:
-        return {"rows": frame, "updated": 0, "skipped": int(len(frame))}
-
-    scalar_features = np.zeros((len(valid_indices), 2), dtype=float)
-    type_predictions = type_predictor.predict(
-        {"temporal_input": np.asarray(type_temporal), "scalar_input": scalar_features},
-        verbose=0,
-    )
-    success_predictions = success_predictor.predict(
-        {"temporal_input": np.asarray(success_temporal), "scalar_input": scalar_features},
-        verbose=0,
-    )
-    for row_position, index in enumerate(valid_indices):
-        frame.at[index, "type"] = int(np.argmax(type_predictions[row_position]))
-        frame.at[index, "success"] = int(np.argmax(success_predictions[row_position]))
         frame.at[index, "turns"] = suggest_turns_from_rotation(frame.at[index, "rotations"])
         frame.at[index, "prediction_source"] = "batch_model_prefill"
-
-    return {
-        "rows": frame,
-        "updated": len(valid_indices),
-        "skipped": int(len(frame) - len(valid_indices)),
-    }
+    result["rows"] = frame
+    return result
 
 
 def analyze_detection_review_labels(root: str | Path = "data/pending") -> dict:
