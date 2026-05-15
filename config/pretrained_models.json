@@ -5,7 +5,7 @@
     "task": "type",
     "architecture": "inceptiontime",
     "path": "core/model/saved_models/checkpoint",
-    "compatible": true,
+    "compatible": false,
     "notes": "Checkpoint type courant du depot.",
     "performance": {
       "dataset": "data/annotated/total",
@@ -19,7 +19,7 @@
     "task": "success",
     "architecture": "tcn",
     "path": "core/model/saved_models/success",
-    "compatible": true,
+    "compatible": false,
     "notes": "Modele success courant, chargeable et reutilisable comme point de depart.",
     "performance": {
       "dataset": "data/annotated/total",
@@ -33,7 +33,7 @@
     "task": "success",
     "architecture": "tcn",
     "path": "core/model/saved_models/archive/success/success-tcn-20260507-071710",
-    "compatible": true,
+    "compatible": false,
     "notes": "Automatically registered after GUI/CLI training.",
     "performance": {
       "dataset": "data/annotated/total",
@@ -47,11 +47,151 @@
     "task": "success",
     "architecture": "tcn",
     "path": "core/model/saved_models/archive/success/success-tcn-20260507-073132",
-    "compatible": true,
+    "compatible": false,
     "notes": "Automatically registered after GUI/CLI training.",
     "performance": {
       "dataset": "data/annotated/total",
       "test_accuracy": 0.8453125,
+      "test_samples": 640
+    }
+  },
+  {
+    "id": "success-tcn-20260507-144036",
+    "label": "Success tcn success-tcn-20260507-144036",
+    "task": "success",
+    "architecture": "tcn",
+    "path": "core/model/saved_models/archive/success/success-tcn-20260507-144036.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.8984375,
+      "test_samples": 640
+    }
+  },
+  {
+    "id": "success-tcn-20260507-144620",
+    "label": "Success tcn success-tcn-20260507-144620",
+    "task": "success",
+    "architecture": "tcn",
+    "path": "core/model/saved_models/archive/success/success-tcn-20260507-144620.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.9390625,
+      "test_samples": 640
+    }
+  },
+  {
+    "id": "success-tcn-20260507-150541",
+    "label": "Success tcn success-tcn-20260507-150541",
+    "task": "success",
+    "architecture": "tcn",
+    "path": "core/model/saved_models/archive/success/success-tcn-20260507-150541.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.934375,
+      "test_samples": 640
+    }
+  },
+  {
+    "id": "success-tcn-20260507-153446",
+    "label": "Success tcn success-tcn-20260507-153446",
+    "task": "success",
+    "architecture": "tcn",
+    "path": "core/model/saved_models/archive/success/success-tcn-20260507-153446.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.9484375,
+      "test_samples": 640
+    }
+  },
+  {
+    "id": "success-tcn-20260507-161852",
+    "label": "Success tcn success-tcn-20260507-161852",
+    "task": "success",
+    "architecture": "tcn",
+    "path": "core/model/saved_models/archive/success/success-tcn-20260507-161852.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.9671875,
+      "test_samples": 640
+    }
+  },
+  {
+    "id": "success-tcn-20260507-162808",
+    "label": "Success tcn success-tcn-20260507-162808",
+    "task": "success",
+    "architecture": "tcn",
+    "path": "core/model/saved_models/archive/success/success-tcn-20260507-162808.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.975,
+      "test_samples": 640
+    }
+  },
+  {
+    "id": "success-tcn-20260507-164436",
+    "label": "Success tcn success-tcn-20260507-164436",
+    "task": "success",
+    "architecture": "tcn",
+    "path": "core/model/saved_models/archive/success/success-tcn-20260507-164436.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.965625,
+      "test_samples": 640
+    }
+  },
+  {
+    "id": "success-lstm-20260507-165842",
+    "label": "Success lstm success-lstm-20260507-165842",
+    "task": "success",
+    "architecture": "lstm",
+    "path": "core/model/saved_models/archive/success/success-lstm-20260507-165842.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.4515625,
+      "test_samples": 640
+    }
+  },
+  {
+    "id": "success-lstm-20260507-170024",
+    "label": "Success lstm success-lstm-20260507-170024",
+    "task": "success",
+    "architecture": "lstm",
+    "path": "core/model/saved_models/archive/success/success-lstm-20260507-170024.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.8921875,
+      "test_samples": 640
+    }
+  },
+  {
+    "id": "type-inceptiontime-20260507-171348",
+    "label": "Type inceptiontime type-inceptiontime-20260507-171348",
+    "task": "type",
+    "architecture": "inceptiontime",
+    "path": "core/model/saved_models/archive/type/type-inceptiontime-20260507-171348.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.8828125,
       "test_samples": 640
     }
   }
