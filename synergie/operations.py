@@ -891,6 +891,87 @@ def analyze_detection_review_labels(root: str | Path = "data/pending") -> dict:
     }
 
 
+def optimize_detection_parameters(
+    root: str | Path = "data/pending",
+    *,
+    thresholds: list[float] | None = None,
+    smoothing_sigmas: list[float] | None = None,
+) -> dict:
+    """
+    Score detector parameters on reviewed annotation segments.
+
+    This V1 operates on already exported candidate windows. It is useful for
+    spotting obviously over- or under-permissive settings before a later raw
+    session replay benchmark is introduced.
+    """
+    import numpy as np
+    import pandas as pd
+    import scipy as sp
+
+    thresholds = thresholds or [-0.4, -0.3, -0.2, -0.1, -0.05]
+    smoothing_sigmas = smoothing_sigmas or [10, 20, 30, 40]
+    labeled_segments: list[dict] = []
+    for path in list_pending_annotation_files(root):
+        frame = pd.read_csv(path)
+        for _, row in frame.iterrows():
+            status = annotation_review_status_from_row(row)
+            if status not in {"normal", "not_a_jump", "manual_missing_jump"}:
+                continue
+            segment_path = Path(str(row.get("path", "")))
+            if not segment_path.exists():
+                continue
+            labeled_segments.append(
+                {
+                    "path": segment_path,
+                    "should_detect": status in {"normal", "manual_missing_jump"},
+                }
+            )
+
+    results: list[dict] = []
+    for sigma in smoothing_sigmas:
+        for threshold in thresholds:
+            true_positive = true_negative = false_positive = false_negative = 0
+            for segment in labeled_segments:
+                data = pd.read_csv(segment["path"])
+                smoothed = sp.ndimage.gaussian_filter1d(data["Gyr_X"].to_numpy(), sigma=float(sigma))
+                second_derivative = np.diff(np.diff(smoothed, prepend=smoothed[0]), prepend=0.0)
+                predicted = bool(np.any(second_derivative <= float(threshold)))
+                expected = segment["should_detect"]
+                if predicted and expected:
+                    true_positive += 1
+                elif predicted and not expected:
+                    false_positive += 1
+                elif not predicted and expected:
+                    false_negative += 1
+                else:
+                    true_negative += 1
+            positive_count = true_positive + false_negative
+            negative_count = true_negative + false_positive
+            false_negative_rate = false_negative / positive_count if positive_count else 0.0
+            false_positive_rate = false_positive / negative_count if negative_count else 0.0
+            balanced_error = (false_negative_rate + false_positive_rate) / 2.0
+            results.append(
+                {
+                    "threshold": float(threshold),
+                    "smoothing_sigma": float(sigma),
+                    "true_positive": true_positive,
+                    "true_negative": true_negative,
+                    "false_positive": false_positive,
+                    "false_negative": false_negative,
+                    "false_positive_rate": false_positive_rate,
+                    "false_negative_rate": false_negative_rate,
+                    "balanced_error": balanced_error,
+                }
+            )
+    results.sort(key=lambda item: (item["balanced_error"], item["false_negative_rate"], item["false_positive_rate"]))
+    return {
+        "reviewed_segments": len(labeled_segments),
+        "results": results,
+        "best": results[0] if results else None,
+        "scope": "reviewed_candidate_windows_v1",
+    }
+
+
 def audit_saved_models() -> list[dict]:
     """
     Inspect active and registered models under the current Python environment.

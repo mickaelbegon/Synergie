@@ -206,6 +206,27 @@ class OperationsTests(unittest.TestCase):
             self.assertEqual(analysis["false_negative_count"], 1)
             self.assertEqual(analysis["reviewed_detected"], 1)
 
+    @unittest.skipUnless(HAS_NUMPY, "numpy is not available")
+    def test_optimize_detection_parameters_returns_ranked_results(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            positive = root / "positive.csv"
+            negative = root / "negative.csv"
+            positive.write_text("Gyr_X\n0\n0\n100\n-100\n0\n", encoding="utf-8")
+            negative.write_text("Gyr_X\n0\n0\n0\n0\n0\n", encoding="utf-8")
+            (root / "a_for_annotation.csv").write_text(
+                "path,video_status,detection_status\n"
+                f"{positive.as_posix()},visible,detected_jump\n"
+                f"{negative.as_posix()},visible,not_a_jump\n",
+                encoding="utf-8",
+            )
+
+            result = operations.optimize_detection_parameters(root, thresholds=[-0.01], smoothing_sigmas=[1])
+
+            self.assertEqual(result["reviewed_segments"], 2)
+            self.assertEqual(len(result["results"]), 1)
+            self.assertIsNotNone(result["best"])
+
     def test_sample_hyperparameter_trials_is_reproducible_and_bounded(self):
         first = operations.sample_hyperparameter_trials("success", "tcn", 4, random_seed=7)
         second = operations.sample_hyperparameter_trials("success", "tcn", 4, random_seed=7)

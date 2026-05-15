@@ -111,6 +111,7 @@ class SynergieToolsApp:
         self.tuner_summary_var = tk.StringVar(value="Run a bounded validation search to compare candidates.")
         self.detection_review_summary_var = tk.StringVar(value="Run the review scan to inspect false positives and false negatives.")
         self.detection_review_records_var = tk.StringVar(value=[])
+        self.detection_tuning_summary_var = tk.StringVar(value="No threshold sweep run yet.")
 
         self.inspect_csv_path_var = tk.StringVar()
         self.inspect_session_var = tk.StringVar(value=sorted(constants.sessions)[0])
@@ -1800,6 +1801,18 @@ class SynergieToolsApp:
         )
         self.detection_review_listbox = tk.Listbox(controls, listvariable=self.detection_review_records_var, width=48)
         self.detection_review_listbox.grid(row=2, column=0, sticky="nsew")
+        ttk.Button(controls, text="Run threshold sweep", command=self._run_detection_parameter_sweep).grid(
+            row=3,
+            column=0,
+            sticky="w",
+            pady=(8, 0),
+        )
+        ttk.Label(controls, textvariable=self.detection_tuning_summary_var, justify=tk.LEFT, wraplength=320).grid(
+            row=4,
+            column=0,
+            sticky="w",
+            pady=(8, 0),
+        )
 
         notes = ttk.LabelFrame(parent, text="How to use this tab", padding=12)
         notes.grid(row=0, column=1, sticky="nsew")
@@ -2674,6 +2687,27 @@ class SynergieToolsApp:
         for record in analysis["false_negatives"]:
             labels.append(f"FN | sensor {record['sensor_id']} | {record['annotation_file']} | row {record['row_index'] + 1}")
         self.detection_review_records_var.set(labels)
+
+    def _run_detection_parameter_sweep(self) -> None:
+        self.status_var.set("Running detection parameter sweep...")
+        self.detection_tuning_summary_var.set("Threshold sweep in progress...")
+
+        def action() -> None:
+            result = operations.optimize_detection_parameters()
+            best = result["best"]
+            if best is None:
+                summary = "No reviewed segments available for threshold tuning."
+            else:
+                summary = (
+                    f"Reviewed windows: {result['reviewed_segments']}\n"
+                    f"Best threshold: {best['threshold']:.2f} | sigma: {best['smoothing_sigma']:.0f}\n"
+                    f"Balanced error: {best['balanced_error']:.3f} | "
+                    f"FP: {best['false_positive']} | FN: {best['false_negative']}"
+                )
+            self.root.after(0, lambda: self.detection_tuning_summary_var.set(summary))
+            self.root.after(0, lambda: self.status_var.set("Detection parameter sweep completed"))
+
+        self._run_in_thread(action, "Unable to optimize detection parameters.")
 
     def _on_inspect_file_double_clicked(self, _event=None) -> None:
         self._on_inspect_file_selected()
