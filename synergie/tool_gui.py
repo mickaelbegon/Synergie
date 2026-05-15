@@ -317,9 +317,15 @@ class SynergieToolsApp:
         self.process_session_box.bind("<<ComboboxSelected>>", self._on_process_session_changed)
 
         ttk.Label(parent, text="Session CSV files").grid(row=3, column=0, sticky="nw", pady=4)
-        self.process_session_files = tk.Listbox(parent, listvariable=self.session_files_var, height=6, exportselection=False)
+        self.process_session_files = tk.Listbox(
+            parent,
+            listvariable=self.session_files_var,
+            height=6,
+            exportselection=False,
+            selectmode=tk.EXTENDED,
+        )
         self.process_session_files.grid(row=3, column=1, columnspan=2, sticky="nsew", padx=8)
-        self._add_tooltip(self.process_session_files, "Fichiers disponibles dans le dossier de la session selectionnee.")
+        self._add_tooltip(self.process_session_files, "Selectionner un ou plusieurs fichiers. Le batch traite toute la selection.")
         self.process_session_files.bind("<<ListboxSelect>>", self._on_process_file_selected)
 
         ttk.Label(parent, textvariable=self.session_folder_summary_var, justify=tk.LEFT).grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
@@ -328,6 +334,9 @@ class SynergieToolsApp:
         process_button = ttk.Button(parent, text="Process file", command=self._run_process_file)
         process_button.grid(row=6, column=0, sticky="w", pady=(12, 12))
         self._add_tooltip(process_button, "Detecte les sauts du CSV choisi et exporte une jumplist.")
+        batch_process_button = ttk.Button(parent, text="Batch process selected", command=self._run_batch_process_files)
+        batch_process_button.grid(row=6, column=1, sticky="w", pady=(12, 12), padx=8)
+        self._add_tooltip(batch_process_button, "Traite tous les CSV selectionnes et genere un nom de sortie libre pour chacun.")
 
         prediction_frame = ttk.LabelFrame(parent, text="Initial model predictions", padding=8)
         prediction_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(0, 12))
@@ -2018,7 +2027,11 @@ class SynergieToolsApp:
             selected_path = self.process_session_files.get(selection[0])
             self.csv_path_var.set(selected_path)
             self._set_default_output_path(selected_path)
-            self.process_selected_file_info_var.set(self._describe_selected_file(selected_path))
+            selected_count = len(selection)
+            description = self._describe_selected_file(selected_path)
+            if selected_count > 1:
+                description += f"\nBatch selection: {selected_count} files"
+            self.process_selected_file_info_var.set(description)
 
     def _on_inspect_file_selected(self, _event=None) -> None:
         selection = self.inspect_session_files.curselection()
@@ -2896,6 +2909,35 @@ class SynergieToolsApp:
             self.root.after(0, lambda: self.status_var.set("Processing completed"))
 
         self._run_in_thread(action, "Unable to process file.")
+
+    def _run_batch_process_files(self) -> None:
+        selections = self.process_session_files.curselection()
+        if not selections:
+            messagebox.showwarning("Synergie Tools", "Select one or more session CSV files first.")
+            return
+
+        input_paths = [self.process_session_files.get(index) for index in selections]
+        session = operations.session_metadata(self.session_var.get())
+        type_path = self._process_prediction_model_path("type", self.process_type_model_var.get())
+        success_path = self._process_prediction_model_path("success", self.process_success_model_var.get())
+        self.status_var.set(f"Batch processing {len(input_paths)} files...")
+        self.process_log.delete("1.0", tk.END)
+
+        def action() -> None:
+            created = []
+            for csv_path in input_paths:
+                destination = operations.process_csv_file(
+                    csv_path,
+                    synchro=session["sample_time_fine_synchro"],
+                    output_path=self._suggest_output_path(csv_path),
+                    type_model_path=type_path,
+                    success_model_path=success_path,
+                )
+                created.append(destination)
+                self.root.after(0, lambda path=destination: self._log(self.process_log, f"Created: {path}"))
+            self.root.after(0, lambda: self.status_var.set(f"Batch processing completed: {len(created)} files"))
+
+        self._run_in_thread(action, "Unable to batch process files.")
 
     def _run_train(self) -> None:
         self.status_var.set("Training started...")
