@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import csv
+import itertools
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -296,10 +298,10 @@ def read_video_metadata(video_path: str | Path) -> dict:
 
     created_datetime = datetime.fromtimestamp(stat.st_ctime)
     modified_datetime = datetime.fromtimestamp(stat.st_mtime)
-    candidates.append(("filesystem.created", created_datetime))
     candidates.append(("filesystem.modified", modified_datetime))
+    candidates.append(("filesystem.created", created_datetime))
 
-    best_source, best_datetime = candidates[0]
+    best_source, best_datetime = _select_best_video_datetime(candidates)
     return {
         "path": path,
         "name": path.name,
@@ -685,6 +687,407 @@ def format_pretrained_model_label(model_entry: dict) -> str:
     )
 
 
+def latest_model_path_for_task(task: str) -> str:
+    """Return the active model alias used by inference for one task."""
+    if task == "type":
+        return constants.modeltype_filepath
+    if task == "success":
+        return constants.modelsuccess_filepath
+    raise ValueError(f"Unsupported training task: {task}")
+
+
+def summarize_annotation_progress(annotation_rows) -> dict:
+    """
+    Summarize pending versus completed annotation rows.
+
+    New annotation exports carry an explicit ``annotation_status`` column. Older
+    files may not, so the fallback treats rows with the default placeholder
+    labels as pending and every other row as completed.
+    """
+    total = int(len(annotation_rows))
+    if total == 0:
+        return {"total": 0, "pending": 0, "completed": 0}
+
+    if "annotation_status" in annotation_rows:
+        statuses = annotation_rows["annotation_status"].fillna("pending").astype(str).str.lower()
+        pending = int((statuses == "pending").sum())
+    else:
+        pending = 0
+        for _, row in annotation_rows.iterrows():
+            jump_type = int(_safe_float(row.get("type", 8), default=8))
+            success = int(_safe_float(row.get("success", 2), default=2))
+            if jump_type == 8 and success == 2:
+                pending += 1
+    return {"total": total, "pending": pending, "completed": total - pending}
+
+
+def audit_saved_models() -> list[dict]:
+    """
+    Inspect active and registered models under the current Python environment.
+
+    The audit distinguishes Keras 3 training-compatible files from legacy
+    TensorFlow SavedModel directories. Legacy directories can still be used for
+    inference through ``LegacySavedModelPredictor`` but cannot be resumed for
+    training with Keras 3.
+    """
+    from core.model import model
+
+    candidates: list[dict] = [
+        {"label": "Active type model", "task": "type", "path": latest_model_path_for_task("type")},
+        {"label": "Active success model", "task": "success", "path": latest_model_path_for_task("success")},
+        {"label": "Legacy type model alias", "task": "type", "path": str(Path(latest_model_path_for_task("type")).with_suffix(""))},
+        {"label": "Legacy success model alias", "task": "success", "path": str(Path(latest_model_path_for_task("success")).with_suffix(""))},
+    ]
+    candidates.extend(
+        {
+            "label": entry["label"],
+            "task": entry["task"],
+            "architecture": entry["architecture"],
+            "path": entry["path"],
+            "registered": True,
+        }
+        for entry in list_pretrained_training_models()
+    )
+
+    audited: list[dict] = []
+    seen_paths: set[str] = set()
+    for candidate in candidates:
+        path = str(candidate["path"]).replace("\\", "/")
+        if path in seen_paths:
+            continue
+        seen_paths.add(path)
+        model_path = Path(path)
+        item = dict(candidate)
+        item["path"] = path
+        item["exists"] = model_path.exists()
+        item["format"] = _model_format(model_path)
+        item["training_compatible"] = pretrained_models.supports_training_reload(model_path)
+        item["can_infer"] = False
+        item["can_resume_training"] = False
+        item["input_shapes"] = []
+        item["error"] = ""
+
+        if not item["exists"]:
+            item["error"] = "missing path"
+            audited.append(item)
+            continue
+
+        try:
+            loaded = model.load_model(path, for_training=False)
+            item["can_infer"] = True
+            item["input_shapes"] = [
+                tuple(dimension if dimension is None else int(dimension) for dimension in model_input.shape)
+                for model_input in getattr(loaded, "inputs", [])
+            ]
+        except Exception as exc:
+            item["error"] = f"inference load failed: {exc}"
+
+        if item["training_compatible"]:
+            try:
+                model.load_model(path, for_training=True)
+                item["can_resume_training"] = True
+            except Exception as exc:
+                if item["error"]:
+                    item["error"] += f" | training reload failed: {exc}"
+                else:
+                    item["error"] = f"training reload failed: {exc}"
+        audited.append(item)
+    return audited
+
+
+def _model_format(path: Path) -> str:
+    if path.is_file() and path.suffix.lower() == ".keras":
+        return "keras_v3"
+    if path.is_file() and path.suffix.lower() == ".h5":
+        return "keras_h5"
+    if path.is_dir() and (path / "saved_model.pb").exists():
+        return "legacy_saved_model"
+    return "unknown"
+
+
+def compute_signal_importance(
+    task: str,
+    dataset_path: str,
+    *,
+    model_path: str | None = None,
+    repeats: int = 3,
+    temporal_windows: int = 6,
+    random_seed: int = 42,
+) -> dict:
+    """
+    Estimate which inputs matter using grouped permutation tests.
+
+    Channel importance shuffles one full signal trace between validation
+    samples, preserving realistic within-signal shapes while breaking the link
+    to the label. Temporal importance shuffles all channels inside a time window
+    to show when the model uses the sequence. The metric is balanced accuracy so
+    the success task is not dominated by the majority class.
+    """
+    import numpy as np
+    from sklearn.metrics import accuracy_score, balanced_accuracy_score
+    from core.model import model
+    from core.model.training.loader import Loader
+
+    if repeats < 1:
+        raise ValueError("repeats must be at least 1")
+    if temporal_windows < 1:
+        raise ValueError("temporal_windows must be at least 1")
+
+    loader = Loader(dataset_path, augment_mirror=False)
+    dataset = loader.get_type_data() if task == "type" else loader.get_success_data()
+    temporal = np.asarray(dataset.temporal_features_test)
+    scalar = np.asarray(dataset.scalar_features_test)
+    labels = np.asarray(dataset.labels_test)
+    if len(temporal) < 2:
+        raise ValueError("At least two validation samples are required for permutation importance.")
+
+    predictor = model.load_model(model_path or latest_model_path_for_task(task), for_training=False)
+    true_labels = np.argmax(labels, axis=1)
+    baseline_predictions = _predict_class_labels(predictor, temporal, scalar)
+    baseline_accuracy = float(accuracy_score(true_labels, baseline_predictions))
+    baseline_balanced_accuracy = float(balanced_accuracy_score(true_labels, baseline_predictions))
+    rng = np.random.default_rng(random_seed)
+
+    channel_importance = []
+    for channel_index, channel_name in enumerate(constants.fields_to_keep):
+        drops = []
+        for _ in range(repeats):
+            permuted = temporal.copy()
+            permuted[:, :, channel_index] = permuted[rng.permutation(len(permuted)), :, channel_index]
+            score = balanced_accuracy_score(true_labels, _predict_class_labels(predictor, permuted, scalar))
+            drops.append(float(baseline_balanced_accuracy - score))
+        channel_importance.append(_summarize_importance(channel_name, drops))
+
+    scalar_importance = []
+    for scalar_index, scalar_name in enumerate(("weight", "height")):
+        drops = []
+        for _ in range(repeats):
+            permuted_scalar = scalar.copy()
+            permuted_scalar[:, scalar_index] = permuted_scalar[rng.permutation(len(permuted_scalar)), scalar_index]
+            score = balanced_accuracy_score(true_labels, _predict_class_labels(predictor, temporal, permuted_scalar))
+            drops.append(float(baseline_balanced_accuracy - score))
+        scalar_importance.append(_summarize_importance(scalar_name, drops))
+
+    temporal_importance = []
+    for window_index, indices in enumerate(np.array_split(np.arange(temporal.shape[1]), temporal_windows), start=1):
+        if len(indices) == 0:
+            continue
+        drops = []
+        for _ in range(repeats):
+            permuted = temporal.copy()
+            permuted[:, indices, :] = permuted[rng.permutation(len(permuted))][:, indices, :]
+            score = balanced_accuracy_score(true_labels, _predict_class_labels(predictor, permuted, scalar))
+            drops.append(float(baseline_balanced_accuracy - score))
+        temporal_importance.append(
+            {
+                **_summarize_importance(f"window_{window_index}", drops),
+                "start_frame": int(indices[0]),
+                "end_frame": int(indices[-1]),
+            }
+        )
+
+    channel_importance.sort(key=lambda item: item["mean_drop"], reverse=True)
+    scalar_importance.sort(key=lambda item: item["mean_drop"], reverse=True)
+    return {
+        "task": task,
+        "dataset_path": dataset_path,
+        "model_path": model_path or latest_model_path_for_task(task),
+        "validation_samples": int(len(temporal)),
+        "baseline_accuracy": baseline_accuracy,
+        "baseline_balanced_accuracy": baseline_balanced_accuracy,
+        "channel_importance": channel_importance,
+        "scalar_importance": scalar_importance,
+        "temporal_importance": temporal_importance,
+        "method": "grouped_permutation_balanced_accuracy",
+    }
+
+
+def _predict_class_labels(predictor, temporal, scalar):
+    import numpy as np
+
+    predictions = predictor.predict(
+        {"temporal_input": temporal, "scalar_input": scalar},
+        verbose=0,
+    )
+    return np.argmax(predictions, axis=1)
+
+
+def _summarize_importance(label: str, drops: list[float]) -> dict:
+    import numpy as np
+
+    return {
+        "label": label,
+        "mean_drop": float(np.mean(drops)),
+        "std_drop": float(np.std(drops)),
+    }
+
+
+def hyperparameter_search_space(task: str, architecture: str) -> list[dict]:
+    """Return the bounded exploratory search space used by the GUI tuner."""
+    if task == "success" and architecture == "tcn":
+        return [
+            {"filters": filters, "dropout": dropout, "learning_rate": learning_rate, "batch_size": batch_size}
+            for filters, dropout, learning_rate, batch_size in itertools.product(
+                [32, 64],
+                [0.1, 0.2, 0.3],
+                [0.00001, 0.00003, 0.0001],
+                [16, 32],
+            )
+        ]
+    if task == "success" and architecture == "lstm":
+        return [
+            {
+                "first_units": first_units,
+                "second_units": second_units,
+                "dropout": dropout,
+                "learning_rate": learning_rate,
+                "batch_size": batch_size,
+            }
+            for first_units, second_units, dropout, learning_rate, batch_size in itertools.product(
+                [64, 128],
+                [32, 64],
+                [0.3, 0.4],
+                [0.00001, 0.00003],
+                [16, 32],
+            )
+        ]
+    if task == "type" and architecture == "inceptiontime":
+        return [
+            {
+                "filters": filters,
+                "bottleneck_filters": bottleneck_filters,
+                "modules": modules,
+                "dropout": dropout,
+                "learning_rate": learning_rate,
+                "batch_size": batch_size,
+            }
+            for filters, bottleneck_filters, modules, dropout, learning_rate, batch_size in itertools.product(
+                [16, 32],
+                [16, 32],
+                [2, 3],
+                [0.1, 0.2],
+                [0.00001, 0.00003],
+                [16, 32],
+            )
+        ]
+    if task == "type" and architecture == "transformer":
+        return [
+            {
+                "head_size": head_size,
+                "num_heads": num_heads,
+                "ff_dim": ff_dim,
+                "num_transformer_blocks": blocks,
+                "dropout": dropout,
+                "mlp_dropout": 0.1,
+                "learning_rate": learning_rate,
+                "batch_size": batch_size,
+            }
+            for head_size, num_heads, ff_dim, blocks, dropout, learning_rate, batch_size in itertools.product(
+                [64, 128],
+                [2, 4],
+                [32, 64],
+                [2, 4],
+                [0.2, 0.3],
+                [0.00001, 0.00005],
+                [16, 32],
+            )
+        ]
+    raise ValueError(f"Unsupported search combination: task={task}, architecture={architecture}")
+
+
+def sample_hyperparameter_trials(
+    task: str,
+    architecture: str,
+    max_trials: int,
+    *,
+    random_seed: int = 42,
+) -> list[dict]:
+    """Choose a reproducible subset of the bounded search space."""
+    if max_trials < 1:
+        raise ValueError("max_trials must be at least 1")
+    candidates = hyperparameter_search_space(task, architecture)
+    if max_trials >= len(candidates):
+        return candidates
+    return random.Random(random_seed).sample(candidates, k=max_trials)
+
+
+def run_hyperparameter_search(
+    task: str,
+    dataset_path: str,
+    architecture: str,
+    *,
+    max_trials: int = 6,
+    epochs: int = 8,
+    random_seed: int = 42,
+) -> dict:
+    """
+    Run a compact exploratory hyperparameter search on the validation split.
+
+    This is intentionally a practical first pass rather than a publication
+    protocol: it ranks bounded candidates on the current validation split, uses
+    early stopping, and does not claim an unbiased final test estimate.
+    """
+    import keras
+    import numpy as np
+    from core.model import model
+    from core.model.training.loader import Loader
+
+    loader = Loader(dataset_path, augment_mirror=True)
+    dataset = loader.get_type_data() if task == "type" else loader.get_success_data()
+    trials = sample_hyperparameter_trials(task, architecture, max_trials, random_seed=random_seed)
+    results: list[dict] = []
+    validation_data = (
+        {"temporal_input": dataset.temporal_features_test, "scalar_input": dataset.scalar_features_test},
+        dataset.labels_test,
+    )
+
+    for trial_index, parameters in enumerate(trials, start=1):
+        keras.backend.clear_session()
+        build_parameters = dict(parameters)
+        batch_size = int(build_parameters.pop("batch_size"))
+        model_instance = model.build_model(task, architecture, **build_parameters)
+        history = model_instance.fit(
+            {"temporal_input": dataset.temporal_features_train, "scalar_input": dataset.scalar_features_train},
+            dataset.labels_train,
+            validation_data=validation_data,
+            epochs=epochs,
+            batch_size=batch_size,
+            verbose=0,
+            class_weight=(dataset.class_weight or None) if task == "success" else None,
+            callbacks=[
+                keras.callbacks.EarlyStopping(
+                    monitor="val_accuracy",
+                    mode="max",
+                    patience=3,
+                    restore_best_weights=True,
+                )
+            ],
+        )
+        history_data = history.history
+        results.append(
+            {
+                "trial": trial_index,
+                "parameters": parameters,
+                "best_val_accuracy": float(max(history_data.get("val_accuracy", [0.0]))),
+                "final_val_accuracy": float(history_data.get("val_accuracy", [0.0])[-1]),
+                "epochs_ran": int(len(history_data.get("loss", []))),
+            }
+        )
+
+    results.sort(key=lambda item: item["best_val_accuracy"], reverse=True)
+    return {
+        "task": task,
+        "architecture": architecture,
+        "dataset_path": dataset_path,
+        "max_trials": int(max_trials),
+        "epochs": int(epochs),
+        "objective": "best_val_accuracy",
+        "results": results,
+        "best_trial": results[0] if results else None,
+        "note": "Exploratory validation search only; use grouped cross-validation before publication.",
+    }
+
+
 def train_model(
     task: str,
     dataset_path: str,
@@ -888,6 +1291,8 @@ def process_new_imu_session_for_annotation(
 
 
 _TEXT_DATETIME_PATTERNS = (
+    re.compile(r"(?P<date>\d{8})(?P<time>\d{6})"),
+    re.compile(r"(?P<date>\d{8})(?P<time>\d{4})(?!\d)"),
     re.compile(r"(?P<date>\d{8})[_-]?(?P<time>\d{6})"),
     re.compile(r"(?P<date>\d{4}-\d{2}-\d{2})[_T -]?(?P<time>\d{2}[-:]\d{2}[-:]\d{2})"),
 )
@@ -914,6 +1319,8 @@ def _parse_datetime_from_text(text: str) -> datetime | None:
             continue
         date_token = match.group("date").replace("-", "")
         time_token = match.group("time").replace("-", "").replace(":", "")
+        if len(time_token) == 4:
+            time_token = f"{time_token}00"
         try:
             return datetime.strptime(f"{date_token}_{time_token}", "%Y%m%d_%H%M%S")
         except ValueError:
@@ -952,6 +1359,24 @@ def _read_video_creation_time_with_ffprobe(video_path: Path) -> datetime | None:
         return None
     creation_time = (((payload.get("format") or {}).get("tags") or {}).get("creation_time"))
     return _parse_datetime_value(creation_time)
+
+
+def _select_best_video_datetime(candidates: list[tuple[str, datetime]]) -> tuple[str, datetime]:
+    if not candidates:
+        raise ValueError("No datetime candidates available for video metadata.")
+    priority = {
+        "ffprobe.creation_time": 0,
+        "filename": 1,
+        "filesystem.modified": 2,
+        "filesystem.created": 3,
+    }
+    return min(
+        candidates,
+        key=lambda item: (
+            priority.get(item[0], 99),
+            item[1],
+        ),
+    )
 
 
 def _ms_to_timestamp(ms: float) -> str:

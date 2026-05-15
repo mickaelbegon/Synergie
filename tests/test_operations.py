@@ -2,6 +2,8 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 from synergie import operations
 from synergie import pretrained_models
@@ -131,6 +133,34 @@ class OperationsTests(unittest.TestCase):
             "not_seen_on_video",
         )
 
+    def test_summarize_annotation_progress_counts_explicit_pending_status(self):
+        import pandas as pd
+
+        rows = pd.DataFrame(
+            [
+                {"annotation_status": "pending", "type": 8, "success": 2},
+                {"annotation_status": "annotated", "type": 0, "success": 1},
+                {"annotation_status": "annotated", "type": 8, "success": 2},
+            ]
+        )
+
+        self.assertEqual(
+            operations.summarize_annotation_progress(rows),
+            {"total": 3, "pending": 1, "completed": 2},
+        )
+
+    def test_sample_hyperparameter_trials_is_reproducible_and_bounded(self):
+        first = operations.sample_hyperparameter_trials("success", "tcn", 4, random_seed=7)
+        second = operations.sample_hyperparameter_trials("success", "tcn", 4, random_seed=7)
+
+        self.assertEqual(first, second)
+        self.assertEqual(len(first), 4)
+        self.assertLessEqual(len(first), len(operations.hyperparameter_search_space("success", "tcn")))
+
+    def test_latest_model_path_for_task_uses_active_aliases(self):
+        self.assertEqual(operations.latest_model_path_for_task("type"), "core/model/saved_models/checkpoint.keras")
+        self.assertEqual(operations.latest_model_path_for_task("success"), "core/model/saved_models/success.keras")
+
     @unittest.skipUnless(HAS_NUMPY, "numpy is not available")
     def test_analyze_jump_quality_flags_missing_file_and_saturation(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -227,6 +257,38 @@ class OperationsTests(unittest.TestCase):
             self.assertEqual(result["reference_datetime"], datetime(2025, 9, 11, 8, 56, 56))
             self.assertEqual([item["path"] for item in result["matches"]], [best, later, earlier])
             self.assertEqual(result["matches"][0]["recorded_at_source"], "filename")
+
+    def test_parse_datetime_from_text_supports_compact_minute_precision_video_names(self):
+        result = operations._parse_datetime_from_text("202510131207")
+
+        self.assertEqual(result, datetime(2025, 10, 13, 12, 7, 0))
+
+    def test_read_video_metadata_prefers_modified_over_created_when_no_better_source_exists(self):
+        video_path = Path("D:/202510131207.MOV")
+        fake_stat = SimpleNamespace(
+            st_ctime=datetime(2026, 5, 9, 14, 56, 30).timestamp(),
+            st_mtime=datetime(2025, 10, 13, 12, 7, 39).timestamp(),
+        )
+        with mock.patch("synergie.operations.Path.stat", return_value=fake_stat):
+            with mock.patch("synergie.operations._read_video_creation_time_with_ffprobe", return_value=None):
+                with mock.patch("synergie.operations._parse_datetime_from_text", return_value=None):
+                    metadata = operations.read_video_metadata(video_path)
+
+        self.assertEqual(metadata["recorded_at_source"], "filesystem.modified")
+        self.assertEqual(metadata["recorded_at"], datetime(2025, 10, 13, 12, 7, 39))
+
+    def test_read_video_metadata_prefers_filename_over_filesystem_dates_for_copied_videos(self):
+        video_path = Path("D:/202510131207.MOV")
+        fake_stat = SimpleNamespace(
+            st_ctime=datetime(2026, 5, 9, 14, 56, 30).timestamp(),
+            st_mtime=datetime(2025, 10, 13, 12, 7, 39).timestamp(),
+        )
+        with mock.patch("synergie.operations.Path.stat", return_value=fake_stat):
+            with mock.patch("synergie.operations._read_video_creation_time_with_ffprobe", return_value=None):
+                metadata = operations.read_video_metadata(video_path)
+
+        self.assertEqual(metadata["recorded_at_source"], "filename")
+        self.assertEqual(metadata["recorded_at"], datetime(2025, 10, 13, 12, 7, 0))
 
     def test_session_synchro_reads_known_session_metadata(self):
         self.assertEqual(

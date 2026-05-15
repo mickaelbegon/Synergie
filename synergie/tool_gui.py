@@ -56,6 +56,7 @@ class SynergieToolsApp:
         self.new_data_summary_var = tk.StringVar(value="No file selected.")
         self.annotation_files_var = tk.StringVar(value=[])
         self.annotation_summary_var = tk.StringVar(value="No annotation file selected.")
+        self.annotation_progress_var = tk.StringVar(value="Pending annotations: 0")
         self.annotation_type_var = tk.StringVar(value="toe_loop")
         self.annotation_turn_var = tk.StringVar(value="")
         self.annotation_success_var = tk.StringVar(value="2")
@@ -69,6 +70,7 @@ class SynergieToolsApp:
         self.annotation_sensor_sync_var = tk.StringVar(value="No sync offset saved for current sensor.")
         self.annotation_video_time_var = tk.StringVar(value="00:00.000")
         self.annotation_video_slider_var = tk.DoubleVar(value=0.0)
+        self.annotation_play_button_var = tk.StringVar(value="▶")
         self.new_session_id_var = tk.StringVar()
         self.new_session_path_var = tk.StringVar()
         self.new_session_synchro_var = tk.StringVar()
@@ -85,6 +87,19 @@ class SynergieToolsApp:
         self.quality_summary_var = tk.StringVar(value="Run the quality control analysis to inspect suspicious jumps.")
         self.quality_details_var = tk.StringVar(value="No suspicious jump selected.")
         self.quality_suspicious_var = tk.StringVar(value=[])
+        self.model_audit_summary_var = tk.StringVar(value="Run the audit to verify model compatibility in the current environment.")
+        self.signal_task_var = tk.StringVar(value="type")
+        self.signal_dataset_var = tk.StringVar(value="data/annotated/total")
+        self.signal_model_path_var = tk.StringVar(value=operations.latest_model_path_for_task("type"))
+        self.signal_repeats_var = tk.StringVar(value="3")
+        self.signal_windows_var = tk.StringVar(value="6")
+        self.signal_summary_var = tk.StringVar(value="Run the analysis to estimate which signals matter.")
+        self.tuner_task_var = tk.StringVar(value="type")
+        self.tuner_architecture_var = tk.StringVar(value=self.TRAIN_ARCHITECTURES["type"][0])
+        self.tuner_dataset_var = tk.StringVar(value="data/annotated/total")
+        self.tuner_trials_var = tk.StringVar(value="6")
+        self.tuner_epochs_var = tk.StringVar(value="8")
+        self.tuner_summary_var = tk.StringVar(value="Run a bounded validation search to compare candidates.")
 
         self.inspect_csv_path_var = tk.StringVar()
         self.inspect_session_var = tk.StringVar(value=sorted(constants.sessions)[0])
@@ -122,6 +137,12 @@ class SynergieToolsApp:
         self.quality_figure = None
         self.quality_axes = None
         self.quality_canvas = None
+        self.signal_figure = None
+        self.signal_axes = None
+        self.signal_canvas = None
+        self.tuner_figure = None
+        self.tuner_ax = None
+        self.tuner_canvas = None
         self.annotation_dataframe = None
         self.annotation_file_path: Path | None = None
         self.quality_analysis: dict | None = None
@@ -136,6 +157,9 @@ class SynergieToolsApp:
         self.annotation_video_current_ms = 0.0
         self._annotation_video_photo = None
         self._annotation_playback_after_id = None
+        self.annotation_video_popup = None
+        self.annotation_video_popup_info_label = None
+        self.annotation_video_matches_listbox = None
 
         self._build_layout()
         self._populate_sessions()
@@ -169,6 +193,9 @@ class SynergieToolsApp:
         annotate_tab = ttk.Frame(notebook, padding=12)
         inspect_tab = ttk.Frame(notebook, padding=12)
         train_tab = ttk.Frame(notebook, padding=12)
+        model_audit_tab = ttk.Frame(notebook, padding=12)
+        signal_tab = ttk.Frame(notebook, padding=12)
+        tuner_tab = ttk.Frame(notebook, padding=12)
         quality_tab = ttk.Frame(notebook, padding=12)
         notes_tab = ttk.Frame(notebook, padding=12)
         notebook.add(sessions_tab, text="Sessions")
@@ -177,6 +204,9 @@ class SynergieToolsApp:
         notebook.add(annotate_tab, text="Annotate")
         notebook.add(inspect_tab, text="Inspect IMU")
         notebook.add(train_tab, text="Train")
+        notebook.add(model_audit_tab, text="Model Audit")
+        notebook.add(signal_tab, text="Signal Importance")
+        notebook.add(tuner_tab, text="Hyperparameter Search")
         notebook.add(quality_tab, text="Quality Control")
         notebook.add(notes_tab, text="Algo Notes")
 
@@ -194,6 +224,9 @@ class SynergieToolsApp:
         self._build_annotate_tab(annotate_tab)
         self._build_inspect_tab(inspect_tab)
         self._build_train_tab(train_tab)
+        self._build_model_audit_tab(model_audit_tab)
+        self._build_signal_importance_tab(signal_tab)
+        self._build_hyperparameter_tab(tuner_tab)
         self._build_quality_tab(quality_tab)
         self._build_notes_tab(notes_tab)
 
@@ -373,10 +406,11 @@ class SynergieToolsApp:
         jumps_panel = ttk.LabelFrame(left_panel, text="Session Timeline", padding=8)
         jumps_panel.grid(row=2, column=0, sticky="nsew", pady=(12, 0))
         jumps_panel.columnconfigure(0, weight=1)
-        jumps_panel.rowconfigure(1, weight=1)
+        jumps_panel.rowconfigure(2, weight=1)
         ttk.Label(jumps_panel, textvariable=self.annotation_summary_var, justify=tk.LEFT).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        ttk.Label(jumps_panel, textvariable=self.annotation_progress_var, justify=tk.LEFT, foreground="firebrick").grid(row=1, column=0, sticky="w", pady=(0, 8))
         self.annotation_jump_listbox = tk.Listbox(jumps_panel, exportselection=False, height=16)
-        self.annotation_jump_listbox.grid(row=1, column=0, sticky="nsew")
+        self.annotation_jump_listbox.grid(row=2, column=0, sticky="nsew")
         self.annotation_jump_listbox.bind("<<ListboxSelect>>", self._on_annotation_jump_selected)
 
         right_panel = ttk.Panedwindow(parent, orient=tk.HORIZONTAL)
@@ -392,30 +426,15 @@ class SynergieToolsApp:
         video_buttons.grid(row=0, column=2, sticky="e")
         ttk.Button(video_buttons, text="Browse", command=self._browse_annotation_video).grid(row=0, column=0, sticky="w")
         ttk.Button(video_buttons, text="Load", command=self._load_annotation_video_from_entry).grid(row=0, column=1, sticky="w", padx=(6, 0))
-
-        ttk.Label(video_frame, text="Video folder").grid(row=1, column=0, sticky="w", pady=(8, 0))
-        ttk.Entry(video_frame, textvariable=self.annotation_video_directory_var).grid(row=1, column=1, sticky="ew", padx=8, pady=(8, 0))
-        folder_buttons = ttk.Frame(video_frame)
-        folder_buttons.grid(row=1, column=2, sticky="e", pady=(8, 0))
-        ttk.Button(folder_buttons, text="Browse folder", command=self._browse_annotation_video_directory).grid(row=0, column=0, sticky="w")
-        ttk.Button(folder_buttons, text="Find match", command=self._find_annotation_video_matches).grid(row=0, column=1, sticky="w", padx=(6, 0))
+        ttk.Button(video_buttons, text="Choose video...", command=self._open_annotation_video_popup).grid(row=0, column=2, sticky="w", padx=(6, 0))
 
         ttk.Label(video_frame, textvariable=self.annotation_video_info_var, justify=tk.LEFT, wraplength=360).grid(
-            row=2,
+            row=1,
             column=0,
             columnspan=3,
             sticky="w",
             pady=(6, 8),
         )
-
-        self.annotation_video_matches_listbox = tk.Listbox(
-            video_frame,
-            listvariable=self.annotation_video_matches_var,
-            exportselection=False,
-            height=4,
-        )
-        self.annotation_video_matches_listbox.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(0, 8))
-        self.annotation_video_matches_listbox.bind("<<ListboxSelect>>", self._on_annotation_video_match_selected)
 
         self.annotation_video_label = ttk.Label(
             video_frame,
@@ -423,10 +442,10 @@ class SynergieToolsApp:
             anchor="center",
             relief="sunken",
         )
-        self.annotation_video_label.grid(row=4, column=0, columnspan=3, sticky="nsew")
+        self.annotation_video_label.grid(row=2, column=0, columnspan=3, sticky="nsew")
 
         video_timeline = ttk.Frame(video_frame)
-        video_timeline.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        video_timeline.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 0))
         video_timeline.columnconfigure(0, weight=1)
         self.annotation_video_slider = tk.Scale(
             video_timeline,
@@ -442,12 +461,13 @@ class SynergieToolsApp:
         ttk.Label(video_timeline, textvariable=self.annotation_video_time_var, width=12).grid(row=0, column=1, sticky="e", padx=(8, 0))
 
         video_controls = ttk.Frame(video_frame)
-        video_controls.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(8, 0))
-        ttk.Button(video_controls, text="-1s", command=lambda: self._seek_annotation_video_relative(-1000)).grid(row=0, column=0, sticky="w")
-        ttk.Button(video_controls, text="+1s", command=lambda: self._seek_annotation_video_relative(1000)).grid(row=0, column=1, sticky="w", padx=(6, 0))
-        ttk.Button(video_controls, text="Go to jump", command=self._seek_annotation_video_to_current_jump).grid(row=0, column=2, sticky="w", padx=(12, 0))
-        ttk.Button(video_controls, text="Play x5 to jump", command=self._play_annotation_to_current_jump).grid(row=0, column=3, sticky="w", padx=(6, 0))
-        ttk.Button(video_controls, text="Stop", command=self._stop_annotation_playback).grid(row=0, column=4, sticky="w", padx=(6, 0))
+        video_controls.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        ttk.Button(video_controls, text="⏪", width=3, command=lambda: self._seek_annotation_video_relative(-1000)).grid(row=0, column=0, sticky="w")
+        ttk.Button(video_controls, text="⏩", width=3, command=lambda: self._seek_annotation_video_relative(1000)).grid(row=0, column=1, sticky="w", padx=(6, 0))
+        ttk.Button(video_controls, textvariable=self.annotation_play_button_var, width=3, command=self._play_annotation_video).grid(row=0, column=2, sticky="w", padx=(12, 0))
+        ttk.Button(video_controls, text="⌖", width=3, command=self._seek_annotation_video_to_current_jump).grid(row=0, column=3, sticky="w", padx=(6, 0))
+        ttk.Button(video_controls, text="⏩J", width=4, command=self._play_annotation_to_current_jump).grid(row=0, column=4, sticky="w", padx=(6, 0))
+        ttk.Button(video_controls, text="⏹", width=3, command=self._stop_annotation_playback).grid(row=0, column=5, sticky="w", padx=(6, 0))
 
         ttk.Label(video_frame, textvariable=self.annotation_sensor_sync_var, justify=tk.LEFT, wraplength=360).grid(
             row=5,
@@ -642,6 +662,31 @@ class SynergieToolsApp:
         self.quality_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._draw_placeholder_quality_plot()
 
+    def _build_signal_plot_canvas(self) -> None:
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        from matplotlib.figure import Figure
+
+        figure = Figure(figsize=(8.8, 5.8), dpi=100)
+        channel_ax = figure.add_subplot(211)
+        time_ax = figure.add_subplot(212)
+        self.signal_figure = figure
+        self.signal_axes = (channel_ax, time_ax)
+        self.signal_canvas = FigureCanvasTkAgg(figure, master=self.signal_plot_container)
+        self.signal_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self._draw_placeholder_signal_plot()
+
+    def _build_tuner_plot_canvas(self) -> None:
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        from matplotlib.figure import Figure
+
+        figure = Figure(figsize=(8.8, 3.2), dpi=100)
+        axis = figure.add_subplot(111)
+        self.tuner_figure = figure
+        self.tuner_ax = axis
+        self.tuner_canvas = FigureCanvasTkAgg(figure, master=self.tuner_plot_container)
+        self.tuner_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self._draw_placeholder_tuner_plot()
+
     def _build_annotation_plot_canvas(self) -> None:
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
         from matplotlib.figure import Figure
@@ -771,6 +816,119 @@ class SynergieToolsApp:
         self._refresh_pretrained_models()
         self._sync_pretrained_controls()
         self._refresh_training_dataset_stats()
+
+    def _build_model_audit_tab(self, parent: ttk.Frame) -> None:
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(1, weight=1)
+        header = ttk.Frame(parent)
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(header, text="Run model audit", command=self._run_model_audit).grid(row=0, column=0, sticky="w")
+        ttk.Label(header, textvariable=self.model_audit_summary_var, justify=tk.LEFT, wraplength=860).grid(
+            row=0,
+            column=1,
+            sticky="w",
+            padx=(12, 0),
+        )
+        self.model_audit_text = scrolledtext.ScrolledText(parent, height=24, wrap=tk.WORD)
+        self.model_audit_text.grid(row=1, column=0, sticky="nsew")
+
+    def _build_signal_importance_tab(self, parent: ttk.Frame) -> None:
+        parent.columnconfigure(0, weight=0)
+        parent.columnconfigure(1, weight=1)
+        parent.rowconfigure(0, weight=1)
+
+        controls = ttk.LabelFrame(parent, text="Signal Importance Setup", padding=12)
+        controls.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        controls.columnconfigure(1, weight=1)
+
+        ttk.Label(controls, text="Task").grid(row=0, column=0, sticky="w", pady=4)
+        signal_task_box = ttk.Combobox(controls, textvariable=self.signal_task_var, values=["type", "success"], state="readonly")
+        signal_task_box.grid(row=0, column=1, sticky="ew")
+        signal_task_box.bind("<<ComboboxSelected>>", self._on_signal_task_changed)
+        ttk.Label(controls, text="Dataset").grid(row=1, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.signal_dataset_var, width=34).grid(row=1, column=1, sticky="ew")
+        ttk.Label(controls, text="Model path").grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.signal_model_path_var, width=34).grid(row=2, column=1, sticky="ew")
+        ttk.Label(controls, text="Repeats").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.signal_repeats_var, width=10).grid(row=3, column=1, sticky="w")
+        ttk.Label(controls, text="Time windows").grid(row=4, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.signal_windows_var, width=10).grid(row=4, column=1, sticky="w")
+        ttk.Button(controls, text="Run signal importance", command=self._run_signal_importance).grid(
+            row=5,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(12, 8),
+        )
+        ttk.Label(
+            controls,
+            textvariable=self.signal_summary_var,
+            justify=tk.LEFT,
+            wraplength=340,
+        ).grid(row=6, column=0, columnspan=2, sticky="w")
+
+        plot_frame = ttk.LabelFrame(parent, text="Permutation Importance", padding=8)
+        plot_frame.grid(row=0, column=1, sticky="nsew")
+        plot_frame.columnconfigure(0, weight=1)
+        plot_frame.rowconfigure(0, weight=1)
+        self.signal_plot_container = ttk.Frame(plot_frame)
+        self.signal_plot_container.grid(row=0, column=0, sticky="nsew")
+        self._build_signal_plot_canvas()
+
+    def _build_hyperparameter_tab(self, parent: ttk.Frame) -> None:
+        parent.columnconfigure(0, weight=0)
+        parent.columnconfigure(1, weight=1)
+        parent.rowconfigure(0, weight=1)
+
+        controls = ttk.LabelFrame(parent, text="Exploratory Search Setup", padding=12)
+        controls.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        controls.columnconfigure(1, weight=1)
+        ttk.Label(controls, text="Task").grid(row=0, column=0, sticky="w", pady=4)
+        tuner_task_box = ttk.Combobox(controls, textvariable=self.tuner_task_var, values=["type", "success"], state="readonly")
+        tuner_task_box.grid(row=0, column=1, sticky="ew")
+        tuner_task_box.bind("<<ComboboxSelected>>", self._on_tuner_task_changed)
+        ttk.Label(controls, text="Architecture").grid(row=1, column=0, sticky="w", pady=4)
+        self.tuner_architecture_box = ttk.Combobox(controls, textvariable=self.tuner_architecture_var, state="readonly")
+        self.tuner_architecture_box.grid(row=1, column=1, sticky="ew")
+        self._sync_tuner_architectures()
+        ttk.Label(controls, text="Dataset").grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.tuner_dataset_var, width=34).grid(row=2, column=1, sticky="ew")
+        ttk.Label(controls, text="Trials").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.tuner_trials_var, width=10).grid(row=3, column=1, sticky="w")
+        ttk.Label(controls, text="Epochs / trial").grid(row=4, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.tuner_epochs_var, width=10).grid(row=4, column=1, sticky="w")
+        ttk.Button(controls, text="Run search", command=self._run_hyperparameter_search).grid(
+            row=5,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(12, 8),
+        )
+        ttk.Label(
+            controls,
+            textvariable=self.tuner_summary_var,
+            justify=tk.LEFT,
+            wraplength=340,
+        ).grid(row=6, column=0, columnspan=2, sticky="w")
+
+        results = ttk.Frame(parent)
+        results.grid(row=0, column=1, sticky="nsew")
+        results.columnconfigure(0, weight=1)
+        results.rowconfigure(0, weight=1)
+        results.rowconfigure(1, weight=1)
+        plot_frame = ttk.LabelFrame(results, text="Top Trials", padding=8)
+        plot_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
+        plot_frame.columnconfigure(0, weight=1)
+        plot_frame.rowconfigure(0, weight=1)
+        self.tuner_plot_container = ttk.Frame(plot_frame)
+        self.tuner_plot_container.grid(row=0, column=0, sticky="nsew")
+        self._build_tuner_plot_canvas()
+        log_frame = ttk.LabelFrame(results, text="Search Log", padding=8)
+        log_frame.grid(row=1, column=0, sticky="nsew")
+        log_frame.columnconfigure(0, weight=1)
+        log_frame.rowconfigure(0, weight=1)
+        self.tuner_log = scrolledtext.ScrolledText(log_frame, height=12, wrap=tk.WORD)
+        self.tuner_log.grid(row=0, column=0, sticky="nsew")
 
     def _build_quality_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=0)
@@ -1108,6 +1266,71 @@ class SynergieToolsApp:
         self.quality_figure.tight_layout()
         self.quality_canvas.draw_idle()
 
+    def _draw_placeholder_signal_plot(self) -> None:
+        if self.signal_axes is None:
+            return
+        channel_ax, time_ax = self.signal_axes
+        channel_ax.clear()
+        time_ax.clear()
+        channel_ax.set_title("Signal importance")
+        time_ax.set_title("Temporal importance")
+        channel_ax.text(0.5, 0.5, "Run signal importance", ha="center", va="center", transform=channel_ax.transAxes)
+        time_ax.text(0.5, 0.5, "Permutation drop by time window", ha="center", va="center", transform=time_ax.transAxes)
+        self.signal_figure.tight_layout()
+        self.signal_canvas.draw_idle()
+
+    def _draw_signal_importance(self, analysis: dict) -> None:
+        if self.signal_axes is None:
+            return
+        channel_ax, time_ax = self.signal_axes
+        channel_ax.clear()
+        time_ax.clear()
+        channels = analysis.get("channel_importance", [])
+        temporal = analysis.get("temporal_importance", [])
+        channel_labels = [item["label"] for item in channels]
+        channel_values = [item["mean_drop"] for item in channels]
+        channel_ax.bar(channel_labels, channel_values, color="teal", alpha=0.85)
+        channel_ax.set_title("Signal importance (balanced accuracy drop)")
+        channel_ax.set_ylabel("Drop")
+        channel_ax.tick_params(axis="x", rotation=30)
+
+        temporal_labels = [f"{item['start_frame']}-{item['end_frame']}" for item in temporal]
+        temporal_values = [item["mean_drop"] for item in temporal]
+        time_ax.bar(temporal_labels, temporal_values, color="darkorange", alpha=0.85)
+        time_ax.set_title("Temporal importance by frame window")
+        time_ax.set_xlabel("Frames")
+        time_ax.set_ylabel("Drop")
+        self.signal_figure.tight_layout()
+        self.signal_canvas.draw_idle()
+
+    def _draw_placeholder_tuner_plot(self) -> None:
+        if self.tuner_ax is None:
+            return
+        self.tuner_ax.clear()
+        self.tuner_ax.set_title("Top trials")
+        self.tuner_ax.text(0.5, 0.5, "Run a search to compare candidates", ha="center", va="center", transform=self.tuner_ax.transAxes)
+        self.tuner_ax.set_xticks([])
+        self.tuner_ax.set_yticks([])
+        self.tuner_figure.tight_layout()
+        self.tuner_canvas.draw_idle()
+
+    def _draw_hyperparameter_results(self, summary: dict) -> None:
+        if self.tuner_ax is None:
+            return
+        results = summary.get("results", [])[:10]
+        if not results:
+            self._draw_placeholder_tuner_plot()
+            return
+        self.tuner_ax.clear()
+        labels = [f"T{item['trial']}" for item in results]
+        values = [item["best_val_accuracy"] for item in results]
+        self.tuner_ax.bar(labels, values, color="slateblue", alpha=0.85)
+        self.tuner_ax.set_title("Best validation accuracy by trial")
+        self.tuner_ax.set_ylabel("Val accuracy")
+        self.tuner_ax.set_ylim(0, max(1.0, max(values) * 1.05))
+        self.tuner_figure.tight_layout()
+        self.tuner_canvas.draw_idle()
+
     def _draw_quality_analysis(self, analysis: dict) -> None:
         if self.quality_axes is None:
             return
@@ -1295,6 +1518,40 @@ class SynergieToolsApp:
             f"Skipped rows: {analysis['skipped_rows']}"
         )
 
+    def _format_model_audit_summary(self, audit: list[dict]) -> str:
+        inferable = sum(1 for item in audit if item.get("can_infer"))
+        trainable = sum(1 for item in audit if item.get("can_resume_training"))
+        legacy = sum(1 for item in audit if item.get("format") == "legacy_saved_model")
+        return f"Models checked: {len(audit)} | inference-ready: {inferable} | training-reloadable: {trainable} | legacy inference-only: {legacy}"
+
+    def _format_signal_summary(self, analysis: dict) -> str:
+        top_channels = analysis.get("channel_importance", [])[:3]
+        channel_text = ", ".join(f"{item['label']} ({item['mean_drop']:.3f})" for item in top_channels) or "n/a"
+        top_window = max(analysis.get("temporal_importance", []), key=lambda item: item["mean_drop"], default=None)
+        window_text = (
+            f"{top_window['start_frame']}-{top_window['end_frame']} ({top_window['mean_drop']:.3f})"
+            if top_window is not None
+            else "n/a"
+        )
+        return (
+            f"Validation samples: {analysis['validation_samples']} | "
+            f"accuracy={analysis['baseline_accuracy']:.3f} | "
+            f"balanced_accuracy={analysis['baseline_balanced_accuracy']:.3f}\n"
+            f"Top signals: {channel_text}\n"
+            f"Most informative window: frames {window_text}"
+        )
+
+    def _format_tuner_summary(self, summary: dict) -> str:
+        best = summary.get("best_trial")
+        if not best:
+            return "No completed trial."
+        return (
+            f"Best trial: T{best['trial']} | best_val_accuracy={best['best_val_accuracy']:.3f} | "
+            f"epochs={best['epochs_ran']}\n"
+            f"Parameters: {best['parameters']}\n"
+            f"{summary.get('note', '')}"
+        )
+
     def _refresh_quality_suspicious_list(self) -> None:
         if not self.quality_analysis:
             self.quality_suspicious_var.set([])
@@ -1364,6 +1621,80 @@ class SynergieToolsApp:
 
         self._run_in_thread(action, "Unable to run the quality scan.")
 
+    def _run_model_audit(self) -> None:
+        self.status_var.set("Auditing saved models...")
+        self.model_audit_summary_var.set("Model audit in progress...")
+        self.model_audit_text.delete("1.0", tk.END)
+
+        def action() -> None:
+            audit = operations.audit_saved_models()
+            summary = self._format_model_audit_summary(audit)
+            lines = []
+            for item in audit:
+                lines.append(
+                    f"{item['label']} | task={item.get('task', 'n/a')} | format={item['format']} | "
+                    f"infer={item['can_infer']} | resume_training={item['can_resume_training']}\n"
+                    f"path={item['path']}\n"
+                    f"inputs={item.get('input_shapes') or 'n/a'}"
+                )
+                if item.get("error"):
+                    lines.append(f"note={item['error']}")
+                lines.append("")
+            self.root.after(0, lambda: self.model_audit_summary_var.set(summary))
+            self.root.after(0, lambda: self._replace_text(self.model_audit_text, "\n".join(lines)))
+            self.root.after(0, lambda: self.status_var.set("Model audit completed"))
+
+        self._run_in_thread(action, "Unable to audit saved models.")
+
+    def _run_signal_importance(self) -> None:
+        self.status_var.set("Running signal importance...")
+        self.signal_summary_var.set("Signal importance in progress...")
+        self._draw_placeholder_signal_plot()
+
+        def action() -> None:
+            analysis = operations.compute_signal_importance(
+                self.signal_task_var.get(),
+                self.signal_dataset_var.get().strip(),
+                model_path=self.signal_model_path_var.get().strip() or None,
+                repeats=int(self.signal_repeats_var.get()),
+                temporal_windows=int(self.signal_windows_var.get()),
+            )
+            summary = self._format_signal_summary(analysis)
+            self.root.after(0, lambda: self.signal_summary_var.set(summary))
+            self.root.after(0, lambda: self._draw_signal_importance(analysis))
+            self.root.after(0, lambda: self.status_var.set("Signal importance completed"))
+
+        self._run_in_thread(action, "Unable to compute signal importance.")
+
+    def _run_hyperparameter_search(self) -> None:
+        self.status_var.set("Running hyperparameter search...")
+        self.tuner_summary_var.set("Hyperparameter search in progress...")
+        self.tuner_log.delete("1.0", tk.END)
+        self._draw_placeholder_tuner_plot()
+
+        def action() -> None:
+            summary = operations.run_hyperparameter_search(
+                self.tuner_task_var.get(),
+                self.tuner_dataset_var.get().strip(),
+                self.tuner_architecture_var.get(),
+                max_trials=int(self.tuner_trials_var.get()),
+                epochs=int(self.tuner_epochs_var.get()),
+            )
+            formatted = self._format_tuner_summary(summary)
+            lines = [formatted, ""]
+            for item in summary["results"]:
+                lines.append(
+                    f"T{item['trial']}: best_val_accuracy={item['best_val_accuracy']:.3f}, "
+                    f"final_val_accuracy={item['final_val_accuracy']:.3f}, epochs={item['epochs_ran']}, "
+                    f"params={item['parameters']}"
+                )
+            self.root.after(0, lambda: self.tuner_summary_var.set(formatted))
+            self.root.after(0, lambda: self._replace_text(self.tuner_log, "\n".join(lines)))
+            self.root.after(0, lambda: self._draw_hyperparameter_results(summary))
+            self.root.after(0, lambda: self.status_var.set("Hyperparameter search completed"))
+
+        self._run_in_thread(action, "Unable to run hyperparameter search.")
+
     def _pick_csv(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
         if path:
@@ -1407,6 +1738,18 @@ class SynergieToolsApp:
         self._sync_pretrained_controls()
         self._refresh_training_dataset_stats()
 
+    def _on_signal_task_changed(self, _event=None) -> None:
+        self.signal_model_path_var.set(operations.latest_model_path_for_task(self.signal_task_var.get()))
+
+    def _on_tuner_task_changed(self, _event=None) -> None:
+        self._sync_tuner_architectures()
+
+    def _sync_tuner_architectures(self) -> None:
+        options = self.TRAIN_ARCHITECTURES.get(self.tuner_task_var.get(), [])
+        self.tuner_architecture_box.configure(values=options)
+        if options and self.tuner_architecture_var.get() not in options:
+            self.tuner_architecture_var.set(options[0])
+
     def _on_pretrained_model_changed(self, _event=None) -> None:
         self._sync_pretrained_architecture()
 
@@ -1445,6 +1788,7 @@ class SynergieToolsApp:
         self.annotation_files_var.set([path.name for path in files])
         if not files:
             self.annotation_summary_var.set("No pending annotation file found.")
+            self.annotation_progress_var.set("Pending annotations: 0")
             self.annotation_jump_listbox.delete(0, tk.END)
             self.annotation_dataframe = None
             self.annotation_file_path = None
@@ -1477,6 +1821,7 @@ class SynergieToolsApp:
         self._refresh_annotation_jump_list()
         sensor_count = 0 if self.annotation_dataframe.empty else self.annotation_dataframe["sensor_id"].nunique()
         self.annotation_summary_var.set(f"{file_path.name}\nEntries: {len(self.annotation_dataframe)} | Sensors: {sensor_count}")
+        self._refresh_annotation_progress()
         video_path = self.annotation_metadata.get("video_path", "")
         video_directory = self.annotation_metadata.get("video_directory", "")
         self.annotation_video_path_var.set(video_path)
@@ -1511,6 +1856,15 @@ class SynergieToolsApp:
                 f"{row.get('detection_status', 'detected_jump')}"
             )
             self.annotation_jump_listbox.insert(tk.END, label)
+
+    def _refresh_annotation_progress(self) -> None:
+        if self.annotation_dataframe is None:
+            self.annotation_progress_var.set("Pending annotations: 0")
+            return
+        progress = operations.summarize_annotation_progress(self.annotation_dataframe)
+        self.annotation_progress_var.set(
+            f"Pending annotations: {progress['pending']} | Completed: {progress['completed']} / {progress['total']}"
+        )
 
     def _selected_annotation_index(self) -> int | None:
         selection = self.annotation_jump_listbox.curselection()
@@ -1675,6 +2029,55 @@ class SynergieToolsApp:
         self.annotation_video_path_var.set(file_path)
         self._load_annotation_video(file_path, persist=True)
 
+    def _open_annotation_video_popup(self) -> None:
+        if self.annotation_video_popup is not None and self.annotation_video_popup.winfo_exists():
+            self.annotation_video_popup.lift()
+            self.annotation_video_popup.focus_force()
+            return
+
+        popup = tk.Toplevel(self.root)
+        popup.title("Choose session video")
+        popup.geometry("900x420")
+        popup.transient(self.root)
+        popup.columnconfigure(1, weight=1)
+        popup.rowconfigure(2, weight=1)
+        popup.protocol("WM_DELETE_WINDOW", self._close_annotation_video_popup)
+
+        ttk.Label(popup, text="Video folder").grid(row=0, column=0, sticky="w", padx=12, pady=(12, 6))
+        ttk.Entry(popup, textvariable=self.annotation_video_directory_var).grid(row=0, column=1, sticky="ew", padx=12, pady=(12, 6))
+        folder_buttons = ttk.Frame(popup)
+        folder_buttons.grid(row=0, column=2, sticky="e", padx=12, pady=(12, 6))
+        ttk.Button(folder_buttons, text="Browse folder", command=self._browse_annotation_video_directory).grid(row=0, column=0, sticky="w")
+        ttk.Button(folder_buttons, text="Find match", command=self._find_annotation_video_matches).grid(row=0, column=1, sticky="w", padx=(6, 0))
+
+        popup_info = ttk.Label(popup, textvariable=self.annotation_video_info_var, justify=tk.LEFT, wraplength=840)
+        popup_info.grid(row=1, column=0, columnspan=3, sticky="w", padx=12, pady=(0, 8))
+
+        matches = tk.Listbox(
+            popup,
+            listvariable=self.annotation_video_matches_var,
+            exportselection=False,
+            height=12,
+        )
+        matches.grid(row=2, column=0, columnspan=3, sticky="nsew", padx=12, pady=(0, 8))
+        matches.bind("<<ListboxSelect>>", self._on_annotation_video_match_selected)
+
+        bottom_buttons = ttk.Frame(popup)
+        bottom_buttons.grid(row=3, column=0, columnspan=3, sticky="ew", padx=12, pady=(0, 12))
+        ttk.Button(bottom_buttons, text="Load selected", command=self._load_selected_annotation_video_match).grid(row=0, column=0, sticky="w")
+        ttk.Button(bottom_buttons, text="Close", command=self._close_annotation_video_popup).grid(row=0, column=1, sticky="w", padx=(6, 0))
+
+        self.annotation_video_popup = popup
+        self.annotation_video_popup_info_label = popup_info
+        self.annotation_video_matches_listbox = matches
+
+    def _close_annotation_video_popup(self) -> None:
+        if self.annotation_video_popup is not None and self.annotation_video_popup.winfo_exists():
+            self.annotation_video_popup.destroy()
+        self.annotation_video_popup = None
+        self.annotation_video_popup_info_label = None
+        self.annotation_video_matches_listbox = None
+
     def _browse_annotation_video_directory(self) -> None:
         directory = filedialog.askdirectory(title="Select video folder")
         if not directory:
@@ -1733,15 +2136,27 @@ class SynergieToolsApp:
                 f"best match: {best_match['name']} ({best_match['recorded_at_source']})"
             )
 
-        self.annotation_video_matches_listbox.selection_clear(0, tk.END)
-        if result["matches"]:
-            self.annotation_video_matches_listbox.selection_set(0)
-            if auto_load:
-                self._load_annotation_video(result["matches"][0]["path"], persist=True)
+        if self.annotation_video_matches_listbox is not None:
+            self.annotation_video_matches_listbox.selection_clear(0, tk.END)
+            if result["matches"]:
+                self.annotation_video_matches_listbox.selection_set(0)
+        if auto_load:
+            self._load_annotation_video(result["matches"][0]["path"], persist=True)
 
     def _on_annotation_video_match_selected(self, _event=None) -> None:
+        if self.annotation_video_matches_listbox is None:
+            return
         selection = self.annotation_video_matches_listbox.curselection()
         if not selection or selection[0] >= len(self._annotation_video_match_cache):
+            return
+        self._load_annotation_video(self._annotation_video_match_cache[selection[0]]["path"], persist=True)
+
+    def _load_selected_annotation_video_match(self) -> None:
+        if self.annotation_video_matches_listbox is None:
+            return
+        selection = self.annotation_video_matches_listbox.curselection()
+        if not selection or selection[0] >= len(self._annotation_video_match_cache):
+            messagebox.showwarning("Synergie Tools", "Select a video match first.")
             return
         self._load_annotation_video(self._annotation_video_match_cache[selection[0]]["path"], persist=True)
 
@@ -1760,6 +2175,7 @@ class SynergieToolsApp:
         self.annotation_video_frame_count = 0
         self.annotation_video_duration_ms = 0.0
         self.annotation_video_current_ms = 0.0
+        self._set_annotation_play_button_state(False)
 
     def _load_annotation_video(self, video_path: str | Path, persist: bool = False) -> None:
         if not self._annotation_video_supported():
@@ -1871,6 +2287,40 @@ class SynergieToolsApp:
         self._stop_annotation_playback()
         self._display_annotation_video_frame(target_ms)
 
+    def _set_annotation_play_button_state(self, is_playing: bool) -> None:
+        self.annotation_play_button_var.set("⏸" if is_playing else "▶")
+
+    def _play_annotation_video(self) -> None:
+        if self.annotation_video_capture is None:
+            messagebox.showwarning("Synergie Tools", "Load the session video first.")
+            return
+        if self._annotation_playback_after_id is not None:
+            self._stop_annotation_playback()
+            return
+
+        self._stop_annotation_playback()
+        self._set_annotation_play_button_state(True)
+        base_frame_ms = 1000.0 / self.annotation_video_fps if self.annotation_video_fps > 0 else 40.0
+        step_ms = max(base_frame_ms, 20.0)
+        delay_ms = max(int(round(base_frame_ms)), 20)
+        target_ms = max(self.annotation_video_duration_ms, self.annotation_video_current_ms)
+
+        def advance() -> None:
+            if self.annotation_video_capture is None:
+                self._annotation_playback_after_id = None
+                self._set_annotation_play_button_state(False)
+                return
+            next_ms = self.annotation_video_current_ms + step_ms
+            if next_ms >= target_ms:
+                self._display_annotation_video_frame(target_ms)
+                self._annotation_playback_after_id = None
+                self._set_annotation_play_button_state(False)
+                return
+            self._display_annotation_video_frame(next_ms)
+            self._annotation_playback_after_id = self.root.after(delay_ms, advance)
+
+        self._annotation_playback_after_id = self.root.after(delay_ms, advance)
+
     def _play_annotation_to_current_jump(self) -> None:
         if self.annotation_video_capture is None:
             messagebox.showwarning("Synergie Tools", "Load the session video first.")
@@ -1881,6 +2331,7 @@ class SynergieToolsApp:
             return
 
         self._stop_annotation_playback()
+        self._set_annotation_play_button_state(True)
         start_ms = max(target_ms - 5000.0, 0.0)
         base_frame_ms = 1000.0 / self.annotation_video_fps if self.annotation_video_fps > 0 else 40.0
         step_ms = max(base_frame_ms * 5.0, 100.0)
@@ -1890,11 +2341,13 @@ class SynergieToolsApp:
         def advance() -> None:
             if self.annotation_video_capture is None:
                 self._annotation_playback_after_id = None
+                self._set_annotation_play_button_state(False)
                 return
             next_ms = self.annotation_video_current_ms + step_ms
             if next_ms >= target_ms:
                 self._display_annotation_video_frame(target_ms)
                 self._annotation_playback_after_id = None
+                self._set_annotation_play_button_state(False)
                 return
             self._display_annotation_video_frame(next_ms)
             self._annotation_playback_after_id = self.root.after(delay_ms, advance)
@@ -1905,6 +2358,7 @@ class SynergieToolsApp:
         if self._annotation_playback_after_id is not None:
             self.root.after_cancel(self._annotation_playback_after_id)
             self._annotation_playback_after_id = None
+        self._set_annotation_play_button_state(False)
 
     def _sync_current_sensor_to_video(self) -> None:
         if self.annotation_file_path is None:
@@ -2005,8 +2459,10 @@ class SynergieToolsApp:
         self.annotation_dataframe.at[index, "video_status"] = backend_status["video_status"]
         self.annotation_dataframe.at[index, "detection_status"] = backend_status["detection_status"]
         self.annotation_dataframe.at[index, "athlete_id"] = self.annotation_athlete_var.get()
+        self.annotation_dataframe.at[index, "annotation_status"] = "annotated"
         self.annotation_dataframe.to_csv(self.annotation_file_path, index=False)
         self._refresh_annotation_jump_list()
+        self._refresh_annotation_progress()
         self.annotation_jump_listbox.selection_clear(0, tk.END)
         self.annotation_jump_listbox.selection_set(index)
         self.status_var.set("Annotation saved")
@@ -2023,6 +2479,11 @@ class SynergieToolsApp:
 
     def _log(self, widget: scrolledtext.ScrolledText, message: str) -> None:
         widget.insert(tk.END, message + "\n")
+        widget.see(tk.END)
+
+    def _replace_text(self, widget: scrolledtext.ScrolledText, text: str) -> None:
+        widget.delete("1.0", tk.END)
+        widget.insert(tk.END, text)
         widget.see(tk.END)
 
     def _run_in_thread(self, target, on_error_message: str) -> None:

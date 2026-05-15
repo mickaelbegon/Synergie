@@ -43,14 +43,19 @@ def _inception_module(x, filters: int, bottleneck_filters: int):
     return layers.BatchNormalization()(x)
 
 
-def lstm():
+def lstm(
+    first_units: int = 128,
+    second_units: int = 64,
+    dropout: float = 0.4,
+    learning_rate: float = 0.00001,
+):
     temporal_input = keras.Input(shape=(SUCCESS_WINDOW_FRAMES, 10), name="temporal_input")
     x = layers.BatchNormalization()(temporal_input)
-    x = layers.LSTM(128, return_sequences=True)(x)
-    x = layers.LSTM(64)(x)
-    x = layers.Dropout(0.4)(x)
+    x = layers.LSTM(first_units, return_sequences=True)(x)
+    x = layers.LSTM(second_units)(x)
+    x = layers.Dropout(dropout)(x)
     x = layers.Dense(64, activation="relu")(x)
-    x = layers.Dropout(0.4)(x)
+    x = layers.Dropout(dropout)(x)
     x = layers.Dense(16, activation="relu")(x)
 
     scalar_input = keras.Input(shape=(2,), name="scalar_input")
@@ -62,14 +67,18 @@ def lstm():
     outputs = layers.Dense(2, activation="softmax")(z)
 
     model = keras.Model([temporal_input, scalar_input], outputs)
-    return _compile_model(model, learning_rate=0.00001)
+    return _compile_model(model, learning_rate=learning_rate)
 
 
-def tcn_success():
+def tcn_success(
+    filters: int = 64,
+    dropout: float = 0.2,
+    learning_rate: float = 0.00003,
+):
     temporal_input = keras.Input(shape=(SUCCESS_WINDOW_FRAMES, 10), name="temporal_input")
     x = temporal_input
     for dilation_rate in (1, 2, 4, 8):
-        x = _residual_block(x, filters=64, dilation_rate=dilation_rate, dropout=0.2)
+        x = _residual_block(x, filters=filters, dilation_rate=dilation_rate, dropout=dropout)
     x = layers.GlobalAveragePooling1D()(x)
     x = layers.Dense(32, activation="relu")(x)
 
@@ -78,11 +87,11 @@ def tcn_success():
 
     combined = layers.Concatenate()([x, y])
     z = layers.Dense(16, activation="relu")(combined)
-    z = layers.Dropout(0.2)(z)
+    z = layers.Dropout(dropout)(z)
     outputs = layers.Dense(2, activation="softmax")(z)
 
     model = keras.Model([temporal_input, scalar_input], outputs)
-    return _compile_model(model, learning_rate=0.00003)
+    return _compile_model(model, learning_rate=learning_rate)
 
 
 def transformer_encoder(inputs, head_size, num_heads, ff_dim, dropout=0):
@@ -107,6 +116,7 @@ def transformer(
     mlp_units=128,
     dropout=0,
     mlp_dropout=0,
+    learning_rate: float = 0.00005,
 ):
     n_classes = 6
 
@@ -129,7 +139,7 @@ def transformer(
     outputs = layers.Dense(n_classes, activation="softmax")(z)
 
     model = keras.Model([temporal_input, scalar_input], outputs)
-    return _compile_model(model, learning_rate=0.00005)
+    return _compile_model(model, learning_rate=learning_rate)
 
 
 def inception_time(
@@ -137,6 +147,8 @@ def inception_time(
     filters: int = 32,
     bottleneck_filters: int = 32,
     modules: int = 3,
+    dropout: float = 0.2,
+    learning_rate: float = 0.00003,
 ):
     n_classes = 6
 
@@ -155,31 +167,33 @@ def inception_time(
 
     x = layers.GlobalAveragePooling1D()(x)
     x = layers.Dense(64, activation="relu")(x)
-    x = layers.Dropout(0.2)(x)
+    x = layers.Dropout(dropout)(x)
 
     scalar_input = keras.Input(shape=(2,), name="scalar_input")
     y = layers.Dense(16, activation="relu")(scalar_input)
 
     combined = layers.Concatenate()([x, y])
     z = layers.Dense(32, activation="relu")(combined)
-    z = layers.Dropout(0.2)(z)
+    z = layers.Dropout(dropout)(z)
     outputs = layers.Dense(n_classes, activation="softmax")(z)
 
     model = keras.Model([temporal_input, scalar_input], outputs)
-    return _compile_model(model, learning_rate=0.00003)
+    return _compile_model(model, learning_rate=learning_rate)
 
 
-def build_model(task: str, architecture: str):
+def build_model(task: str, architecture: str, **overrides):
     if task == "type":
         if architecture == "transformer":
-            return transformer(dropout=0.3, mlp_dropout=0.1)
+            params = {"dropout": 0.3, "mlp_dropout": 0.1}
+            params.update(overrides)
+            return transformer(**params)
         if architecture == "inceptiontime":
-            return inception_time()
+            return inception_time(**overrides)
     elif task == "success":
         if architecture == "lstm":
-            return lstm()
+            return lstm(**overrides)
         if architecture == "tcn":
-            return tcn_success()
+            return tcn_success(**overrides)
 
     raise ValueError(f"Unsupported model combination: task={task}, architecture={architecture}")
 
@@ -253,7 +267,10 @@ def _legacy_saved_model_dir(path: str) -> str | None:
 
 def load_model(path="saved_models/model.keras", for_training: bool = False):
     legacy_dir = _legacy_saved_model_dir(path)
-    if legacy_dir is not None and not tf.io.gfile.exists(path):
+    should_use_legacy = legacy_dir is not None and (
+        tf.io.gfile.isdir(path) or not tf.io.gfile.exists(path)
+    )
+    if should_use_legacy:
         if for_training:
             raise ValueError(
                 f"Pretrained model '{path}' uses legacy SavedModel format and cannot be reused for training with Keras 3. "
