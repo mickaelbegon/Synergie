@@ -162,6 +162,7 @@ class SynergieToolsApp:
         self.gap_var = tk.IntVar(value=DEFAULT_COMBINATION_GAP_FRAMES)
         self.gap_label_var = tk.StringVar()
         self.process_selected_file_info_var = tk.StringVar(value="No file selected.")
+        self.process_batch_progress_var = tk.StringVar(value="No batch running.")
         self.inspect_selected_file_info_var = tk.StringVar(value="No file selected.")
 
         self.inspect_dataframe = None
@@ -341,8 +342,12 @@ class SynergieToolsApp:
         global_batch_button.grid(row=6, column=2, sticky="w", pady=(12, 12))
         self._add_tooltip(global_batch_button, "Traite tous les fichiers CSV disponibles dans la session courante.")
 
+        batch_progress_label = ttk.Label(parent, textvariable=self.process_batch_progress_var, justify=tk.LEFT)
+        batch_progress_label.grid(row=7, column=0, columnspan=3, sticky="w", pady=(0, 12))
+        self._add_tooltip(batch_progress_label, "Affiche la progression du batch courant, fichier par fichier.")
+
         prediction_frame = ttk.LabelFrame(parent, text="Initial model predictions", padding=8)
-        prediction_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(0, 12))
+        prediction_frame.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(0, 12))
         prediction_frame.columnconfigure(1, weight=1)
         ttk.Label(prediction_frame, text="Type model").grid(row=0, column=0, sticky="w")
         self.process_type_model_box = ttk.Combobox(prediction_frame, textvariable=self.process_type_model_var, state="readonly")
@@ -355,8 +360,8 @@ class SynergieToolsApp:
         self._refresh_process_prediction_models()
 
         self.process_log = scrolledtext.ScrolledText(parent, height=18, wrap=tk.WORD)
-        self.process_log.grid(row=8, column=0, columnspan=3, sticky="nsew")
-        parent.rowconfigure(8, weight=1)
+        self.process_log.grid(row=9, column=0, columnspan=3, sticky="nsew")
+        parent.rowconfigure(9, weight=1)
 
     def _build_inspect_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=0)
@@ -2940,11 +2945,19 @@ class SynergieToolsApp:
         type_path = self._process_prediction_model_path("type", self.process_type_model_var.get())
         success_path = self._process_prediction_model_path("success", self.process_success_model_var.get())
         self.status_var.set(f"Batch processing {label}: {len(input_paths)} files...")
+        self.process_batch_progress_var.set(f"Preparing batch {label}: 0/{len(input_paths)} files completed.")
         self.process_log.delete("1.0", tk.END)
+        self._log(self.process_log, f"Batch {label} started: {len(input_paths)} CSV files to process.")
 
         def action() -> None:
             created = []
-            for csv_path in input_paths:
+            total = len(input_paths)
+            for index, csv_path in enumerate(input_paths, start=1):
+                file_name = Path(csv_path).name
+                self.root.after(
+                    0,
+                    lambda current=index, count=total, name=file_name: self._on_batch_file_started(current, count, name),
+                )
                 result = operations.process_csv_file(
                     csv_path,
                     synchro=session["sample_time_fine_synchro"],
@@ -2953,12 +2966,28 @@ class SynergieToolsApp:
                     success_model_path=success_path,
                 )
                 created.append(result["path"])
-                self.root.after(0, lambda path=result["path"]: self._log(self.process_log, f"Created: {path}"))
+                self.root.after(
+                    0,
+                    lambda current=index, count=total, path=result["path"]: self._on_batch_file_completed(current, count, path),
+                )
                 if result["prediction_status"] != "predicted":
                     self.root.after(0, lambda: self._log(self.process_log, "Prediction skipped: TensorFlow/Keras is not available in this environment."))
-            self.root.after(0, lambda: self.status_var.set(f"Batch processing completed: {len(created)} files"))
+            self.root.after(0, lambda: self._on_batch_completed(label, len(created)))
 
         self._run_in_thread(action, "Unable to batch process files.")
+
+    def _on_batch_file_started(self, current: int, total: int, file_name: str) -> None:
+        self.status_var.set(f"Batch processing: {current}/{total} - {file_name}")
+        self.process_batch_progress_var.set(f"Processing {current}/{total}: {file_name}")
+        self._log(self.process_log, f"[{current}/{total}] Processing: {file_name}")
+
+    def _on_batch_file_completed(self, current: int, total: int, path: str | Path) -> None:
+        self.process_batch_progress_var.set(f"Completed {current}/{total}: {Path(path).name}")
+        self._log(self.process_log, f"[{current}/{total}] Created: {path}")
+
+    def _on_batch_completed(self, label: str, created_count: int) -> None:
+        self.status_var.set(f"Batch processing completed: {created_count} files")
+        self.process_batch_progress_var.set(f"Batch {label} completed: {created_count} files.")
 
     def _run_train(self) -> None:
         self.status_var.set("Training started...")
