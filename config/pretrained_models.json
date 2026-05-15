@@ -194,5 +194,33 @@
       "test_accuracy": 0.8828125,
       "test_samples": 640
     }
+  },
+  {
+    "id": "type-inceptiontime-20260515-111905",
+    "label": "Type inceptiontime type-inceptiontime-20260515-111905",
+    "task": "type",
+    "architecture": "inceptiontime",
+    "path": "core/model/saved_models/archive/type/type-inceptiontime-20260515-111905.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.978125,
+      "test_samples": 640
+    }
+  },
+  {
+    "id": "type-inceptiontime-20260515-112016",
+    "label": "Type inceptiontime type-inceptiontime-20260515-112016",
+    "task": "type",
+    "architecture": "inceptiontime",
+    "path": "core/model/saved_models/archive/type/type-inceptiontime-20260515-112016.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.996875,
+      "test_samples": 640
+    }
   }
 ]
