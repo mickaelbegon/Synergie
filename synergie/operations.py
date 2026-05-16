@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 import shutil
@@ -34,6 +33,7 @@ from synergie.services.annotation_service import (
     set_annotation_video_path,
     summarize_annotation_progress,
 )
+from synergie.services.annotation_finalization_service import finalize_annotation_file
 from synergie.services.hyperparameter_search_service import (
     hyperparameter_search_space,
     sample_hyperparameter_trials,
@@ -197,112 +197,6 @@ def parse_training_id_from_csv_path(csv_path: Path) -> str | None:
     if len(training_parts) < 2:
         return None
     return training_parts[1]
-
-
-def finalize_annotation_file(
-    annotation_csv_path: str | Path,
-    *,
-    dataset_path: str | Path = "data/annotated/total",
-    annotated_root: str | Path = "data/annotated",
-) -> dict:
-    """
-    Merge a fully reviewed annotation file into the training dataset.
-
-    The operation validates the annotation status, archives the previous global
-    jumplist, moves trainable segment files into the annotated tree, refuses
-    duplicate paths, writes the merged jumplist, and records a dataset-change
-    marker consumed by the GUI.
-    """
-    import pandas as pd
-
-    annotation_path = Path(annotation_csv_path)
-    dataset_root = Path(dataset_path)
-    annotated_root_path = Path(annotated_root)
-    jumplist_path = dataset_root / "jumplist.csv"
-    if not jumplist_path.exists():
-        raise FileNotFoundError(f"Unable to find jumplist.csv in {dataset_root}")
-
-    annotation_rows = pd.read_csv(annotation_path)
-    progress = summarize_annotation_progress(annotation_rows)
-    if progress["pending"] > 0:
-        raise ValueError(f"Cannot finalize: {progress['pending']} annotations are still pending.")
-
-    trainable = annotation_rows[
-        (annotation_rows["type"].astype(float).astype(int) != 8)
-        & (annotation_rows["success"].astype(float).astype(int) != 2)
-    ].copy()
-    if trainable.empty:
-        raise ValueError("Cannot finalize: no trainable labelled jumps are available.")
-
-    existing = pd.read_csv(jumplist_path)
-    session_key = str(trainable.iloc[0].get("session_key", annotation_path.stem.replace("_for_annotation", "")))
-    destination_rows: list[dict] = []
-    planned_moves: list[tuple[Path, Path]] = []
-    for _, row in trainable.iterrows():
-        source = Path(str(row["path"]))
-        if not source.exists():
-            raise FileNotFoundError(f"Missing annotated segment: {source}")
-        sensor_id = str(row.get("sensor_id", "unknown"))
-        destination = annotated_root_path / session_key / f"sensor{sensor_id}" / source.name
-        destination_path = str(destination).replace("\\", "/")
-        copied = row.to_dict()
-        copied["path"] = destination_path
-        copied["skater"] = copied.get("athlete_id", copied.get("skater", ""))
-        destination_rows.append(copied)
-        planned_moves.append((source, destination))
-
-    destination_paths = [row["path"] for row in destination_rows]
-    if len(destination_paths) != len(set(destination_paths)):
-        raise ValueError("Cannot finalize: duplicate destination paths exist inside the annotation file.")
-    existing_paths = set(existing.get("path", pd.Series(dtype=str)).fillna("").astype(str).str.replace("\\", "/", regex=False))
-    duplicate_paths = sorted(path for path in destination_paths if path in existing_paths)
-    if duplicate_paths:
-        raise ValueError(f"Cannot finalize: paths already present in training jumplist: {', '.join(duplicate_paths[:3])}")
-    existing_destinations = [destination for _source, destination in planned_moves if destination.exists()]
-    if existing_destinations:
-        raise ValueError(f"Cannot finalize: destination segment already exists: {existing_destinations[0]}")
-
-    archive_dir = dataset_root / "archive"
-    archive_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    archive_path = archive_dir / f"jumplist_{timestamp}.csv"
-    shutil.copy2(jumplist_path, archive_path)
-
-    for source, destination in planned_moves:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(source), str(destination))
-
-    merged = pd.concat([existing, pd.DataFrame(destination_rows)], ignore_index=True, sort=False)
-    merged.to_csv(jumplist_path, index=False)
-    duplicate_report = find_training_dataset_duplicates(dataset_root)
-    if duplicate_report["has_duplicates"]:
-        raise ValueError("Finalization created duplicate training rows; inspect the archived jumplist before continuing.")
-
-    completed_dir = annotated_root_path / session_key
-    completed_annotation_path = completed_dir / annotation_path.name.replace("_for_annotation", "_annotated")
-    completed_dir.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(annotation_path), str(completed_annotation_path))
-    metadata_path = annotation_metadata_path(annotation_path)
-    if metadata_path.exists():
-        shutil.move(str(metadata_path), str(completed_annotation_path.with_suffix(".annotation_meta.json")))
-
-    state = {
-        "changed_at": datetime.now().isoformat(timespec="seconds"),
-        "source_annotation_file": str(completed_annotation_path).replace("\\", "/"),
-        "rows_added": int(len(destination_rows)),
-        "jumplist_archive": str(archive_path).replace("\\", "/"),
-        "retraining_recommended": True,
-    }
-    state_path = training_dataset_state_path(dataset_root)
-    with state_path.open("w", encoding="utf-8") as handle:
-        json.dump(state, handle, indent=2, ensure_ascii=True)
-        handle.write("\n")
-    return {
-        "rows_added": int(len(destination_rows)),
-        "archive_path": archive_path,
-        "completed_annotation_path": completed_annotation_path,
-        "state": state,
-    }
 
 
 def list_pretrained_training_models(task: str | None = None, compatible_only: bool = False) -> list[dict]:
