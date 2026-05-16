@@ -232,7 +232,7 @@ class SynergieToolsApp:
         ).grid(row=0, column=0, sticky="w")
         ttk.Label(
             header,
-            text="Petite interface pour explorer les sessions, traiter un CSV IMU, inspecter les sauts et lancer un entrainement.",
+            text="Pipeline: New data -> Process -> Annotate -> Quality review -> Train, puis outils d'inspection et d'analyse des modeles.",
         ).grid(row=1, column=0, sticky="w")
 
         notebook = ttk.Notebook(self.root)
@@ -251,18 +251,18 @@ class SynergieToolsApp:
         detection_tuning_tab = ttk.Frame(notebook, padding=12)
         quality_tab = ttk.Frame(notebook, padding=12)
         notes_tab = ttk.Frame(notebook, padding=12)
-        notebook.add(sessions_tab, text="Sessions")
-        notebook.add(process_tab, text="Process CSV")
-        notebook.add(new_data_tab, text="New Data")
-        notebook.add(annotate_tab, text="Annotate")
-        notebook.add(inspect_tab, text="Inspect IMU")
-        notebook.add(train_tab, text="Train")
-        notebook.add(model_audit_tab, text="Model Audit")
-        notebook.add(signal_tab, text="Signal Importance")
-        notebook.add(tuner_tab, text="Hyperparameter Search")
-        notebook.add(detection_tuning_tab, text="Detection Tuning")
-        notebook.add(quality_tab, text="Quality Control")
-        notebook.add(notes_tab, text="Algo Notes")
+        notebook.add(sessions_tab, text="Data - Sessions")
+        notebook.add(new_data_tab, text="Data - New")
+        notebook.add(process_tab, text="Data - Process")
+        notebook.add(annotate_tab, text="Data - Annotate")
+        notebook.add(quality_tab, text="Review - Quality")
+        notebook.add(inspect_tab, text="Review - Inspect IMU")
+        notebook.add(detection_tuning_tab, text="Review - Detection")
+        notebook.add(train_tab, text="Models - Train")
+        notebook.add(signal_tab, text="Models - Importance")
+        notebook.add(tuner_tab, text="Models - Tune")
+        notebook.add(model_audit_tab, text="Models - Audit")
+        notebook.add(notes_tab, text="Notes")
 
         sessions_tab.columnconfigure(0, weight=1)
         sessions_tab.columnconfigure(1, weight=0)
@@ -799,11 +799,12 @@ class SynergieToolsApp:
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
         from matplotlib.figure import Figure
 
-        figure = Figure(figsize=(8.8, 5.8), dpi=100)
-        channel_ax = figure.add_subplot(211)
-        time_ax = figure.add_subplot(212)
+        figure = Figure(figsize=(8.8, 6.6), dpi=100)
+        channel_ax = figure.add_subplot(311)
+        scalar_ax = figure.add_subplot(312)
+        time_ax = figure.add_subplot(313)
         self.signal_figure = figure
-        self.signal_axes = (channel_ax, time_ax)
+        self.signal_axes = (channel_ax, scalar_ax, time_ax)
         self.signal_canvas = FigureCanvasTkAgg(figure, master=self.signal_plot_container)
         self.signal_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._draw_placeholder_signal_plot()
@@ -1494,12 +1495,15 @@ class SynergieToolsApp:
     def _draw_placeholder_signal_plot(self) -> None:
         if self.signal_axes is None:
             return
-        channel_ax, time_ax = self.signal_axes
+        channel_ax, scalar_ax, time_ax = self.signal_axes
         channel_ax.clear()
+        scalar_ax.clear()
         time_ax.clear()
         channel_ax.set_title("Signal importance")
+        scalar_ax.set_title("Scalar importance")
         time_ax.set_title("Temporal importance")
         channel_ax.text(0.5, 0.5, "Run signal importance", ha="center", va="center", transform=channel_ax.transAxes)
+        scalar_ax.text(0.5, 0.5, "Permutation drop for weight / height", ha="center", va="center", transform=scalar_ax.transAxes)
         time_ax.text(0.5, 0.5, "Permutation drop by time window", ha="center", va="center", transform=time_ax.transAxes)
         self.signal_figure.tight_layout()
         self.signal_canvas.draw_idle()
@@ -1507,10 +1511,12 @@ class SynergieToolsApp:
     def _draw_signal_importance(self, analysis: dict) -> None:
         if self.signal_axes is None:
             return
-        channel_ax, time_ax = self.signal_axes
+        channel_ax, scalar_ax, time_ax = self.signal_axes
         channel_ax.clear()
+        scalar_ax.clear()
         time_ax.clear()
         channels = analysis.get("channel_importance", [])
+        scalars = analysis.get("scalar_importance", [])
         temporal = analysis.get("temporal_importance", [])
         channel_labels = [item["label"] for item in channels]
         channel_values = [item["mean_drop"] for item in channels]
@@ -1518,6 +1524,12 @@ class SynergieToolsApp:
         channel_ax.set_title("Signal importance (balanced accuracy drop)")
         channel_ax.set_ylabel("Drop")
         channel_ax.tick_params(axis="x", rotation=30)
+
+        scalar_labels = [item["label"] for item in scalars]
+        scalar_values = [item["mean_drop"] for item in scalars]
+        scalar_ax.bar(scalar_labels, scalar_values, color="slateblue", alpha=0.85)
+        scalar_ax.set_title("Scalar importance (balanced accuracy drop)")
+        scalar_ax.set_ylabel("Drop")
 
         temporal_labels = [f"{item['start_frame']}-{item['end_frame']}" for item in temporal]
         temporal_values = [item["mean_drop"] for item in temporal]
@@ -1752,6 +1764,10 @@ class SynergieToolsApp:
     def _format_signal_summary(self, analysis: dict) -> str:
         top_channels = analysis.get("channel_importance", [])[:3]
         channel_text = ", ".join(f"{item['label']} ({item['mean_drop']:.3f})" for item in top_channels) or "n/a"
+        scalar_text = ", ".join(
+            f"{item['label']} ({item['mean_drop']:.3f})"
+            for item in analysis.get("scalar_importance", [])
+        ) or "n/a"
         top_window = max(analysis.get("temporal_importance", []), key=lambda item: item["mean_drop"], default=None)
         window_text = (
             f"{top_window['start_frame']}-{top_window['end_frame']} ({top_window['mean_drop']:.3f})"
@@ -1763,6 +1779,7 @@ class SynergieToolsApp:
             f"accuracy={analysis['baseline_accuracy']:.3f} | "
             f"balanced_accuracy={analysis['baseline_balanced_accuracy']:.3f}\n"
             f"Top signals: {channel_text}\n"
+            f"Scalars: {scalar_text}\n"
             f"Most informative window: frames {window_text}"
         )
 
