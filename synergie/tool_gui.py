@@ -2943,41 +2943,45 @@ class SynergieToolsApp:
             messagebox.showwarning("Synergie Tools", "Select one or more session CSV files first.")
             return
 
-        input_paths = [self.process_session_files.get(index) for index in selections]
-        self._run_batch_process_paths(input_paths, label="selected")
+        session = operations.session_metadata(self.session_var.get())
+        input_files = [
+            {
+                "path": self.process_session_files.get(index),
+                "session_name": self.session_var.get(),
+                "sample_time_fine_synchro": session["sample_time_fine_synchro"],
+            }
+            for index in selections
+        ]
+        self._run_batch_process_paths(input_files, label="selected")
 
     def _run_global_batch_process_files(self) -> None:
-        input_paths = [
-            self.process_session_files.get(index)
-            for index in range(self.process_session_files.size())
-            if str(self.process_session_files.get(index)).lower().endswith(".csv")
-        ]
-        if not input_paths:
-            messagebox.showwarning("Synergie Tools", "No CSV files are available in the current session.")
+        input_files = operations.list_all_session_csv_files()
+        if not input_files:
+            messagebox.showwarning("Synergie Tools", "No CSV files are available across configured sessions.")
             return
-        self._run_batch_process_paths(input_paths, label="all")
+        self._run_batch_process_paths(input_files, label="all sessions")
 
-    def _run_batch_process_paths(self, input_paths: list[str], *, label: str) -> None:
-        session = operations.session_metadata(self.session_var.get())
+    def _run_batch_process_paths(self, input_files: list[dict], *, label: str) -> None:
         type_path = self._process_prediction_model_path("type", self.process_type_model_var.get())
         success_path = self._process_prediction_model_path("success", self.process_success_model_var.get())
-        self.status_var.set(f"Batch processing {label}: {len(input_paths)} files...")
-        self.process_batch_progress_var.set(f"Preparing batch {label}: 0/{len(input_paths)} files completed.")
+        self.status_var.set(f"Batch processing {label}: {len(input_files)} files...")
+        self.process_batch_progress_var.set(f"Preparing batch {label}: 0/{len(input_files)} files completed.")
         self.process_log.delete("1.0", tk.END)
-        self._log(self.process_log, f"Batch {label} started: {len(input_paths)} CSV files to process.")
+        self._log(self.process_log, f"Batch {label} started: {len(input_files)} CSV files to process.")
 
         def action() -> None:
             created = []
-            total = len(input_paths)
-            for index, csv_path in enumerate(input_paths, start=1):
-                file_name = Path(csv_path).name
+            total = len(input_files)
+            for index, item in enumerate(input_files, start=1):
+                csv_path = item["path"]
+                file_name = f"{item['session_name']} / {Path(csv_path).name}"
                 self.root.after(
                     0,
                     lambda current=index, count=total, name=file_name: self._on_batch_file_started(current, count, name),
                 )
                 result = operations.process_csv_file(
                     csv_path,
-                    synchro=session["sample_time_fine_synchro"],
+                    synchro=item["sample_time_fine_synchro"],
                     output_path=self._suggest_output_path(csv_path),
                     type_model_path=type_path,
                     success_model_path=success_path,

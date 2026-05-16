@@ -36,6 +36,29 @@ class OperationsTests(unittest.TestCase):
             files = operations.list_session_csv_files("1331", raw_root=tmpdir)
             self.assertEqual(files, [])
 
+    def test_list_all_session_csv_files_returns_paths_and_session_synchro(self):
+        original_file = session_store.SESSIONS_FILE
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            session_store.SESSIONS_FILE = root / "sessions.json"
+            session_store.save_sessions(
+                {
+                    "a": {"path": "session_a", "sample_time_fine_synchro": 111},
+                    "b": {"path": "session_b", "sample_time_fine_synchro": 222},
+                }
+            )
+            for folder, filename in (("session_a", "a.csv"), ("session_b", "b.csv")):
+                directory = root / folder
+                directory.mkdir()
+                (directory / filename).write_text("x\n", encoding="utf-8")
+
+            files = operations.list_all_session_csv_files(raw_root=root)
+
+            self.assertEqual([item["session_name"] for item in files], ["a", "b"])
+            self.assertEqual([item["sample_time_fine_synchro"] for item in files], [111, 222])
+            self.assertEqual([item["path"].name for item in files], ["a.csv", "b.csv"])
+        session_store.SESSIONS_FILE = original_file
+
     def test_list_directory_files_returns_all_files_in_directory(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

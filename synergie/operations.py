@@ -114,6 +114,22 @@ def list_session_csv_files(session_name: str, raw_root: str = "data/raw") -> lis
     return sorted(session_dir.glob("*.csv"))
 
 
+def list_all_session_csv_files(raw_root: str = "data/raw") -> list[dict]:
+    """Return all session CSV files with the metadata needed for processing."""
+    records: list[dict] = []
+    for session_name in list_sessions():
+        metadata = session_metadata(session_name)
+        for path in list_session_csv_files(session_name, raw_root=raw_root):
+            records.append(
+                {
+                    "path": path,
+                    "session_name": session_name,
+                    "sample_time_fine_synchro": int(metadata["sample_time_fine_synchro"]),
+                }
+            )
+    return records
+
+
 def list_directory_files(directory: str | Path) -> list[Path]:
     directory_path = Path(directory)
     if not directory_path.exists() or not directory_path.is_dir():
