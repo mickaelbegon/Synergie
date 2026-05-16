@@ -23,8 +23,10 @@ class OperationsTests(unittest.TestCase):
             session_path = Path(tmpdir) / "2009" / "1331"
             session_path.mkdir(parents=True)
             csv_path = session_path / "sample.csv"
+            jumplist_path = session_path / "0910_jumplist_partie1.csv"
             txt_path = session_path / "ignore.txt"
             csv_path.write_text("a,b\n1,2\n", encoding="utf-8")
+            jumplist_path.write_text("path,type\n", encoding="utf-8")
             txt_path.write_text("x", encoding="utf-8")
 
             files = operations.list_session_csv_files("1331", raw_root=tmpdir)

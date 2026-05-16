@@ -31,12 +31,17 @@ def session_synchro(session_name: str) -> int:
 
 
 def list_session_csv_files(session_name: str, raw_root: str = "data/raw") -> list[Path]:
-    """Return CSV files directly inside one configured raw-session folder."""
+    """Return processable raw CSV files inside one configured session folder.
+
+    Session folders can also contain derived exports such as
+    ``jumplist_partie1.csv``. Those are processing outputs, not IMU inputs, so
+    they must stay out of the GUI lists and batch-processing workflows.
+    """
     metadata = session_metadata(session_name)
     session_dir = Path(raw_root) / metadata["path"]
     if not session_dir.exists():
         return []
-    return sorted(session_dir.glob("*.csv"))
+    return sorted(path for path in session_dir.glob("*.csv") if _is_processable_session_csv(path))
 
 
 def list_all_session_csv_files(raw_root: str = "data/raw") -> list[dict]:
@@ -89,3 +94,8 @@ def next_jumplist_output_path(directory: str | Path) -> Path:
         if not candidate.exists():
             return candidate
         index += 1
+
+
+def _is_processable_session_csv(path: Path) -> bool:
+    """Return whether a session CSV is a raw IMU candidate for processing."""
+    return "jumplist" not in path.stem.lower()
