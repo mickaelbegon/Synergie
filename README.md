@@ -60,6 +60,14 @@ Dans `tools_gui.py`, l'onglet `Inspect IMU` permet aussi :
 - de selectionner un saut pour afficher un zoom dedie
 - de lire le dossier de session choisi et lister tous les fichiers disponibles avec infos de base sur le fichier selectionne
 
+Pipeline conseille pour ajouter des donnees d'entrainement dans `tools_gui.py` :
+
+1. `Data - New` : choisir une seance brute depuis `data/new` et utiliser `Process for annotation`.
+2. Le traitement cree un CSV `*_for_annotation.csv`, des segments IMU, et pre-remplit si possible `type`, `success` et `turns` avec les modeles selectionnes.
+3. `Data - Annotate` : verifier les propositions, synchroniser la video, corriger les labels et finaliser le fichier annote.
+4. `Review - Quality` et `Review - Detection` : verifier les outliers, faux positifs et faux negatifs avant re-entrainement.
+5. `Models - Train` : re-entrainer les modeles quand le dataset a change.
+
 L'onglet `Annotate` permet maintenant aussi de :
 
 - charger une video de la seance en plus du CSV `for_annotation`
@@ -105,7 +113,7 @@ python main.py -repredict
 - `tools_gui.py` : petite interface graphique utilitaire pour la CLI
 - `synergie/cli.py` : parsing des commandes
 - `synergie/config.py` : constantes partagees pour fenetres et seuils
-- `synergie/operations.py` : orchestration des workflows CLI
+- `synergie/operations.py` : facade de compatibilite pour les workflows GUI/CLI
 - `synergie/session_store.py` : lecture/ecriture des sessions dans le fichier JSON
 - `synergie/services/` : logique metier reutilisable hors interface
 - `synergie/tool_gui.py` : interface graphique simple pour les workflows hors capteurs
@@ -122,6 +130,26 @@ python -m unittest discover -s tests
 ```
 
 Ces tests ne couvrent pas encore la partie modele ni la connexion aux capteurs. Ils valident surtout la structure CLI et quelques invariants de configuration.
+
+## Architecture des services
+
+La logique applicative a ete progressivement extraite de `synergie/operations.py` vers des services specialises :
+
+- `session_service.py` : sessions configurees, chemins et fichiers de sortie libres
+- `new_data_service.py` : decouverte des nouvelles donnees IMU
+- `annotation_generation_service.py` : generation des segments et CSV `for_annotation`
+- `annotation_service.py` : metadonnees, statuts et utilitaires d'annotation
+- `annotation_finalization_service.py` : archivage et fusion des labels vers le dataset d'entrainement
+- `csv_processing_service.py` : traitement CSV brut vers jumplist
+- `prediction_service.py` : predictions type/succes reutilisables
+- `quality_service.py` et `detection_tuning_service.py` : controle qualite et reglage des seuils
+- `signal_importance_service.py` : importance des signaux temporels, scalaires et fenetres
+- `training_dataset_service.py` : statistiques, doublons et etat du dataset
+- `training_service.py` : entrainement, tuning et promotion des modeles
+- `model_registry_service.py` : registre et audit des modeles disponibles
+- `video_service.py` : videos de seance et rapprochement temporel
+
+Cette separation permet de garder `operations.py` comme une facade stable tout en rendant chaque domaine testable independamment.
 
 ## Modeles IA
 
