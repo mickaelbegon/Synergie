@@ -2968,6 +2968,21 @@ class SynergieToolsApp:
         self.process_batch_progress_var.set(f"Preparing batch {label}: 0/{len(input_files)} files completed.")
         self.process_log.delete("1.0", tk.END)
         self._log(self.process_log, f"Batch {label} started: {len(input_files)} CSV files to process.")
+        for summary in self._summarize_batch_sessions(input_files):
+            self._log(
+                self.process_log,
+                (
+                    f"- Session {summary['session_name']}: {summary['file_count']} file(s), "
+                    f"sync offset={summary['sample_time_fine_synchro']}"
+                ),
+            )
+        self._log(
+            self.process_log,
+            (
+                f"Prediction models: type={Path(type_path).name if type_path else 'none'}, "
+                f"success={Path(success_path).name if success_path else 'none'}"
+            ),
+        )
 
         def action() -> None:
             created = []
@@ -2975,14 +2990,22 @@ class SynergieToolsApp:
             for index, item in enumerate(input_files, start=1):
                 csv_path = item["path"]
                 file_name = f"{item['session_name']} / {Path(csv_path).name}"
+                output_path = self._suggest_output_path(csv_path)
                 self.root.after(
                     0,
-                    lambda current=index, count=total, name=file_name: self._on_batch_file_started(current, count, name),
+                    lambda current=index, count=total, name=file_name, source=csv_path, output=output_path, offset=item["sample_time_fine_synchro"]: self._on_batch_file_started(
+                        current,
+                        count,
+                        name,
+                        source,
+                        output,
+                        offset,
+                    ),
                 )
                 result = operations.process_csv_file(
                     csv_path,
                     synchro=item["sample_time_fine_synchro"],
-                    output_path=self._suggest_output_path(csv_path),
+                    output_path=output_path,
                     type_model_path=type_path,
                     success_model_path=success_path,
                 )
@@ -2997,10 +3020,35 @@ class SynergieToolsApp:
 
         self._run_in_thread(action, "Unable to batch process files.")
 
-    def _on_batch_file_started(self, current: int, total: int, file_name: str) -> None:
+    def _summarize_batch_sessions(self, input_files: list[dict]) -> list[dict]:
+        summaries: dict[str, dict] = {}
+        for item in input_files:
+            summary = summaries.setdefault(
+                item["session_name"],
+                {
+                    "session_name": item["session_name"],
+                    "file_count": 0,
+                    "sample_time_fine_synchro": item["sample_time_fine_synchro"],
+                },
+            )
+            summary["file_count"] += 1
+        return [summaries[key] for key in sorted(summaries)]
+
+    def _on_batch_file_started(
+        self,
+        current: int,
+        total: int,
+        file_name: str,
+        source_path: str | Path,
+        output_path: str | Path,
+        sync_offset: int,
+    ) -> None:
         self.status_var.set(f"Batch processing: {current}/{total} - {file_name}")
         self.process_batch_progress_var.set(f"Processing {current}/{total}: {file_name}")
         self._log(self.process_log, f"[{current}/{total}] Processing: {file_name}")
+        self._log(self.process_log, f"    Source: {source_path}")
+        self._log(self.process_log, f"    Output: {output_path}")
+        self._log(self.process_log, f"    Sync offset: {sync_offset}")
 
     def _on_batch_file_completed(self, current: int, total: int, path: str | Path) -> None:
         self.process_batch_progress_var.set(f"Completed {current}/{total}: {Path(path).name}")
@@ -3009,6 +3057,7 @@ class SynergieToolsApp:
     def _on_batch_completed(self, label: str, created_count: int) -> None:
         self.status_var.set(f"Batch processing completed: {created_count} files")
         self.process_batch_progress_var.set(f"Batch {label} completed: {created_count} files.")
+        self._log(self.process_log, f"Batch {label} completed: {created_count} output file(s) created.")
 
     def _run_train(self) -> None:
         self.status_var.set("Training started...")
