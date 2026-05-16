@@ -64,11 +64,12 @@ def process_new_imu_session_for_annotation(
         records.extend(_records_for_sensor(file_metadata, session, sensor_segment_root, impact_offset_ms))
 
     annotation_frame = pd.DataFrame(records)
+    prediction_summary = {"status": "not_requested", "updated": 0, "skipped": int(len(annotation_frame))}
     if not annotation_frame.empty:
         annotation_frame = annotation_frame.sort_values(by=["synced_start_ms", "sensor_id", "start_ms"]).reset_index(drop=True)
         annotation_frame = annotate_combination_flags(annotation_frame)
         if type_model_path and success_model_path:
-            annotation_frame = _prefill_predictions(annotation_frame, type_model_path, success_model_path)
+            annotation_frame, prediction_summary = _prefill_predictions(annotation_frame, type_model_path, success_model_path)
     annotation_frame.to_csv(output_csv_path, index=False)
     return {
         "annotation_csv": output_csv_path,
@@ -77,6 +78,9 @@ def process_new_imu_session_for_annotation(
         "source_file": raw_path,
         "session_key": new_imu_session_key(metadata),
         "sensor_count": len(session_files),
+        "prediction_status": prediction_summary["status"],
+        "predictions_updated": prediction_summary["updated"],
+        "predictions_skipped": prediction_summary["skipped"],
     }
 
 
@@ -140,15 +144,16 @@ def _prefill_predictions(annotation_frame, type_model_path: str, success_model_p
     from synergie.operations import prefill_annotation_predictions
 
     try:
-        return prefill_annotation_predictions(
+        result = prefill_annotation_predictions(
             annotation_frame,
             type_model_path=type_model_path,
             success_model_path=success_model_path,
-        )["rows"]
+        )
+        return result["rows"], {"status": "predicted", "updated": result["updated"], "skipped": result["skipped"]}
     except ModuleNotFoundError as exc:
         if exc.name not in {"tensorflow", "keras"}:
             raise
-        return annotation_frame
+        return annotation_frame, {"status": "unavailable", "updated": 0, "skipped": int(len(annotation_frame))}
 
 
 def _ms_to_timestamp(ms: float) -> str:

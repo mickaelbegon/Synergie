@@ -77,3 +77,4 @@ class AnnotationGenerationServiceTests(unittest.TestCase):
             self.assertEqual(result["sensor_count"], 2)
             self.assertEqual(len(exported), 2)
             self.assertEqual(exported["sensor_id"].astype(str).tolist(), ["1", "2"])
+            self.assertEqual(result["prediction_status"], "not_requested")

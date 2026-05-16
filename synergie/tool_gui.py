@@ -2128,7 +2128,13 @@ class SynergieToolsApp:
         self.annotation_dataframe = pd.read_csv(file_path)
         self._refresh_annotation_jump_list()
         sensor_count = 0 if self.annotation_dataframe.empty else self.annotation_dataframe["sensor_id"].nunique()
-        self.annotation_summary_var.set(f"{file_path.name}\nEntries: {len(self.annotation_dataframe)} | Sensors: {sensor_count}")
+        prefilled_count = 0
+        if "prediction_source" in self.annotation_dataframe:
+            prefilled_count = int(self.annotation_dataframe["prediction_source"].fillna("").astype(str).ne("").sum())
+        self.annotation_summary_var.set(
+            f"{file_path.name}\nEntries: {len(self.annotation_dataframe)} | Sensors: {sensor_count} | "
+            f"Model-prefilled: {prefilled_count}"
+        )
         self._refresh_annotation_progress()
         video_path = self.annotation_metadata.get("video_path", "")
         video_directory = self.annotation_metadata.get("video_directory", "")
@@ -2163,6 +2169,10 @@ class SynergieToolsApp:
                 f"{row.get('athlete_id', row.get('skater', 'unknown'))} | "
                 f"{row.get('detection_status', 'detected_jump')}"
             )
+            if str(row.get("prediction_source", "") or ""):
+                jump_type = int(float(row.get("type", 8)))
+                success = int(float(row.get("success", 2)))
+                label += f" | model: {operations.JUMP_TYPE_LABELS.get(jump_type, jump_type)} / success {success}"
             self.annotation_jump_listbox.insert(tk.END, label)
 
     def _refresh_annotation_progress(self) -> None:
@@ -3124,6 +3134,16 @@ class SynergieToolsApp:
             self.root.after(0, lambda: self._log(self.new_data_log, f"Created annotation CSV: {result['annotation_csv']}"))
             self.root.after(0, lambda: self._log(self.new_data_log, f"Created jump segments in: {result['segment_directory']}"))
             self.root.after(0, lambda: self._log(self.new_data_log, f"Jumps ready for annotation: {result['jump_count']} across {result['sensor_count']} sensors"))
+            self.root.after(
+                0,
+                lambda: self._log(
+                    self.new_data_log,
+                    (
+                        f"Initial model predictions: {result['prediction_status']} | "
+                        f"updated={result['predictions_updated']} | skipped={result['predictions_skipped']}"
+                    ),
+                ),
+            )
             self.root.after(0, self._refresh_annotation_files)
             self.root.after(0, lambda: self.status_var.set("New IMU file processed for annotation"))
 
