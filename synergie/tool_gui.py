@@ -1527,9 +1527,34 @@ class SynergieToolsApp:
 
         scalar_labels = [item["label"] for item in scalars]
         scalar_values = [item["mean_drop"] for item in scalars]
-        scalar_ax.bar(scalar_labels, scalar_values, color="slateblue", alpha=0.85)
+        scalar_bars = scalar_ax.bar(scalar_labels, scalar_values, color="slateblue", alpha=0.85)
         scalar_ax.set_title("Scalar importance (balanced accuracy drop)")
         scalar_ax.set_ylabel("Drop")
+        scalar_ax.axhline(0.0, color="0.35", linewidth=0.8)
+        if scalar_values:
+            max_abs_scalar = max(abs(value) for value in scalar_values)
+            if max_abs_scalar > 0:
+                scalar_ax.set_ylim(0.0, max_abs_scalar * 1.35)
+            else:
+                scalar_ax.set_ylim(-0.05, 0.05)
+                scalar_ax.text(
+                    0.5,
+                    0.5,
+                    "No measurable drop",
+                    ha="center",
+                    va="center",
+                    transform=scalar_ax.transAxes,
+                )
+            for bar, value in zip(scalar_bars, scalar_values):
+                scalar_ax.annotate(
+                    f"{value:.3f}",
+                    xy=(bar.get_x() + bar.get_width() / 2, bar.get_height()),
+                    xytext=(0, 4),
+                    textcoords="offset points",
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                )
 
         temporal_labels = [f"{item['start_frame']}-{item['end_frame']}" for item in temporal]
         temporal_values = [item["mean_drop"] for item in temporal]
