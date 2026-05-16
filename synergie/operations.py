@@ -5,9 +5,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-import constants
 from synergie import pretrained_models
-from synergie import session_store
 from synergie.services.annotation_service import (
     ANNOTATION_EDGE_JUMP_OPTIONS,
     ANNOTATION_JUMP_TYPE_OPTIONS,
@@ -48,6 +46,18 @@ from synergie.services.detection_tuning_service import (
 )
 from synergie.services.quality_service import analyze_jump_quality
 from synergie.services.signal_importance_service import compute_signal_importance
+from synergie.services.session_service import (
+    add_session,
+    describe_file,
+    list_all_session_csv_files,
+    list_directory_files,
+    list_session_csv_files,
+    list_sessions,
+    next_jumplist_output_path,
+    session_directory,
+    session_metadata,
+    session_synchro,
+)
 from synergie.services.new_data_service import (
     files_for_new_imu_session,
     list_new_data_directories,
@@ -84,82 +94,6 @@ from synergie.services.video_service import (
     read_video_creation_time_with_ffprobe as _read_video_creation_time_with_ffprobe,
     select_best_video_datetime as _select_best_video_datetime,
 )
-
-
-def list_sessions() -> list[str]:
-    constants.sessions = session_store.load_sessions()
-    return sorted(constants.sessions)
-
-
-def session_metadata(session_name: str) -> dict:
-    constants.sessions = session_store.load_sessions()
-    return constants.get_session(session_name)
-
-
-def add_session(session_name: str, path: str, sample_time_fine_synchro: int) -> dict:
-    metadata = session_store.add_session(session_name, path, sample_time_fine_synchro)
-    constants.sessions = session_store.load_sessions()
-    return metadata
-
-
-def session_synchro(session_name: str) -> int:
-    return int(session_metadata(session_name)["sample_time_fine_synchro"])
-
-
-def list_session_csv_files(session_name: str, raw_root: str = "data/raw") -> list[Path]:
-    metadata = session_metadata(session_name)
-    session_dir = Path(raw_root) / metadata["path"]
-    if not session_dir.exists():
-        return []
-    return sorted(session_dir.glob("*.csv"))
-
-
-def list_all_session_csv_files(raw_root: str = "data/raw") -> list[dict]:
-    """Return all session CSV files with the metadata needed for processing."""
-    records: list[dict] = []
-    for session_name in list_sessions():
-        metadata = session_metadata(session_name)
-        for path in list_session_csv_files(session_name, raw_root=raw_root):
-            records.append(
-                {
-                    "path": path,
-                    "session_name": session_name,
-                    "sample_time_fine_synchro": int(metadata["sample_time_fine_synchro"]),
-                }
-            )
-    return records
-
-
-def list_directory_files(directory: str | Path) -> list[Path]:
-    directory_path = Path(directory)
-    if not directory_path.exists() or not directory_path.is_dir():
-        return []
-    return sorted(path for path in directory_path.iterdir() if path.is_file())
-
-
-def session_directory(session_name: str, raw_root: str = "data/raw") -> Path:
-    return Path(raw_root) / session_metadata(session_name)["path"]
-
-
-def describe_file(path: str | Path) -> dict:
-    file_path = Path(path)
-    stat = file_path.stat()
-    return {
-        "path": file_path,
-        "name": file_path.name,
-        "suffix": file_path.suffix.lower(),
-        "size_bytes": stat.st_size,
-    }
-
-
-def next_jumplist_output_path(directory: str | Path) -> Path:
-    directory_path = Path(directory)
-    index = 1
-    while True:
-        candidate = directory_path / f"jumplist_partie{index}.csv"
-        if not candidate.exists():
-            return candidate
-        index += 1
 
 
 def read_video_metadata(video_path: str | Path) -> dict:
