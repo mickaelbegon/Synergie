@@ -58,6 +58,14 @@ from synergie.services.new_data_service import (
     parse_new_imu_filename,
     suggest_for_annotation_output_path,
 )
+from synergie.services.model_registry_service import (
+    audit_saved_models,
+    format_pretrained_model_label,
+    latest_model_path_for_task,
+    list_pretrained_models_by_performance,
+    list_pretrained_training_models,
+    model_format as _model_format,
+)
 from synergie.services.training_dataset_service import (
     describe_training_dataset,
     find_training_dataset_duplicates,
@@ -204,33 +212,6 @@ def parse_training_id_from_csv_path(csv_path: Path) -> str | None:
     return training_parts[1]
 
 
-def list_pretrained_training_models(task: str | None = None, compatible_only: bool = False) -> list[dict]:
-    return pretrained_models.list_pretrained_models(task=task, compatible_only=compatible_only)
-
-
-def format_pretrained_model_label(model_entry: dict) -> str:
-    performance = model_entry.get("performance") or {}
-    accuracy = performance.get("test_accuracy")
-    if accuracy is None:
-        accuracy_text = "acc n/a"
-    else:
-        accuracy_text = f"acc {accuracy:.3f}"
-    status = "compatible" if model_entry.get("compatible") and model_entry.get("path_exists") else "not compatible"
-    return (
-        f"{model_entry['label']} | {model_entry['architecture']} | "
-        f"{accuracy_text} | {status}"
-    )
-
-
-def latest_model_path_for_task(task: str) -> str:
-    """Return the active model alias used by inference for one task."""
-    if task == "type":
-        return constants.modeltype_filepath
-    if task == "success":
-        return constants.modelsuccess_filepath
-    raise ValueError(f"Unsupported training task: {task}")
-
-
 def summarize_pending_annotation_files(root: str | Path = "data/pending") -> dict:
     """Return per-file and global pending annotation counts."""
     import pandas as pd
@@ -244,19 +225,6 @@ def summarize_pending_annotation_files(root: str | Path = "data/pending") -> dic
         for key in global_summary:
             global_summary[key] += summary[key]
     return {"files": file_summaries, **global_summary}
-
-
-def list_pretrained_models_by_performance(task: str) -> list[dict]:
-    """Return compatible models ordered by reported test accuracy."""
-    models = list_pretrained_training_models(task=task, compatible_only=True)
-    return sorted(
-        models,
-        key=lambda item: (
-            item.get("performance", {}).get("test_accuracy") is not None,
-            item.get("performance", {}).get("test_accuracy") or -1.0,
-        ),
-        reverse=True,
-    )
 
 
 def suggest_turns_from_rotation(rotation_value) -> str:
@@ -294,90 +262,6 @@ def prefill_annotation_predictions(
         frame.at[index, "prediction_source"] = "batch_model_prefill"
     result["rows"] = frame
     return result
-
-
-def audit_saved_models() -> list[dict]:
-    """
-    Inspect active and registered models under the current Python environment.
-
-    The audit distinguishes Keras 3 training-compatible files from legacy
-    TensorFlow SavedModel directories. Legacy directories can still be used for
-    inference through ``LegacySavedModelPredictor`` but cannot be resumed for
-    training with Keras 3.
-    """
-    from core.model import model
-
-    candidates: list[dict] = [
-        {"label": "Active type model", "task": "type", "path": latest_model_path_for_task("type")},
-        {"label": "Active success model", "task": "success", "path": latest_model_path_for_task("success")},
-        {"label": "Legacy type model alias", "task": "type", "path": str(Path(latest_model_path_for_task("type")).with_suffix(""))},
-        {"label": "Legacy success model alias", "task": "success", "path": str(Path(latest_model_path_for_task("success")).with_suffix(""))},
-    ]
-    candidates.extend(
-        {
-            "label": entry["label"],
-            "task": entry["task"],
-            "architecture": entry["architecture"],
-            "path": entry["path"],
-            "registered": True,
-        }
-        for entry in list_pretrained_training_models()
-    )
-
-    audited: list[dict] = []
-    seen_paths: set[str] = set()
-    for candidate in candidates:
-        path = str(candidate["path"]).replace("\\", "/")
-        if path in seen_paths:
-            continue
-        seen_paths.add(path)
-        model_path = Path(path)
-        item = dict(candidate)
-        item["path"] = path
-        item["exists"] = model_path.exists()
-        item["format"] = _model_format(model_path)
-        item["training_compatible"] = pretrained_models.supports_training_reload(model_path)
-        item["can_infer"] = False
-        item["can_resume_training"] = False
-        item["input_shapes"] = []
-        item["error"] = ""
-
-        if not item["exists"]:
-            item["error"] = "missing path"
-            audited.append(item)
-            continue
-
-        try:
-            loaded = model.load_model(path, for_training=False)
-            item["can_infer"] = True
-            item["input_shapes"] = [
-                tuple(dimension if dimension is None else int(dimension) for dimension in model_input.shape)
-                for model_input in getattr(loaded, "inputs", [])
-            ]
-        except Exception as exc:
-            item["error"] = f"inference load failed: {exc}"
-
-        if item["training_compatible"]:
-            try:
-                model.load_model(path, for_training=True)
-                item["can_resume_training"] = True
-            except Exception as exc:
-                if item["error"]:
-                    item["error"] += f" | training reload failed: {exc}"
-                else:
-                    item["error"] = f"training reload failed: {exc}"
-        audited.append(item)
-    return audited
-
-
-def _model_format(path: Path) -> str:
-    if path.is_file() and path.suffix.lower() == ".keras":
-        return "keras_v3"
-    if path.is_file() and path.suffix.lower() == ".h5":
-        return "keras_h5"
-    if path.is_dir() and (path / "saved_model.pb").exists():
-        return "legacy_saved_model"
-    return "unknown"
 
 
 def run_hyperparameter_search(
