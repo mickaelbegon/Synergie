@@ -37,6 +37,7 @@ from synergie.services.annotation_generation_service import (
     process_new_imu_file_for_annotation,
     process_new_imu_session_for_annotation,
 )
+from synergie.services.csv_processing_service import process_csv_file
 from synergie.services.hyperparameter_search_service import (
     hyperparameter_search_space,
     sample_hyperparameter_trials,
@@ -265,34 +266,6 @@ def prefill_annotation_predictions(
         frame.at[index, "prediction_source"] = "batch_model_prefill"
     result["rows"] = frame
     return result
-
-
-def process_csv_file(
-    csv_path: str,
-    synchro: int = 0,
-    output_path: str | None = None,
-    *,
-    type_model_path: str | None = None,
-    success_model_path: str | None = None,
-) -> dict:
-    from core.data_treatment.data_generation.exporter import export
-    import pandas as pd
-
-    input_path = Path(csv_path)
-    dataframe = pd.read_csv(input_path)
-    result = export(
-        dataframe,
-        sampleTimeFineSynchro=synchro,
-        type_model_path=type_model_path,
-        success_model_path=success_model_path,
-    )
-    destination = Path(output_path) if output_path else input_path.with_name(f"{input_path.stem}_jumps.csv")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    result.to_csv(destination, index=False)
-    return {
-        "path": destination,
-        "prediction_status": result.attrs.get("prediction_status", "unknown"),
-    }
 
 
 def _safe_float(value, default: float = 0.0) -> float:
