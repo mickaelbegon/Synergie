@@ -253,8 +253,10 @@ class SynergieToolsApp:
         tuner_tab = ttk.Frame(notebook, padding=12)
         detection_tuning_tab = ttk.Frame(notebook, padding=12)
         quality_tab = ttk.Frame(notebook, padding=12)
+        inventory_tab = ttk.Frame(notebook, padding=12)
         notes_tab = ttk.Frame(notebook, padding=12)
         notebook.add(workflow_tab, text="Start - Workflow")
+        notebook.add(inventory_tab, text="Data - Status")
         notebook.add(sessions_tab, text="Data - Sessions")
         notebook.add(new_data_tab, text="Data - New")
         notebook.add(process_tab, text="Data - Process")
@@ -288,6 +290,7 @@ class SynergieToolsApp:
         ttk.Button(sessions_tab, text="Refresh sessions", command=self._refresh_all_sessions).grid(row=2, column=0, sticky="w", pady=(8, 0))
 
         self._build_workflow_tab(workflow_tab)
+        self._build_inventory_tab(inventory_tab)
         self._build_process_tab(process_tab)
         self._build_new_data_tab(new_data_tab)
         self._build_annotate_tab(annotate_tab)
@@ -418,6 +421,34 @@ class SynergieToolsApp:
         self.process_log = scrolledtext.ScrolledText(parent, height=18, wrap=tk.WORD)
         self.process_log.grid(row=7, column=0, columnspan=3, sticky="nsew")
         parent.rowconfigure(7, weight=1)
+
+    def _build_inventory_tab(self, parent: ttk.Frame) -> None:
+        """Build a cross-folder view of the current data pipeline state."""
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(2, weight=1)
+        ttk.Label(
+            parent,
+            text="Etat derive automatiquement depuis data/new, data/pending, data/annotated et le jumplist d'entrainement.",
+            justify=tk.LEFT,
+        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        ttk.Button(parent, text="Refresh data status", command=self._refresh_data_inventory).grid(row=1, column=0, sticky="w", pady=(0, 8))
+        columns = ("session", "new", "pending", "annotated", "training", "workflow", "predictions")
+        self.data_inventory_tree = ttk.Treeview(parent, columns=columns, show="headings")
+        headings = {
+            "session": "Session / folder",
+            "new": "New IMU",
+            "pending": "Pending CSV",
+            "annotated": "Annotated CSV",
+            "training": "Used to train",
+            "workflow": "Workflow",
+            "predictions": "Predictions",
+        }
+        widths = {"session": 180, "new": 80, "pending": 90, "annotated": 100, "training": 100, "workflow": 140, "predictions": 120}
+        for column in columns:
+            self.data_inventory_tree.heading(column, text=headings[column])
+            self.data_inventory_tree.column(column, width=widths[column], anchor="center" if column != "session" else "w")
+        self.data_inventory_tree.grid(row=2, column=0, sticky="nsew")
+        self._refresh_data_inventory()
 
     def _build_inspect_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=0)
@@ -1262,6 +1293,26 @@ class SynergieToolsApp:
         self._populate_sessions()
         self._refresh_session_selectors()
         self._refresh_session_file_lists()
+
+    def _refresh_data_inventory(self) -> None:
+        if not hasattr(self, "data_inventory_tree"):
+            return
+        for item in self.data_inventory_tree.get_children():
+            self.data_inventory_tree.delete(item)
+        for row in operations.build_data_inventory():
+            self.data_inventory_tree.insert(
+                "",
+                tk.END,
+                values=(
+                    row["session"],
+                    row["new_files"],
+                    row["pending_files"],
+                    row["annotated_files"],
+                    row["training_rows"],
+                    row["workflow_status"] or "-",
+                    row["prediction_status"] or "-",
+                ),
+            )
 
     def _add_session_from_gui(self) -> None:
         session_id = self.new_session_id_var.get().strip()

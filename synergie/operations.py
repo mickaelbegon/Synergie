@@ -44,6 +44,7 @@ from synergie.services.detection_tuning_service import (
     analyze_detection_review_labels,
     optimize_detection_parameters,
 )
+from synergie.services.data_inventory_service import build_data_inventory
 from synergie.services.quality_service import analyze_jump_quality
 from synergie.services.signal_importance_service import compute_signal_importance
 from synergie.services.session_service import (
