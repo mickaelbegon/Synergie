@@ -434,7 +434,7 @@ class SynergieToolsApp:
             justify=tk.LEFT,
         ).grid(row=0, column=0, sticky="w", pady=(0, 8))
         ttk.Button(parent, text="Refresh data status", command=self._refresh_data_inventory).grid(row=1, column=0, sticky="w", pady=(0, 8))
-        columns = ("session", "new", "pending", "segments", "trainable", "training", "workflow", "predictions")
+        columns = ("session", "new", "pending", "segments", "trainable", "total", "trainable_total", "workflow", "predictions")
         self.data_inventory_tree = ttk.Treeview(parent, columns=columns, show="headings")
         headings = {
             "session": "Session / folder",
@@ -442,11 +442,12 @@ class SynergieToolsApp:
             "pending": "Pending CSV",
             "segments": "Segments stored",
             "trainable": "Trainable labels",
-            "training": "Used to train",
+            "total": "Rows in total",
+            "trainable_total": "Trainable in total",
             "workflow": "Workflow",
             "predictions": "Predictions",
         }
-        widths = {"session": 180, "new": 80, "pending": 90, "segments": 110, "trainable": 110, "training": 100, "workflow": 140, "predictions": 120}
+        widths = {"session": 180, "new": 80, "pending": 90, "segments": 110, "trainable": 110, "total": 100, "trainable_total": 110, "workflow": 140, "predictions": 120}
         for column in columns:
             self.data_inventory_tree.heading(column, text=headings[column])
             self.data_inventory_tree.column(column, width=widths[column], anchor="center" if column != "session" else "w")
@@ -1327,7 +1328,8 @@ class SynergieToolsApp:
             "pending_files": sum(row["pending_files"] for row in rows),
             "stored_segments": sum(row["stored_segments"] for row in rows),
             "trainable_labels": sum(row["trainable_labels"] for row in rows),
-            "training_rows": sum(row["training_rows"] for row in rows),
+            "total_rows": sum(row["total_rows"] for row in rows),
+            "trainable_total_rows": sum(row["trainable_total_rows"] for row in rows),
         }
         self.data_inventory_tree.insert(
             "",
@@ -1338,7 +1340,8 @@ class SynergieToolsApp:
                 totals["pending_files"],
                 totals["stored_segments"],
                 totals["trainable_labels"],
-                totals["training_rows"],
+                totals["total_rows"],
+                totals["trainable_total_rows"],
                 "-",
                 "-",
             ),
@@ -1354,7 +1357,8 @@ class SynergieToolsApp:
                     row["pending_files"],
                     row["stored_segments"],
                     row["trainable_labels"],
-                    row["training_rows"],
+                    row["total_rows"],
+                    row["trainable_total_rows"],
                     row["workflow_status"] or "-",
                     row["prediction_status"] or "-",
                 ),
