@@ -47,5 +47,5 @@ class DataInventoryServiceTests(unittest.TestCase):
             self.assertEqual(by_session["20250911_085656"]["new_files"], 1)
             self.assertEqual(by_session["20250911_085656"]["pending_files"], 1)
             self.assertEqual(by_session["20250911_085656"]["workflow_status"], "pending_annotation")
-            self.assertEqual(by_session["20250911/0856"]["annotated_files"], 1)
+            self.assertEqual(by_session["20250911/0856"]["stored_segments"], 1)
             self.assertEqual(by_session["20250911/0856"]["training_rows"], 1)

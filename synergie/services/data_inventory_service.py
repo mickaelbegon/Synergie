@@ -46,7 +46,10 @@ def build_data_inventory(
                 key = f"{first_level.name}/{second_level.name}"
                 row = rows[key]
                 row["session"] = key
-                row["annotated_files"] = sum(1 for path in second_level.rglob("*.csv") if path.is_file())
+                row["stored_segments"] = sum(
+                    1 for path in second_level.rglob("*.csv") if path.is_file() and not path.name.lower().startswith("jumplist")
+                )
+                row["trainable_labels"] = _count_trainable_local_labels(second_level)
 
     jumplist_path = Path(training_dataset_root) / "jumplist.csv"
     if jumplist_path.exists():
@@ -70,7 +73,8 @@ def _empty_row() -> dict:
         "session": "",
         "new_files": 0,
         "pending_files": 0,
-        "annotated_files": 0,
+        "stored_segments": 0,
+        "trainable_labels": 0,
         "training_rows": 0,
         "workflow_status": "",
         "prediction_status": "",
@@ -83,3 +87,22 @@ def _annotated_parent_key(path_value: str) -> str:
     if len(parts) < 4 or parts[0:2] != ["data", "annotated"]:
         return ""
     return f"{parts[2]}/{parts[3]}"
+
+
+def _count_trainable_local_labels(session_dir: Path) -> int:
+    """Count local legacy labels that are trainable, if a jumplist exists."""
+    import pandas as pd
+
+    candidates = sorted(path for path in session_dir.glob("jumplist*.csv") if path.is_file())
+    if not candidates:
+        return 0
+    try:
+        frame = pd.read_csv(candidates[0])
+    except Exception:
+        return 0
+    success_column = "success" if "success" in frame else "sucess" if "sucess" in frame else None
+    if "type" not in frame or success_column is None:
+        return 0
+    jump_types = pd.to_numeric(frame["type"], errors="coerce")
+    success = pd.to_numeric(frame[success_column], errors="coerce")
+    return int(((jump_types != 8) & (success != 2)).sum())

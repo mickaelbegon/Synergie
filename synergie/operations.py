@@ -40,6 +40,7 @@ from synergie.services.hyperparameter_search_service import (
     hyperparameter_search_space,
     sample_hyperparameter_trials,
 )
+from synergie.services.legacy_import_service import import_legacy_jumplist
 from synergie.services.detection_tuning_service import (
     analyze_detection_review_labels,
     load_optimized_detection_parameters,

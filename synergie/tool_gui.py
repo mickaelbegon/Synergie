@@ -434,23 +434,30 @@ class SynergieToolsApp:
             justify=tk.LEFT,
         ).grid(row=0, column=0, sticky="w", pady=(0, 8))
         ttk.Button(parent, text="Refresh data status", command=self._refresh_data_inventory).grid(row=1, column=0, sticky="w", pady=(0, 8))
-        columns = ("session", "new", "pending", "annotated", "training", "workflow", "predictions")
+        columns = ("session", "new", "pending", "segments", "trainable", "training", "workflow", "predictions")
         self.data_inventory_tree = ttk.Treeview(parent, columns=columns, show="headings")
         headings = {
             "session": "Session / folder",
             "new": "New IMU",
             "pending": "Pending CSV",
-            "annotated": "Annotated CSV",
+            "segments": "Segments stored",
+            "trainable": "Trainable labels",
             "training": "Used to train",
             "workflow": "Workflow",
             "predictions": "Predictions",
         }
-        widths = {"session": 180, "new": 80, "pending": 90, "annotated": 100, "training": 100, "workflow": 140, "predictions": 120}
+        widths = {"session": 180, "new": 80, "pending": 90, "segments": 110, "trainable": 110, "training": 100, "workflow": 140, "predictions": 120}
         for column in columns:
             self.data_inventory_tree.heading(column, text=headings[column])
             self.data_inventory_tree.column(column, width=widths[column], anchor="center" if column != "session" else "w")
         self.data_inventory_tree.tag_configure("total", font=("Segoe UI", 9, "bold"))
         self.data_inventory_tree.grid(row=2, column=0, sticky="nsew")
+        ttk.Button(parent, text="Import legacy annotated session...", command=self._import_legacy_annotated_session).grid(
+            row=3,
+            column=0,
+            sticky="w",
+            pady=(8, 0),
+        )
         self._refresh_data_inventory()
 
     def _build_inspect_tab(self, parent: ttk.Frame) -> None:
@@ -1318,7 +1325,8 @@ class SynergieToolsApp:
         totals = {
             "new_files": sum(row["new_files"] for row in rows),
             "pending_files": sum(row["pending_files"] for row in rows),
-            "annotated_files": sum(row["annotated_files"] for row in rows),
+            "stored_segments": sum(row["stored_segments"] for row in rows),
+            "trainable_labels": sum(row["trainable_labels"] for row in rows),
             "training_rows": sum(row["training_rows"] for row in rows),
         }
         self.data_inventory_tree.insert(
@@ -1328,7 +1336,8 @@ class SynergieToolsApp:
                 "TOTAL",
                 totals["new_files"],
                 totals["pending_files"],
-                totals["annotated_files"],
+                totals["stored_segments"],
+                totals["trainable_labels"],
                 totals["training_rows"],
                 "-",
                 "-",
@@ -1343,12 +1352,38 @@ class SynergieToolsApp:
                     row["session"],
                     row["new_files"],
                     row["pending_files"],
-                    row["annotated_files"],
+                    row["stored_segments"],
+                    row["trainable_labels"],
                     row["training_rows"],
                     row["workflow_status"] or "-",
                     row["prediction_status"] or "-",
                 ),
             )
+
+    def _import_legacy_annotated_session(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Select legacy jumplist",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        if not messagebox.askyesno(
+            "Synergie Tools",
+            "Import trainable rows from this legacy jumplist into the total training dataset?",
+        ):
+            return
+        try:
+            result = operations.import_legacy_jumplist(path, dataset_path=self.dataset_var.get())
+        except Exception as exc:
+            messagebox.showerror("Synergie Tools", f"Unable to import legacy jumplist.\n\n{exc}")
+            return
+        self._refresh_data_inventory()
+        self._refresh_training_dataset_stats()
+        messagebox.showinfo(
+            "Synergie Tools",
+            f"Legacy import complete.\n\nRows added: {result['rows_added']}\n"
+            f"Previous total jumplist archived at: {result['archive_path']}",
+        )
 
     def _add_session_from_gui(self) -> None:
         session_id = self.new_session_id_var.get().strip()
