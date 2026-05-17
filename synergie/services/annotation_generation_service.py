@@ -9,6 +9,8 @@ from synergie.services.new_data_service import (
     parse_new_imu_filename,
     suggest_for_annotation_output_path,
 )
+from synergie.services.session_service import suggest_session_from_imu_file
+from synergie.services.workflow_state_service import record_pending_session
 
 
 def process_new_imu_file_for_annotation(
@@ -71,6 +73,15 @@ def process_new_imu_session_for_annotation(
         if type_model_path and success_model_path:
             annotation_frame, prediction_summary = _prefill_predictions(annotation_frame, type_model_path, success_model_path)
     annotation_frame.to_csv(output_csv_path, index=False)
+    session_suggestion = suggest_session_from_imu_file(raw_path)
+    workflow_entry = record_pending_session(
+        session_key=new_imu_session_key(metadata),
+        source_files=[item["path"] for item in session_files],
+        annotation_csv=output_csv_path,
+        raw_destination=Path("data/raw") / session_suggestion["path"],
+        prediction_status=prediction_summary["status"],
+        root=pending_root_path,
+    )
     return {
         "annotation_csv": output_csv_path,
         "segment_directory": segment_root,
@@ -81,6 +92,7 @@ def process_new_imu_session_for_annotation(
         "prediction_status": prediction_summary["status"],
         "predictions_updated": prediction_summary["updated"],
         "predictions_skipped": prediction_summary["skipped"],
+        "workflow_entry": workflow_entry,
     }
 
 

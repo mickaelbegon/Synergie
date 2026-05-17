@@ -10,6 +10,7 @@ from synergie.services.training_dataset_service import (
     find_training_dataset_duplicates,
     training_dataset_state_path,
 )
+from synergie.services.workflow_state_service import mark_finalized_session, session_workflow_entry
 
 
 def finalize_annotation_file(
@@ -50,16 +51,20 @@ def finalize_annotation_file(
     session_key = str(trainable.iloc[0].get("session_key", annotation_path.stem.replace("_for_annotation", "")))
     destination_rows, planned_moves = _plan_segment_moves(trainable, annotated_root_path, session_key)
     _validate_destinations(existing, destination_rows, planned_moves)
+    planned_raw_moves = _plan_source_raw_moves(session_key)
 
     archive_path = _archive_jumplist(jumplist_path, dataset_root)
     _move_segments(planned_moves)
+    _move_files(planned_raw_moves)
     _merge_rows(existing, destination_rows, jumplist_path, dataset_root)
     completed_annotation_path = _move_completed_annotation(annotation_path, annotated_root_path, session_key)
+    mark_finalized_session(session_key)
     state = _write_dataset_state(dataset_root, completed_annotation_path, destination_rows, archive_path)
     return {
         "rows_added": int(len(destination_rows)),
         "archive_path": archive_path,
         "completed_annotation_path": completed_annotation_path,
+        "raw_files_moved": len(planned_raw_moves),
         "state": state,
     }
 
@@ -105,6 +110,10 @@ def _archive_jumplist(jumplist_path: Path, dataset_root: Path) -> Path:
 
 
 def _move_segments(planned_moves: list[tuple[Path, Path]]) -> None:
+    _move_files(planned_moves)
+
+
+def _move_files(planned_moves: list[tuple[Path, Path]]) -> None:
     for source, destination in planned_moves:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(source), str(destination))
@@ -129,6 +138,22 @@ def _move_completed_annotation(annotation_path: Path, annotated_root_path: Path,
     if metadata_path.exists():
         shutil.move(str(metadata_path), str(completed_annotation_path.with_suffix(".annotation_meta.json")))
     return completed_annotation_path
+
+
+def _plan_source_raw_moves(session_key: str) -> list[tuple[Path, Path]]:
+    """Plan and validate moves from incoming IMU files into raw storage."""
+    entry = session_workflow_entry(session_key)
+    if not entry:
+        return []
+    destination_root = Path(entry["raw_destination"])
+    planned_moves = [(Path(source), destination_root / Path(source).name) for source in entry.get("source_files", [])]
+    collisions = [destination for _source, destination in planned_moves if destination.exists()]
+    if collisions:
+        raise ValueError(f"Cannot finalize: raw destination already exists: {collisions[0]}")
+    missing = [source for source, _destination in planned_moves if not source.exists()]
+    if missing:
+        raise FileNotFoundError(f"Cannot finalize: missing source raw IMU file: {missing[0]}")
+    return planned_moves
 
 
 def _write_dataset_state(dataset_root: Path, completed_annotation_path: Path, destination_rows: list[dict], archive_path: Path) -> dict:

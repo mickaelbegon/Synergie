@@ -72,6 +72,8 @@ def list_new_imu_files(root: str | Path = "data/new", directory: str | Path | No
 
 def list_new_imu_sessions(root: str | Path = "data/new", directory: str | Path | None = None) -> list[dict]:
     """Group incoming IMU files by timestamped recording session."""
+    from synergie.services.workflow_state_service import session_workflow_entry
+
     sessions: dict[str, dict] = {}
     for metadata in list_new_imu_files(root=root, directory=directory):
         session_key = new_imu_session_key(metadata)
@@ -90,6 +92,7 @@ def list_new_imu_sessions(root: str | Path = "data/new", directory: str | Path |
     session_list.sort(key=lambda item: item["recorded_at"])
     for session in session_list:
         session["files"].sort(key=lambda item: int(item["sensor_id"]))
+        session["workflow"] = session_workflow_entry(session["session_key"])
     return session_list
 
 

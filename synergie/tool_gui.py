@@ -1315,9 +1315,11 @@ class SynergieToolsApp:
     def _format_new_data_file_label(self, metadata: dict) -> str:
         if "files" in metadata:
             sensors = ", ".join(file_metadata["sensor_id"] for file_metadata in metadata["files"])
+            workflow = metadata.get("workflow") or {}
+            status_suffix = f" | {workflow['status']}" if workflow.get("status") else ""
             return (
                 f"{metadata['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')} | "
-                f"{len(metadata['files'])} sensors [{sensors}]"
+                f"{len(metadata['files'])} sensors [{sensors}]{status_suffix}"
             )
         return (
             f"sensor {metadata['sensor_id']} | {metadata['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')} | "
@@ -2153,7 +2155,8 @@ class SynergieToolsApp:
         sensors = ", ".join(file_metadata["sensor_id"] for file_metadata in session["files"])
         self.new_data_summary_var.set(
             f"Session: {session['session_key']}\n"
-            f"Sensors: {sensors} | {session['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')}"
+            f"Sensors: {sensors} | {session['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"Workflow: {(session.get('workflow') or {}).get('status', 'not processed yet')}"
         )
 
     def _add_selected_new_data_session(self) -> None:
@@ -2299,7 +2302,7 @@ class SynergieToolsApp:
         row = self.annotation_dataframe.iloc[index]
         review_status = operations.annotation_review_status_from_row(row)
         type_value = int(float(row.get("type", 8)))
-        type_key = next((key for key, _label, value in operations.ANNOTATION_JUMP_TYPE_OPTIONS if value == type_value), "toe_loop")
+        type_key = next((key for key, _label, value in operations.ANNOTATION_JUMP_TYPE_OPTIONS if value == type_value), "")
         self.annotation_type_var.set(type_key)
         self.annotation_turn_var.set(operations.annotation_turn_value_for_ui(type_key, row.get("turns", "")))
         self.annotation_success_var.set(str(int(float(row.get("success", 2)))))
@@ -2314,7 +2317,7 @@ class SynergieToolsApp:
     def _sync_annotation_turn_options(self) -> None:
         options = operations.annotation_turn_options(self.annotation_type_var.get())
         if self.annotation_turn_var.get() not in options:
-            self.annotation_turn_var.set(options[0] if options else "")
+            self.annotation_turn_var.set(options[0] if options and self.annotation_type_var.get() else "")
         self._sync_annotation_review_controls()
 
     def _sync_annotation_review_controls(self) -> None:
@@ -2928,6 +2931,7 @@ class SynergieToolsApp:
             "Synergie Tools",
             f"Finalization complete.\n\n"
             f"Rows added: {result['rows_added']}\n"
+            f"Raw IMU files moved: {result['raw_files_moved']}\n"
             f"Previous jumplist archived at: {result['archive_path']}\n\n"
             "The training dataset changed; retraining is recommended.",
         )
@@ -3167,6 +3171,18 @@ class SynergieToolsApp:
         if not raw_file:
             messagebox.showwarning("Synergie Tools", "Select an IMU file from New Data first.")
             return
+        session_suggestion = operations.suggest_session_from_imu_file(raw_file)
+        selected_session = next(
+            (item for item in self._new_data_files_cache if item["session_key"] == session_suggestion["session_id"]),
+            None,
+        )
+        workflow = (selected_session or {}).get("workflow") or {}
+        if workflow.get("status") == "pending_annotation":
+            if not messagebox.askyesno(
+                "Synergie Tools",
+                "This session is already available in pending annotation files.\n\nProcess it again anyway?",
+            ):
+                return
 
         self.status_var.set("Processing new IMU file for annotation...")
         self.new_data_log.delete("1.0", tk.END)
@@ -3174,7 +3190,6 @@ class SynergieToolsApp:
         def action() -> None:
             type_path = self._process_prediction_model_path("type", self.process_type_model_var.get())
             success_path = self._process_prediction_model_path("success", self.process_success_model_var.get())
-            session_suggestion = operations.suggest_session_from_imu_file(raw_file)
             sample_time_fine_synchro = 0
             if session_suggestion["session_id"] in operations.list_sessions():
                 sample_time_fine_synchro = operations.session_synchro(session_suggestion["session_id"])
