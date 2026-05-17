@@ -56,12 +56,24 @@ def build_data_inventory(
         import pandas as pd
 
         frame = pd.read_csv(jumplist_path)
-        for path_value, count in frame["path"].fillna("").astype(str).map(_annotated_parent_key).value_counts().items():
+        normalized_keys = frame["path"].fillna("").astype(str).map(_annotated_parent_key)
+        for path_value, count in normalized_keys.value_counts().items():
             if not path_value:
                 continue
             row = rows[path_value]
             row["session"] = path_value
-            row["training_rows"] = int(count)
+            row["total_rows"] = int(count)
+        if {"type", "success"}.issubset(frame.columns):
+            trainable_mask = (
+                frame["type"].apply(_safe_numeric).isin([0, 1, 2, 3, 4, 5])
+                & frame["success"].apply(_safe_numeric).isin([0, 1])
+            )
+            for path_value, count in normalized_keys[trainable_mask].value_counts().items():
+                if not path_value:
+                    continue
+                row = rows[path_value]
+                row["session"] = path_value
+                row["trainable_total_rows"] = int(count)
 
     result = list(rows.values())
     result.sort(key=lambda item: item["session"])
@@ -75,7 +87,8 @@ def _empty_row() -> dict:
         "pending_files": 0,
         "stored_segments": 0,
         "trainable_labels": 0,
-        "training_rows": 0,
+        "total_rows": 0,
+        "trainable_total_rows": 0,
         "workflow_status": "",
         "prediction_status": "",
     }
@@ -105,4 +118,11 @@ def _count_trainable_local_labels(session_dir: Path) -> int:
         return 0
     jump_types = pd.to_numeric(frame["type"], errors="coerce")
     success = pd.to_numeric(frame[success_column], errors="coerce")
-    return int(((jump_types != 8) & (success != 2)).sum())
+    return int((jump_types.isin([0, 1, 2, 3, 4, 5]) & success.isin([0, 1])).sum())
+
+
+def _safe_numeric(value):
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
