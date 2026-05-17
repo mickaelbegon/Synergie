@@ -38,6 +38,15 @@ class LoaderMirrorTests(unittest.TestCase):
         self.assertTrue(Loader._can_use_stratify([0, 0, 1, 1, 0, 1], train_ratio=0.8))
         self.assertFalse(Loader._can_use_stratify([0, 0, 0, 1], train_ratio=0.8))
 
+    def test_lookup_skater_info_explains_unknown_athlete(self):
+        import pandas as pd
+
+        with self.assertRaisesRegex(ValueError, "Unknown skater '20250901_0910_10'"):
+            Loader._lookup_skater_info(
+                pd.DataFrame({"skater": ["10"], "weight": [71], "height": [174]}),
+                "20250901_0910_10",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

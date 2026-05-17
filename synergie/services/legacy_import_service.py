@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 from datetime import datetime
 from pathlib import Path
+import re
 
 from synergie.services.training_dataset_service import find_training_dataset_duplicates
 
@@ -109,6 +110,8 @@ def _normalize_legacy_frame(frame, session_dir: Path):
     normalized["path"] = normalized["path"].fillna("").astype(str).map(
         lambda value: _resolve_legacy_segment_path(value, session_dir)
     )
+    if "skater" in normalized:
+        normalized["skater"] = normalized["skater"].map(_normalize_legacy_skater_id)
     return normalized
 
 
@@ -139,6 +142,13 @@ def _session_key_from_annotated_path(path_value: str) -> str:
     if len(parts) < 4 or parts[:2] != ["data", "annotated"]:
         return ""
     return f"{parts[2]}/{parts[3]}"
+
+
+def _normalize_legacy_skater_id(value):
+    """Collapse legacy session-prefixed skater ids such as 20250901_0910_10 to 10."""
+    text = str(value)
+    match = re.fullmatch(r"\d{8}_\d{4}_(\d+)", text)
+    return match.group(1) if match else value
 
 
 def _merge_trainable_rows(trainable, dataset_path: str | Path) -> dict:

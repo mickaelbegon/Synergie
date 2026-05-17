@@ -51,7 +51,7 @@ class Loader:
                 jumpFrame = pd.read_csv(row['path'])
                 jumpFrame = jumpFrame[fields_to_keep]
 
-                skater_info = skaterData[skaterData["skater"] == row["skater"]][["weight","height"]].to_numpy()[0]
+                skater_info = self._lookup_skater_info(skaterData, row["skater"])
                 type_window = np.nan_to_num(jumpFrame[:TYPE_WINDOW_FRAMES].copy().to_numpy(), nan=0.0, posinf=0.0, neginf=0.0)
                 success_window = np.nan_to_num(jumpFrame[SUCCESS_WINDOW_START:].copy().reset_index(drop=True).to_numpy(), nan=0.0, posinf=0.0, neginf=0.0)
                 jumps.append((type_window, skater_info))
@@ -141,6 +141,17 @@ class Loader:
             if column_name in field_names:
                 mirrored[:, field_names.index(column_name)] *= -1
         return mirrored
+
+    @staticmethod
+    def _lookup_skater_info(skater_data: pd.DataFrame, skater_id) -> np.ndarray:
+        """Return scalar athlete data and fail clearly when labels reference an unknown athlete."""
+        matches = skater_data[skater_data["skater"].astype(str) == str(skater_id)][["weight", "height"]].to_numpy()
+        if len(matches) == 0:
+            raise ValueError(
+                f"Unknown skater '{skater_id}' in jumplist.csv. "
+                "Add this athlete to skaterData.csv or normalize the legacy skater id before training."
+            )
+        return matches[0]
 
     @staticmethod
     def _class_counts(encoded_labels) -> dict[int, int]:

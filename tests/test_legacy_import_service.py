@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from synergie.services.legacy_import_service import import_legacy_jumplist
+from synergie.services.legacy_import_service import _normalize_legacy_skater_id, import_legacy_jumplist
 
 
 class LegacyImportServiceTests(unittest.TestCase):
@@ -36,3 +36,7 @@ class LegacyImportServiceTests(unittest.TestCase):
             self.assertEqual(result["rows_added"], 1)
             self.assertEqual(len(merged), 1)
             self.assertTrue(merged.loc[0, "path"].endswith("segment.csv"))
+
+    def test_normalizes_session_prefixed_skater_ids(self):
+        self.assertEqual(_normalize_legacy_skater_id("20250901_0910_10"), "10")
+        self.assertEqual(_normalize_legacy_skater_id("sensor_10"), "sensor_10")
