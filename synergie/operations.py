@@ -38,7 +38,9 @@ from synergie.services.annotation_generation_service import (
 from synergie.services.csv_processing_service import process_csv_file
 from synergie.services.hyperparameter_search_service import (
     hyperparameter_search_space,
+    load_optimized_model_parameters,
     sample_hyperparameter_trials,
+    save_optimized_model_parameters,
 )
 from synergie.services.legacy_import_service import import_legacy_jumplist, migrate_legacy_annotation_workbook
 from synergie.services.detection_tuning_service import (

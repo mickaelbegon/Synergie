@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import itertools
+import json
 import random
+from datetime import datetime
+from pathlib import Path
+
+
+OPTIMIZED_MODEL_PARAMETERS_FILE = Path("config") / "optimized_model_parameters.json"
 
 
 def hyperparameter_search_space(task: str, architecture: str) -> list[dict]:
@@ -91,3 +97,41 @@ def sample_hyperparameter_trials(
     if max_trials >= len(candidates):
         return candidates
     return random.Random(random_seed).sample(candidates, k=max_trials)
+
+
+def save_optimized_model_parameters(
+    task: str,
+    architecture: str,
+    best_trial: dict,
+    *,
+    path: str | Path = OPTIMIZED_MODEL_PARAMETERS_FILE,
+) -> Path:
+    """Persist the best explored parameters for reuse by future training runs."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = _load_parameter_store(output_path)
+    payload.setdefault(task, {})[architecture] = {
+        "parameters": dict(best_trial["parameters"]),
+        "best_val_accuracy": float(best_trial.get("best_val_accuracy", 0.0)),
+        "trial": int(best_trial.get("trial", 0)),
+        "saved_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return output_path
+
+
+def load_optimized_model_parameters(
+    task: str,
+    architecture: str,
+    *,
+    path: str | Path = OPTIMIZED_MODEL_PARAMETERS_FILE,
+) -> dict | None:
+    """Load persisted tuned parameters for one task/architecture pair."""
+    entry = _load_parameter_store(Path(path)).get(task, {}).get(architecture)
+    return dict(entry) if entry else None
+
+
+def _load_parameter_store(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))

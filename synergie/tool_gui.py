@@ -127,6 +127,8 @@ class SynergieToolsApp:
         self.train_dropout_var = tk.StringVar(value="")
         self.train_filters_var = tk.StringVar(value="")
         self.train_modules_var = tk.StringVar(value="")
+        self.train_parameter_profile_var = tk.StringVar(value="Default parameters")
+        self.train_parameter_profile_summary_var = tk.StringVar(value="Using architecture defaults.")
         self.train_dataset_stats_var = tk.StringVar(value="Dataset stats not loaded yet.")
         self.train_quality_summary_var = tk.StringVar(value="No training run yet.")
         self.use_pretrained_var = tk.BooleanVar(value=False)
@@ -995,6 +997,7 @@ class SynergieToolsApp:
         self.train_architecture_box = ttk.Combobox(controls, textvariable=self.train_architecture_var, state="readonly", width=24)
         self.train_architecture_box.grid(row=1, column=1, sticky="ew")
         self._add_tooltip(self.train_architecture_box, "Architecture du reseau pour un nouvel entrainement.")
+        self.train_architecture_box.bind("<<ComboboxSelected>>", self._on_train_architecture_changed)
         self._sync_train_architectures()
 
         ttk.Label(controls, text="Dataset").grid(row=2, column=0, sticky="w", pady=4)
@@ -1007,25 +1010,47 @@ class SynergieToolsApp:
         epochs_entry.grid(row=3, column=1, sticky="w")
         self._add_tooltip(epochs_entry, "Nombre maximal de passes sur le jeu d'entrainement.")
 
-        ttk.Label(controls, text="Batch size").grid(row=4, column=0, sticky="w", pady=4)
+        ttk.Label(controls, text="Parameter profile").grid(row=4, column=0, sticky="w", pady=4)
+        self.train_parameter_profile_box = ttk.Combobox(
+            controls,
+            textvariable=self.train_parameter_profile_var,
+            values=["Default parameters", "Optimized parameters"],
+            state="readonly",
+            width=24,
+        )
+        self.train_parameter_profile_box.grid(row=4, column=1, sticky="ew")
+        self.train_parameter_profile_box.bind("<<ComboboxSelected>>", self._on_train_parameter_profile_changed)
+        self._add_tooltip(
+            self.train_parameter_profile_box,
+            "Choisit les valeurs par defaut de l'architecture ou le meilleur profil sauvegarde depuis Models - Tune.",
+        )
+        ttk.Label(controls, textvariable=self.train_parameter_profile_summary_var, justify=tk.LEFT, wraplength=330).grid(
+            row=5,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(0, 4),
+        )
+
+        ttk.Label(controls, text="Batch size").grid(row=6, column=0, sticky="w", pady=4)
         batch_entry = ttk.Entry(controls, textvariable=self.train_batch_size_var, width=10)
-        batch_entry.grid(row=4, column=1, sticky="w")
+        batch_entry.grid(row=6, column=1, sticky="w")
         self._add_tooltip(batch_entry, "Nombre d'exemples traites avant chaque mise a jour des poids. Vide = valeur Keras par defaut.")
-        ttk.Label(controls, text="Learning rate").grid(row=5, column=0, sticky="w", pady=4)
+        ttk.Label(controls, text="Learning rate").grid(row=7, column=0, sticky="w", pady=4)
         learning_rate_entry = ttk.Entry(controls, textvariable=self.train_learning_rate_var, width=10)
-        learning_rate_entry.grid(row=5, column=1, sticky="w")
+        learning_rate_entry.grid(row=7, column=1, sticky="w")
         self._add_tooltip(learning_rate_entry, "Taille des mises a jour de l'optimiseur. Vide = valeur de l'architecture.")
-        ttk.Label(controls, text="Dropout").grid(row=6, column=0, sticky="w", pady=4)
+        ttk.Label(controls, text="Dropout").grid(row=8, column=0, sticky="w", pady=4)
         dropout_entry = ttk.Entry(controls, textvariable=self.train_dropout_var, width=10)
-        dropout_entry.grid(row=6, column=1, sticky="w")
+        dropout_entry.grid(row=8, column=1, sticky="w")
         self._add_tooltip(dropout_entry, "Part de neurones coupes pendant l'entrainement pour limiter le surapprentissage.")
-        ttk.Label(controls, text="Filters / units").grid(row=7, column=0, sticky="w", pady=4)
+        ttk.Label(controls, text="Filters / units").grid(row=9, column=0, sticky="w", pady=4)
         filters_entry = ttk.Entry(controls, textvariable=self.train_filters_var, width=10)
-        filters_entry.grid(row=7, column=1, sticky="w")
+        filters_entry.grid(row=9, column=1, sticky="w")
         self._add_tooltip(filters_entry, "Largeur principale du modele: filtres convolutionnels ou unites LSTM selon l'architecture.")
-        ttk.Label(controls, text="Modules / blocks").grid(row=8, column=0, sticky="w", pady=4)
+        ttk.Label(controls, text="Modules / blocks").grid(row=10, column=0, sticky="w", pady=4)
         modules_entry = ttk.Entry(controls, textvariable=self.train_modules_var, width=10)
-        modules_entry.grid(row=8, column=1, sticky="w")
+        modules_entry.grid(row=10, column=1, sticky="w")
         self._add_tooltip(modules_entry, "Profondeur principale: modules Inception ou blocs Transformer selon l'architecture.")
 
         pretrained_check = ttk.Checkbutton(
@@ -1034,16 +1059,16 @@ class SynergieToolsApp:
             variable=self.use_pretrained_var,
             command=self._sync_pretrained_controls,
         )
-        pretrained_check.grid(row=9, column=0, columnspan=2, sticky="w", pady=(12, 4))
+        pretrained_check.grid(row=11, column=0, columnspan=2, sticky="w", pady=(12, 4))
         self._add_tooltip(pretrained_check, "Reprend un modele existant compatible au lieu de repartir de zero.")
 
         self.pretrained_model_box = ttk.Combobox(controls, textvariable=self.pretrained_model_var, state="readonly", width=34)
-        self.pretrained_model_box.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        self.pretrained_model_box.grid(row=12, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         self._add_tooltip(self.pretrained_model_box, "Modeles compatibles classes du plus recent au moins recent.")
         self.pretrained_model_box.bind("<<ComboboxSelected>>", self._on_pretrained_model_changed)
 
         buttons = ttk.Frame(controls)
-        buttons.grid(row=11, column=0, columnspan=2, sticky="ew", pady=(4, 8))
+        buttons.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(4, 8))
         train_button = ttk.Button(buttons, text="Run training", command=self._run_train)
         train_button.grid(row=0, column=0, sticky="w")
         self._add_tooltip(train_button, "Lance l'entrainement avec les options visibles.")
@@ -1515,6 +1540,46 @@ class SynergieToolsApp:
         self.train_architecture_box.configure(values=options)
         if self.train_architecture_var.get() not in options and options:
             self.train_architecture_var.set(options[0])
+        self._sync_train_parameter_profile()
+
+    def _sync_train_parameter_profile(self) -> None:
+        optimized = operations.load_optimized_model_parameters(
+            self.train_task_var.get(),
+            self.train_architecture_var.get(),
+        )
+        if self.train_parameter_profile_var.get() == "Optimized parameters" and optimized is None:
+            self.train_parameter_profile_var.set("Default parameters")
+        self._apply_train_parameter_profile()
+
+    def _apply_train_parameter_profile(self) -> None:
+        self._clear_training_parameter_fields()
+        if self.train_parameter_profile_var.get() != "Optimized parameters":
+            self.train_parameter_profile_summary_var.set("Using architecture defaults.")
+            return
+        optimized = operations.load_optimized_model_parameters(
+            self.train_task_var.get(),
+            self.train_architecture_var.get(),
+        )
+        if optimized is None:
+            self.train_parameter_profile_var.set("Default parameters")
+            self.train_parameter_profile_summary_var.set("No optimized profile saved for this task and architecture.")
+            return
+        parameters = optimized["parameters"]
+        self.train_batch_size_var.set(_string_or_empty(parameters.get("batch_size")))
+        self.train_learning_rate_var.set(_string_or_empty(parameters.get("learning_rate")))
+        self.train_dropout_var.set(_string_or_empty(parameters.get("dropout")))
+        self.train_filters_var.set(_string_or_empty(parameters.get("filters", parameters.get("first_units"))))
+        self.train_modules_var.set(_string_or_empty(parameters.get("modules", parameters.get("num_transformer_blocks"))))
+        self.train_parameter_profile_summary_var.set(
+            f"Optimized profile saved from Models - Tune: val_accuracy={optimized['best_val_accuracy']:.3f}"
+        )
+
+    def _clear_training_parameter_fields(self) -> None:
+        self.train_batch_size_var.set("")
+        self.train_learning_rate_var.set("")
+        self.train_dropout_var.set("")
+        self.train_filters_var.set("")
+        self.train_modules_var.set("")
 
     def _format_training_dataset_stats(self, stats: dict) -> str:
         class_counts = ", ".join(f"{label}: {count}" for label, count in stats["class_counts"].items())
@@ -1623,7 +1688,15 @@ class SynergieToolsApp:
         return None
 
     def _training_overrides_from_gui(self) -> tuple[dict, int | None]:
-        overrides: dict = {}
+        optimized = None
+        if self.train_parameter_profile_var.get() == "Optimized parameters":
+            optimized = operations.load_optimized_model_parameters(
+                self.train_task_var.get(),
+                self.train_architecture_var.get(),
+            )
+        optimized_parameters = dict(optimized["parameters"]) if optimized else {}
+        batch_size_value = optimized_parameters.pop("batch_size", None)
+        overrides: dict = optimized_parameters
         learning_rate = self.train_learning_rate_var.get().strip()
         dropout = self.train_dropout_var.get().strip()
         filters = self.train_filters_var.get().strip()
@@ -1645,7 +1718,7 @@ class SynergieToolsApp:
                 overrides["num_transformer_blocks"] = int(modules)
             elif task == "type" and architecture == "inceptiontime":
                 overrides["modules"] = int(modules)
-        return overrides, (int(batch_size) if batch_size else None)
+        return overrides, (int(batch_size) if batch_size else (int(batch_size_value) if batch_size_value else None))
 
     def _sync_pretrained_controls(self) -> None:
         self.pretrained_model_box.configure(state="readonly" if self.use_pretrained_var.get() else "disabled")
@@ -2173,6 +2246,12 @@ class SynergieToolsApp:
                 max_trials=int(self.tuner_trials_var.get()),
                 epochs=int(self.tuner_epochs_var.get()),
             )
+            if summary.get("best_trial"):
+                operations.save_optimized_model_parameters(
+                    summary["task"],
+                    summary["architecture"],
+                    summary["best_trial"],
+                )
             formatted = self._format_tuner_summary(summary)
             lines = [formatted, ""]
             for item in summary["results"]:
@@ -2184,6 +2263,7 @@ class SynergieToolsApp:
             self.root.after(0, lambda: self.tuner_summary_var.set(formatted))
             self.root.after(0, lambda: self._replace_text(self.tuner_log, "\n".join(lines)))
             self.root.after(0, lambda: self._draw_hyperparameter_results(summary))
+            self.root.after(0, self._sync_train_parameter_profile)
             self.root.after(0, lambda: self.status_var.set("Hyperparameter search completed"))
 
         self._run_in_thread(action, "Unable to run hyperparameter search.")
@@ -2258,6 +2338,12 @@ class SynergieToolsApp:
         self._refresh_pretrained_models()
         self._sync_pretrained_controls()
         self._refresh_training_dataset_stats()
+
+    def _on_train_architecture_changed(self, _event=None) -> None:
+        self._sync_train_parameter_profile()
+
+    def _on_train_parameter_profile_changed(self, _event=None) -> None:
+        self._apply_train_parameter_profile()
 
     def _on_signal_task_changed(self, _event=None) -> None:
         self.signal_model_path_var.set(operations.latest_model_path_for_task(self.signal_task_var.get()))
@@ -3678,6 +3764,10 @@ class SynergieToolsApp:
                 f"start={jump.startTimestamp:.0f} ms | len={jump.length:.2f} s"
             )
         self._redraw_plots()
+
+
+def _string_or_empty(value) -> str:
+    return "" if value is None else str(value)
 
 
 def launch() -> None:
