@@ -354,25 +354,13 @@ class SynergieToolsApp:
         for index in range(3):
             parent.columnconfigure(index, weight=1 if index == 1 else 0)
 
-        ttk.Label(parent, text="Input CSV").grid(row=0, column=0, sticky="w", pady=4)
-        input_entry = ttk.Entry(parent, textvariable=self.csv_path_var)
-        input_entry.grid(row=0, column=1, sticky="ew", padx=8)
-        self._add_tooltip(input_entry, "CSV IMU brut a traiter.")
-        ttk.Button(parent, text="Browse", command=self._pick_csv).grid(row=0, column=2, sticky="e")
-
-        ttk.Label(parent, text="Output CSV").grid(row=1, column=0, sticky="w", pady=4)
-        output_entry = ttk.Entry(parent, textvariable=self.output_path_var)
-        output_entry.grid(row=1, column=1, sticky="ew", padx=8)
-        self._add_tooltip(output_entry, "CSV de sortie. Si vide, un fichier voisin est cree automatiquement.")
-        ttk.Button(parent, text="Save as", command=self._pick_output).grid(row=1, column=2, sticky="e")
-
-        ttk.Label(parent, text="Session").grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Label(parent, text="Session").grid(row=0, column=0, sticky="w", pady=4)
         self.process_session_box = ttk.Combobox(parent, textvariable=self.session_var, values=operations.list_sessions(), state="readonly")
-        self.process_session_box.grid(row=2, column=1, sticky="w", padx=8)
+        self.process_session_box.grid(row=0, column=1, sticky="w", padx=8)
         self._add_tooltip(self.process_session_box, "Session utilisee pour recuperer l'offset de synchronisation configure.")
         self.process_session_box.bind("<<ComboboxSelected>>", self._on_process_session_changed)
 
-        ttk.Label(parent, text="Session CSV files").grid(row=3, column=0, sticky="nw", pady=4)
+        ttk.Label(parent, text="Session CSV files").grid(row=1, column=0, sticky="nw", pady=4)
         self.process_session_files = tk.Listbox(
             parent,
             listvariable=self.session_files_var,
@@ -380,29 +368,26 @@ class SynergieToolsApp:
             exportselection=False,
             selectmode=tk.EXTENDED,
         )
-        self.process_session_files.grid(row=3, column=1, columnspan=2, sticky="nsew", padx=8)
-        self._add_tooltip(self.process_session_files, "Selectionner un ou plusieurs fichiers. Le batch traite toute la selection.")
+        self.process_session_files.grid(row=1, column=1, columnspan=2, sticky="nsew", padx=8)
+        self._add_tooltip(self.process_session_files, "Selectionner un ou plusieurs CSV IMU bruts. Les sorties jumplist sont nommees automatiquement.")
         self.process_session_files.bind("<<ListboxSelect>>", self._on_process_file_selected)
 
-        ttk.Label(parent, textvariable=self.session_folder_summary_var, justify=tk.LEFT).grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
-        ttk.Label(parent, textvariable=self.process_selected_file_info_var, justify=tk.LEFT).grid(row=5, column=0, columnspan=3, sticky="w", pady=(4, 8))
+        ttk.Label(parent, textvariable=self.session_folder_summary_var, justify=tk.LEFT).grid(row=2, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        ttk.Label(parent, textvariable=self.process_selected_file_info_var, justify=tk.LEFT).grid(row=3, column=0, columnspan=3, sticky="w", pady=(4, 8))
 
-        process_button = ttk.Button(parent, text="Process file", command=self._run_process_file)
-        process_button.grid(row=6, column=0, sticky="w", pady=(12, 12))
-        self._add_tooltip(process_button, "Detecte les sauts du CSV choisi et exporte une jumplist.")
         batch_process_button = ttk.Button(parent, text="Batch process selected", command=self._run_batch_process_files)
-        batch_process_button.grid(row=6, column=1, sticky="w", pady=(12, 12), padx=8)
-        self._add_tooltip(batch_process_button, "Traite tous les CSV selectionnes et genere un nom de sortie libre pour chacun.")
+        batch_process_button.grid(row=4, column=0, sticky="w", pady=(12, 12))
+        self._add_tooltip(batch_process_button, "Traite la selection, meme s'il n'y a qu'un seul CSV, et genere automatiquement chaque sortie.")
         global_batch_button = ttk.Button(parent, text="Batch process all", command=self._run_global_batch_process_files)
-        global_batch_button.grid(row=6, column=2, sticky="w", pady=(12, 12))
+        global_batch_button.grid(row=4, column=1, sticky="w", pady=(12, 12), padx=8)
         self._add_tooltip(global_batch_button, "Traite tous les fichiers CSV bruts disponibles dans toutes les sessions configurees.")
 
         batch_progress_label = ttk.Label(parent, textvariable=self.process_batch_progress_var, justify=tk.LEFT)
-        batch_progress_label.grid(row=7, column=0, columnspan=3, sticky="w", pady=(0, 12))
+        batch_progress_label.grid(row=5, column=0, columnspan=3, sticky="w", pady=(0, 12))
         self._add_tooltip(batch_progress_label, "Affiche la progression du batch courant, fichier par fichier.")
 
         prediction_frame = ttk.LabelFrame(parent, text="Initial model predictions", padding=8)
-        prediction_frame.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(0, 12))
+        prediction_frame.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(0, 12))
         prediction_frame.columnconfigure(1, weight=1)
         ttk.Label(prediction_frame, text="Type model").grid(row=0, column=0, sticky="w")
         self.process_type_model_box = ttk.Combobox(prediction_frame, textvariable=self.process_type_model_var, state="readonly")
@@ -415,8 +400,8 @@ class SynergieToolsApp:
         self._refresh_process_prediction_models()
 
         self.process_log = scrolledtext.ScrolledText(parent, height=18, wrap=tk.WORD)
-        self.process_log.grid(row=9, column=0, columnspan=3, sticky="nsew")
-        parent.rowconfigure(9, weight=1)
+        self.process_log.grid(row=7, column=0, columnspan=3, sticky="nsew")
+        parent.rowconfigure(7, weight=1)
 
     def _build_inspect_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=0)
@@ -540,8 +525,8 @@ class SynergieToolsApp:
         self.new_data_files.grid(row=1, column=1, columnspan=2, sticky="nsew", padx=8)
         self.new_data_files.bind("<<ListboxSelect>>", self._on_new_data_file_selected)
 
-        ttk.Label(parent, text="For annotation CSV").grid(row=2, column=0, sticky="w", pady=4)
-        ttk.Entry(parent, textvariable=self.new_data_output_var).grid(row=2, column=1, sticky="ew", padx=8)
+        ttk.Label(parent, text="Automatic annotation CSV").grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Label(parent, textvariable=self.new_data_output_var, justify=tk.LEFT).grid(row=2, column=1, columnspan=2, sticky="w", padx=8)
 
         ttk.Button(parent, text="Process for annotation", command=self._run_process_new_data_file).grid(row=3, column=0, sticky="w", pady=(12, 8))
         ttk.Label(parent, textvariable=self.new_data_summary_var, justify=tk.LEFT).grid(row=3, column=1, columnspan=2, sticky="w", padx=8)
@@ -591,13 +576,11 @@ class SynergieToolsApp:
         video_frame.columnconfigure(1, weight=1)
         video_frame.rowconfigure(2, weight=1)
 
-        ttk.Label(video_frame, text="Video file").grid(row=0, column=0, sticky="w")
-        ttk.Entry(video_frame, textvariable=self.annotation_video_path_var).grid(row=0, column=1, sticky="ew", padx=8)
-        video_buttons = ttk.Frame(video_frame)
-        video_buttons.grid(row=0, column=2, sticky="e")
-        ttk.Button(video_buttons, text="Browse", command=self._browse_annotation_video).grid(row=0, column=0, sticky="w")
-        ttk.Button(video_buttons, text="Load", command=self._load_annotation_video_from_entry).grid(row=0, column=1, sticky="w", padx=(6, 0))
-        ttk.Button(video_buttons, text="Choose video...", command=self._open_annotation_video_popup).grid(row=0, column=2, sticky="w", padx=(6, 0))
+        ttk.Label(video_frame, text="Session video").grid(row=0, column=0, sticky="w")
+        ttk.Label(video_frame, textvariable=self.annotation_video_path_var, justify=tk.LEFT, wraplength=300).grid(row=0, column=1, sticky="w", padx=8)
+        choose_video_button = ttk.Button(video_frame, text="Choose video...", command=self._open_annotation_video_popup)
+        choose_video_button.grid(row=0, column=2, sticky="e")
+        self._add_tooltip(choose_video_button, "Cherche les videos proches de l'heure de la seance et permet de choisir la bonne.")
 
         ttk.Label(video_frame, textvariable=self.annotation_video_info_var, justify=tk.LEFT, wraplength=360).grid(
             row=1,
@@ -2068,29 +2051,6 @@ class SynergieToolsApp:
         ).grid(row=0, column=0, sticky="nw")
         self._refresh_detection_review()
 
-    def _pick_csv(self) -> None:
-        path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
-        if path:
-            self.csv_path_var.set(path)
-            self._set_default_output_path(path)
-
-    def _pick_output(self) -> None:
-        input_path = self.csv_path_var.get().strip()
-        initialdir = None
-        initialfile = None
-        if input_path:
-            suggested_path = self._suggest_output_path(input_path)
-            initialdir = str(suggested_path.parent)
-            initialfile = suggested_path.name
-        path = filedialog.asksaveasfilename(
-            defaultextension=".csv",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-            initialdir=initialdir,
-            initialfile=initialfile,
-        )
-        if path:
-            self.output_path_var.set(path)
-
     def _pick_inspect_csv(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
         if path:
@@ -2133,7 +2093,10 @@ class SynergieToolsApp:
             self.csv_path_var.set(selected_path)
             self._set_default_output_path(selected_path)
             selected_count = len(selection)
-            description = self._describe_selected_file(selected_path)
+            description = (
+                f"{self._describe_selected_file(selected_path)}\n"
+                f"Automatic output: {self.output_path_var.get()}"
+            )
             if selected_count > 1:
                 description += f"\nBatch selection: {selected_count} files"
             self.process_selected_file_info_var.set(description)
@@ -2420,19 +2383,6 @@ class SynergieToolsApp:
             f"jump at {self._format_video_ms(jump_video_ms)} in video"
         )
 
-    def _browse_annotation_video(self) -> None:
-        file_path = filedialog.askopenfilename(
-            title="Select session video",
-            filetypes=[
-                ("Video files", "*.mp4 *.mov *.avi *.mkv *.m4v"),
-                ("All files", "*.*"),
-            ],
-        )
-        if not file_path:
-            return
-        self.annotation_video_path_var.set(file_path)
-        self._load_annotation_video(file_path, persist=True)
-
     def _open_annotation_video_popup(self) -> None:
         if self.annotation_video_popup is not None and self.annotation_video_popup.winfo_exists():
             self.annotation_video_popup.lift()
@@ -2563,13 +2513,6 @@ class SynergieToolsApp:
             messagebox.showwarning("Synergie Tools", "Select a video match first.")
             return
         self._load_annotation_video(self._annotation_video_match_cache[selection[0]]["path"], persist=True)
-
-    def _load_annotation_video_from_entry(self) -> None:
-        video_path = self.annotation_video_path_var.get().strip()
-        if not video_path:
-            messagebox.showwarning("Synergie Tools", "Select a video file first.")
-            return
-        self._load_annotation_video(video_path, persist=True)
 
     def _release_annotation_video(self) -> None:
         if self.annotation_video_capture is not None:
@@ -2998,34 +2941,6 @@ class SynergieToolsApp:
                 self.root.after(0, lambda: self.status_var.set("Error"))
 
         threading.Thread(target=runner, daemon=True).start()
-
-    def _run_process_file(self) -> None:
-        csv_path = self.csv_path_var.get().strip()
-        if not csv_path:
-            messagebox.showwarning("Synergie Tools", "Select an input CSV first.")
-            return
-
-        session = operations.session_metadata(self.session_var.get())
-        output_path = self.output_path_var.get().strip() or None
-        type_path = self._process_prediction_model_path("type", self.process_type_model_var.get())
-        success_path = self._process_prediction_model_path("success", self.process_success_model_var.get())
-        self.status_var.set("Processing file...")
-        self.process_log.delete("1.0", tk.END)
-
-        def action() -> None:
-            result = operations.process_csv_file(
-                csv_path,
-                synchro=session["sample_time_fine_synchro"],
-                output_path=output_path,
-                type_model_path=type_path,
-                success_model_path=success_path,
-            )
-            self.root.after(0, lambda: self._log(self.process_log, f"Created: {result['path']}"))
-            if result["prediction_status"] != "predicted":
-                self.root.after(0, lambda: self._log(self.process_log, "Prediction skipped: TensorFlow/Keras is not available in this environment."))
-            self.root.after(0, lambda: self.status_var.set("Processing completed"))
-
-        self._run_in_thread(action, "Unable to process file.")
 
     def _run_batch_process_files(self) -> None:
         selections = self.process_session_files.curselection()
