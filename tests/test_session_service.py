@@ -46,3 +46,12 @@ class SessionServiceTests(unittest.TestCase):
 
             self.assertEqual(files, [imu_csv])
         session_store.SESSIONS_FILE = original_file
+
+    def test_suggest_session_from_imu_file_uses_canonical_id_and_path(self):
+        suggestion = session_service.suggest_session_from_imu_file(
+            "data/new/1_D422CD0076F7_20250911_085656.csv"
+        )
+
+        self.assertEqual(suggestion["session_id"], "20250911_085656")
+        self.assertEqual(suggestion["path"], "1109/0856")
+        self.assertEqual(suggestion["sample_time_fine_synchro"], 0)

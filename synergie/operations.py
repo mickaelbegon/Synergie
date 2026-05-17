@@ -57,6 +57,7 @@ from synergie.services.session_service import (
     session_directory,
     session_metadata,
     session_synchro,
+    suggest_session_from_imu_file,
 )
 from synergie.services.new_data_service import (
     files_for_new_imu_session,

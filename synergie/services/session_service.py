@@ -4,6 +4,7 @@ from pathlib import Path
 
 import constants
 from synergie import session_store
+from synergie.services.new_data_service import parse_new_imu_filename
 
 
 def list_sessions() -> list[str]:
@@ -23,6 +24,18 @@ def add_session(session_name: str, path: str, sample_time_fine_synchro: int) -> 
     metadata = session_store.add_session(session_name, path, sample_time_fine_synchro)
     constants.sessions = session_store.load_sessions()
     return metadata
+
+
+def suggest_session_from_imu_file(path: str | Path) -> dict:
+    """Return canonical session defaults inferred from one incoming IMU file."""
+    metadata = parse_new_imu_filename(path)
+    recorded_at = metadata["recorded_at"]
+    return {
+        "session_id": f"{metadata['date_token']}_{metadata['time_token']}",
+        "path": recorded_at.strftime("%d%m/%H%M"),
+        "sample_time_fine_synchro": 0,
+        "recorded_at": recorded_at,
+    }
 
 
 def session_synchro(session_name: str) -> int:

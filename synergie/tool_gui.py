@@ -92,6 +92,7 @@ class SynergieToolsApp:
         self.new_data_selected_file_var = tk.StringVar()
         self.new_data_output_var = tk.StringVar()
         self.new_data_summary_var = tk.StringVar(value="No file selected.")
+        self.new_data_session_suggestion_var = tk.StringVar(value="No session selected.")
         self.annotation_files_var = tk.StringVar(value=[])
         self.annotation_summary_var = tk.StringVar(value="No annotation file selected.")
         self.annotation_progress_var = tk.StringVar(value="Pending annotations: 0")
@@ -511,7 +512,7 @@ class SynergieToolsApp:
     def _build_new_data_tab(self, parent: ttk.Frame) -> None:
         for index in range(3):
             parent.columnconfigure(index, weight=1 if index == 1 else 0)
-        parent.rowconfigure(4, weight=1)
+        parent.rowconfigure(6, weight=1)
 
         ttk.Label(parent, text="Folder").grid(row=0, column=0, sticky="w", pady=4)
         self.new_data_directory_box = ttk.Combobox(parent, textvariable=self.new_data_directory_var, state="readonly")
@@ -528,16 +529,22 @@ class SynergieToolsApp:
         ttk.Label(parent, text="Automatic annotation CSV").grid(row=2, column=0, sticky="w", pady=4)
         ttk.Label(parent, textvariable=self.new_data_output_var, justify=tk.LEFT).grid(row=2, column=1, columnspan=2, sticky="w", padx=8)
 
-        ttk.Button(parent, text="Process for annotation", command=self._run_process_new_data_file).grid(row=3, column=0, sticky="w", pady=(12, 8))
-        ttk.Label(parent, textvariable=self.new_data_summary_var, justify=tk.LEFT).grid(row=3, column=1, columnspan=2, sticky="w", padx=8)
+        ttk.Label(parent, text="Automatic session").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Label(parent, textvariable=self.new_data_session_suggestion_var, justify=tk.LEFT).grid(row=3, column=1, sticky="w", padx=8)
+        auto_session_button = ttk.Button(parent, text="Add session automatically", command=self._add_selected_new_data_session)
+        auto_session_button.grid(row=3, column=2, sticky="e")
+        self._add_tooltip(auto_session_button, "Cree la session avec un ID et un chemin derives de la date/heure du fichier IMU.")
+
+        ttk.Button(parent, text="Process for annotation", command=self._run_process_new_data_file).grid(row=4, column=0, sticky="w", pady=(12, 8))
+        ttk.Label(parent, textvariable=self.new_data_summary_var, justify=tk.LEFT).grid(row=4, column=1, columnspan=2, sticky="w", padx=8)
         ttk.Label(
             parent,
             text="Initial labels use the models selected in Process CSV.",
             foreground="gray",
-        ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(0, 8))
+        ).grid(row=5, column=0, columnspan=3, sticky="w", pady=(0, 8))
 
         self.new_data_log = scrolledtext.ScrolledText(parent, height=14, wrap=tk.WORD)
-        self.new_data_log.grid(row=5, column=0, columnspan=3, sticky="nsew")
+        self.new_data_log.grid(row=6, column=0, columnspan=3, sticky="nsew")
         self._refresh_new_data_directories()
 
     def _build_annotate_tab(self, parent: ttk.Frame) -> None:
@@ -1281,6 +1288,7 @@ class SynergieToolsApp:
         self.new_data_summary_var.set(f"Sessions found: {len(sessions)}")
         if not sessions:
             self.new_data_output_var.set("")
+            self.new_data_session_suggestion_var.set("No session selected.")
 
     def _format_new_data_file_label(self, metadata: dict) -> str:
         if "files" in metadata:
@@ -2116,11 +2124,35 @@ class SynergieToolsApp:
         representative_file = session["files"][0]
         self.new_data_selected_file_var.set(str(representative_file["path"]))
         self.new_data_output_var.set(str(operations.suggest_for_annotation_output_path(representative_file["path"])))
+        suggestion = operations.suggest_session_from_imu_file(representative_file["path"])
+        self.new_data_session_suggestion_var.set(
+            f"{suggestion['session_id']} -> data/raw/{suggestion['path']} | sync offset {suggestion['sample_time_fine_synchro']}"
+        )
         sensors = ", ".join(file_metadata["sensor_id"] for file_metadata in session["files"])
         self.new_data_summary_var.set(
             f"Session: {session['session_key']}\n"
             f"Sensors: {sensors} | {session['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')}"
         )
+
+    def _add_selected_new_data_session(self) -> None:
+        raw_file = self.new_data_selected_file_var.get().strip()
+        if not raw_file:
+            messagebox.showwarning("Synergie Tools", "Select a new IMU session first.")
+            return
+        suggestion = operations.suggest_session_from_imu_file(raw_file)
+        try:
+            metadata = operations.add_session(
+                suggestion["session_id"],
+                suggestion["path"],
+                suggestion["sample_time_fine_synchro"],
+            )
+        except ValueError as exc:
+            messagebox.showinfo("Synergie Tools", str(exc))
+            return
+        self.session_var.set(suggestion["session_id"])
+        self.inspect_session_var.set(suggestion["session_id"])
+        self._refresh_all_sessions()
+        self.status_var.set(f"Session added automatically: {suggestion['session_id']} -> {metadata['path']}")
 
     def _refresh_annotation_files(self) -> None:
         files = operations.list_pending_annotation_files()
@@ -3120,15 +3152,21 @@ class SynergieToolsApp:
         def action() -> None:
             type_path = self._process_prediction_model_path("type", self.process_type_model_var.get())
             success_path = self._process_prediction_model_path("success", self.process_success_model_var.get())
+            session_suggestion = operations.suggest_session_from_imu_file(raw_file)
+            sample_time_fine_synchro = 0
+            if session_suggestion["session_id"] in operations.list_sessions():
+                sample_time_fine_synchro = operations.session_synchro(session_suggestion["session_id"])
             result = operations.process_new_imu_file_for_annotation(
                 raw_file,
                 output_path=self.new_data_output_var.get().strip() or None,
+                sample_time_fine_synchro=sample_time_fine_synchro,
                 type_model_path=type_path,
                 success_model_path=success_path,
             )
             self.root.after(0, lambda: self._log(self.new_data_log, f"Created annotation CSV: {result['annotation_csv']}"))
             self.root.after(0, lambda: self._log(self.new_data_log, f"Created jump segments in: {result['segment_directory']}"))
             self.root.after(0, lambda: self._log(self.new_data_log, f"Jumps ready for annotation: {result['jump_count']} across {result['sensor_count']} sensors"))
+            self.root.after(0, lambda: self._log(self.new_data_log, f"Session sync offset used: {sample_time_fine_synchro}"))
             self.root.after(
                 0,
                 lambda: self._log(
