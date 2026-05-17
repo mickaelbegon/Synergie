@@ -62,13 +62,14 @@ Dans `tools_gui.py`, l'onglet `Inspect IMU` permet aussi :
 
 Pipeline conseille pour ajouter des donnees d'entrainement dans `tools_gui.py` :
 
-1. `Data - Sessions` : verifier que la seance existe et que son offset de synchronisation est correct.
-2. `Data - New` : choisir une seance brute depuis `data/new` et utiliser `Process for annotation`.
-3. Le traitement cree un CSV `*_for_annotation.csv`, des segments IMU, et pre-remplit si possible `type`, `success` et `turns` avec les modeles selectionnes.
-4. `Data - Annotate` : verifier les propositions, synchroniser la video, corriger les labels et finaliser le fichier annote.
-5. `Review - Quality` et `Review - Detection` : verifier les outliers, faux positifs et faux negatifs avant re-entrainement.
-6. `Models - Train` : re-entrainer les modeles quand le dataset a change.
-7. `Models - Audit`, `Models - Importance` et `Models - Tune` : verifier les nouveaux modeles avant de les reutiliser comme solution initiale.
+1. `Data - New` : choisir une seance brute depuis `data/new`.
+2. Le GUI propose automatiquement un identifiant de session et un chemin cible dans `data/raw`; `Data - Sessions` sert surtout a verifier ou corriger les exceptions.
+3. `Data - New` : utiliser `Process for annotation`.
+4. Le traitement cree un CSV `*_for_annotation.csv`, des segments IMU, et pre-remplit si possible `type`, `success` et `turns` avec les modeles selectionnes.
+5. `Data - Annotate` : verifier les propositions, synchroniser la video, corriger les labels et finaliser le fichier annote.
+6. `Review - Quality` et `Review - Detection` : verifier les outliers, faux positifs et faux negatifs avant re-entrainement.
+7. `Models - Train` : re-entrainer les modeles quand le dataset a change.
+8. `Models - Audit`, `Models - Importance` et `Models - Tune` : verifier les nouveaux modeles avant de les reutiliser comme solution initiale.
 
 `Data - Process` reste utile pour retraiter manuellement ou en batch des CSV deja classes dans `data/raw`, mais n'est pas obligatoire dans le flux principal `new -> annotate -> train`.
 

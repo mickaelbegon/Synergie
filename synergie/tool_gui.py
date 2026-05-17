@@ -269,12 +269,22 @@ class SynergieToolsApp:
 
         sessions_tab.columnconfigure(0, weight=1)
         sessions_tab.columnconfigure(1, weight=0)
-        sessions_tab.rowconfigure(0, weight=1)
+        sessions_tab.rowconfigure(1, weight=1)
+
+        ttk.Label(
+            sessions_tab,
+            text=(
+                "Le flux normal cree les sessions depuis Data - New a partir de la date/heure des fichiers IMU. "
+                "Utiliser l'ajout manuel seulement pour corriger une ancienne session ou un cas exceptionnel."
+            ),
+            justify=tk.LEFT,
+            wraplength=720,
+        ).grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
 
         self.sessions_text = scrolledtext.ScrolledText(sessions_tab, height=18, wrap=tk.WORD)
-        self.sessions_text.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        self.sessions_text.grid(row=1, column=0, sticky="nsew", padx=(0, 12))
         self._build_sessions_side_panel(sessions_tab)
-        ttk.Button(sessions_tab, text="Refresh sessions", command=self._refresh_all_sessions).grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Button(sessions_tab, text="Refresh sessions", command=self._refresh_all_sessions).grid(row=2, column=0, sticky="w", pady=(8, 0))
 
         self._build_workflow_tab(workflow_tab)
         self._build_process_tab(process_tab)
@@ -316,33 +326,37 @@ class SynergieToolsApp:
             tk.END,
             "\n".join(
                 [
-                    "1. Data - Sessions",
-                    "   Verifier que la seance existe et que son offset de synchronisation est renseigne.",
-                    "   Si la seance n'existe pas encore, l'ajouter avant de traiter les fichiers.",
+                    "1. Data - New",
+                    "   Choisir une seance brute depuis data/new. Le logiciel propose automatiquement l'ID de session",
+                    "   et le dossier data/raw cible a partir de la date/heure des fichiers IMU.",
                     "",
-                    "2. Data - New",
-                    "   Choisir un dossier brut dans data/new, verifier les capteurs detectes, puis utiliser Process for annotation.",
+                    "2. Data - Sessions",
+                    "   Normalement cree automatiquement depuis Data - New.",
+                    "   Utiliser l'ajout manuel seulement pour corriger une ancienne seance ou un cas exceptionnel.",
+                    "",
+                    "3. Data - New",
+                    "   Verifier les capteurs detectes, puis utiliser Process for annotation.",
                     "   Cette etape cree les segments IMU et un fichier *_for_annotation.csv dans data/pending.",
                     "",
-                    "3. Data - Process",
+                    "4. Data - Process",
                     "   Optionnel pour le flux d'annotation complet.",
                     "   Sert au retraitement manuel ou en batch de CSV deja classes par session, avec les modeles initiaux choisis.",
                     "",
-                    "4. Data - Annotate",
+                    "5. Data - Annotate",
                     "   Charger le fichier for_annotation, synchroniser la video, verifier/corriger les labels, traiter les faux positifs",
                     "   et les sauts manques, puis utiliser Finalize annotated file quand tout est termine.",
                     "",
-                    "5. Review - Quality et Review - Detection",
+                    "6. Review - Quality et Review - Detection",
                     "   Verifier les outliers, les sequences suspectes, les faux positifs et les faux negatifs avant d'entrainer.",
                     "",
-                    "6. Models - Train",
+                    "7. Models - Train",
                     "   Re-entrainer type, success et turns quand le dataset a change.",
                     "",
-                    "7. Models - Audit / Importance / Tune",
+                    "8. Models - Audit / Importance / Tune",
                     "   Verifier les performances, comprendre les signaux utiles et ajuster les hyperparametres avant de promouvoir un modele.",
                     "",
                     "Points de vigilance",
-                    "- La preparation de session est une vraie etape du flux: sans session correcte, les offsets et les batchs peuvent etre faux.",
+                    "- Les sessions doivent idealement etre creees depuis Data - New; l'ajout manuel est un mode avance.",
                     "- Finalize annotated file est l'etape qui ajoute reellement les nouveaux labels au dataset d'entrainement.",
                     "- Les fichiers jumplist sont des sorties derivees; ils ne doivent pas etre retraités comme des CSV IMU bruts.",
                     "- Le controle apres entrainement est recommande avant d'utiliser un nouveau modele pour pre-remplir d'autres annotations.",
@@ -883,20 +897,28 @@ class SynergieToolsApp:
         return bool(importlib_util.find_spec("cv2")) and bool(importlib_util.find_spec("PIL"))
 
     def _build_sessions_side_panel(self, parent: ttk.Frame) -> None:
-        panel = ttk.LabelFrame(parent, text="Add Session", padding=12)
-        panel.grid(row=0, column=1, sticky="ns")
+        panel = ttk.LabelFrame(parent, text="Advanced manual add", padding=12)
+        panel.grid(row=1, column=1, sticky="ns")
         panel.columnconfigure(1, weight=1)
 
-        ttk.Label(panel, text="Session ID").grid(row=0, column=0, sticky="w", pady=4)
-        ttk.Entry(panel, textvariable=self.new_session_id_var, width=18).grid(row=0, column=1, sticky="ew")
+        ttk.Label(
+            panel,
+            text="Reserve aux exceptions.\nLe flux normal passe par Data - New.",
+            justify=tk.LEFT,
+            wraplength=220,
+            foreground="gray",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
 
-        ttk.Label(panel, text="Relative path").grid(row=1, column=0, sticky="w", pady=4)
-        ttk.Entry(panel, textvariable=self.new_session_path_var, width=22).grid(row=1, column=1, sticky="ew")
+        ttk.Label(panel, text="Session ID").grid(row=1, column=0, sticky="w", pady=4)
+        ttk.Entry(panel, textvariable=self.new_session_id_var, width=18).grid(row=1, column=1, sticky="ew")
 
-        ttk.Label(panel, text="Synchro").grid(row=2, column=0, sticky="w", pady=4)
-        ttk.Entry(panel, textvariable=self.new_session_synchro_var, width=18).grid(row=2, column=1, sticky="ew")
+        ttk.Label(panel, text="Relative path").grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Entry(panel, textvariable=self.new_session_path_var, width=22).grid(row=2, column=1, sticky="ew")
 
-        ttk.Button(panel, text="Add session", command=self._add_session_from_gui).grid(row=3, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        ttk.Label(panel, text="Synchro").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Entry(panel, textvariable=self.new_session_synchro_var, width=18).grid(row=3, column=1, sticky="ew")
+
+        ttk.Button(panel, text="Add session", command=self._add_session_from_gui).grid(row=4, column=0, columnspan=2, sticky="w", pady=(12, 0))
 
     def _build_train_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=0)
