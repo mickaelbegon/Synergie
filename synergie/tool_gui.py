@@ -984,11 +984,29 @@ class SynergieToolsApp:
     def _build_train_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=0)
         parent.columnconfigure(1, weight=1)
-        parent.rowconfigure(1, weight=1)
+        parent.rowconfigure(0, weight=1)
 
-        controls = ttk.LabelFrame(parent, text="Training Setup", padding=12)
-        controls.grid(row=0, column=0, sticky="nsew", padx=(0, 12), pady=(0, 12))
+        controls_host = ttk.Frame(parent)
+        controls_host.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        controls_host.columnconfigure(0, weight=1)
+        controls_host.rowconfigure(0, weight=1)
+        controls_canvas = tk.Canvas(controls_host, highlightthickness=0, width=420)
+        controls_canvas.grid(row=0, column=0, sticky="nsew")
+        controls_scrollbar = ttk.Scrollbar(controls_host, orient=tk.VERTICAL, command=controls_canvas.yview)
+        controls_scrollbar.grid(row=0, column=1, sticky="ns")
+        controls_canvas.configure(yscrollcommand=controls_scrollbar.set)
+
+        controls = ttk.LabelFrame(controls_canvas, text="Training Setup", padding=12)
         controls.columnconfigure(1, weight=1)
+        controls_window = controls_canvas.create_window((0, 0), window=controls, anchor="nw")
+        controls.bind(
+            "<Configure>",
+            lambda _event: controls_canvas.configure(scrollregion=controls_canvas.bbox("all")),
+        )
+        controls_canvas.bind(
+            "<Configure>",
+            lambda event: controls_canvas.itemconfigure(controls_window, width=event.width),
+        )
 
         ttk.Label(controls, text="Task").grid(row=0, column=0, sticky="w", pady=4)
         train_task_box = ttk.Combobox(controls, textvariable=self.train_task_var, values=["type", "success"], state="readonly", width=18)
@@ -1094,19 +1112,19 @@ class SynergieToolsApp:
             textvariable=self.pretrained_models_summary_var,
             justify=tk.LEFT,
             wraplength=340,
-        ).grid(row=12, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        ).grid(row=15, column=0, columnspan=2, sticky="w", pady=(0, 8))
         ttk.Label(
             controls,
             textvariable=self.train_dataset_stats_var,
             justify=tk.LEFT,
             wraplength=340,
-        ).grid(row=13, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        ).grid(row=16, column=0, columnspan=2, sticky="w", pady=(0, 8))
         ttk.Label(
             controls,
             textvariable=self.train_quality_summary_var,
             justify=tk.LEFT,
             wraplength=340,
-        ).grid(row=14, column=0, columnspan=2, sticky="w")
+        ).grid(row=17, column=0, columnspan=2, sticky="w")
 
         results = ttk.Frame(parent)
         results.grid(row=0, column=1, rowspan=2, sticky="nsew")
