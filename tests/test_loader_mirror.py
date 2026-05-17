@@ -47,6 +47,17 @@ class LoaderMirrorTests(unittest.TestCase):
                 "20250901_0910_10",
             )
 
+    def test_lookup_skater_info_returns_neutral_scalars_when_disabled(self):
+        import pandas as pd
+
+        values = Loader._lookup_skater_info(
+            pd.DataFrame({"skater": [], "weight": [], "height": []}),
+            "unknown",
+            use_scalar_features=False,
+        )
+
+        np.testing.assert_array_equal(values, np.zeros(2, dtype=np.float32))
+
 
 if __name__ == "__main__":
     unittest.main()

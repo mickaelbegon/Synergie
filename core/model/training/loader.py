@@ -28,9 +28,16 @@ class Loader:
     This class is meant to load the data from the csv files,
     and make it ready to be used by the model for training
     """
-    def __init__(self, folder_path: str, train_ratio: float = 0.8, augment_mirror: bool = True):
+    def __init__(
+        self,
+        folder_path: str,
+        train_ratio: float = 0.8,
+        augment_mirror: bool = True,
+        use_scalar_features: bool = True,
+    ):
         assert 0 <= train_ratio <= 1
         self.training_config = TrainingConfig(train_ratio=train_ratio, augment_mirror=augment_mirror)
+        self.use_scalar_features = bool(use_scalar_features)
 
         self.folder_path = folder_path
         main_csv = os.path.join(folder_path, "jumplist.csv")
@@ -51,7 +58,7 @@ class Loader:
                 jumpFrame = pd.read_csv(row['path'])
                 jumpFrame = jumpFrame[fields_to_keep]
 
-                skater_info = self._lookup_skater_info(skaterData, row["skater"])
+                skater_info = self._lookup_skater_info(skaterData, row["skater"], use_scalar_features=self.use_scalar_features)
                 type_window = np.nan_to_num(jumpFrame[:TYPE_WINDOW_FRAMES].copy().to_numpy(), nan=0.0, posinf=0.0, neginf=0.0)
                 success_window = np.nan_to_num(jumpFrame[SUCCESS_WINDOW_START:].copy().reset_index(drop=True).to_numpy(), nan=0.0, posinf=0.0, neginf=0.0)
                 jumps.append((type_window, skater_info))
@@ -143,8 +150,15 @@ class Loader:
         return mirrored
 
     @staticmethod
-    def _lookup_skater_info(skater_data: pd.DataFrame, skater_id) -> np.ndarray:
-        """Return scalar athlete data and fail clearly when labels reference an unknown athlete."""
+    def _lookup_skater_info(
+        skater_data: pd.DataFrame,
+        skater_id,
+        *,
+        use_scalar_features: bool = True,
+    ) -> np.ndarray:
+        """Return athlete scalars, or neutral zeros when scalar features are disabled."""
+        if not use_scalar_features:
+            return np.zeros(2, dtype=np.float32)
         matches = skater_data[skater_data["skater"].astype(str) == str(skater_id)][["weight", "height"]].to_numpy()
         if len(matches) == 0:
             raise ValueError(

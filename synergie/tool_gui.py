@@ -129,6 +129,7 @@ class SynergieToolsApp:
         self.train_modules_var = tk.StringVar(value="")
         self.train_parameter_profile_var = tk.StringVar(value="Default parameters")
         self.train_parameter_profile_summary_var = tk.StringVar(value="Using architecture defaults.")
+        self.train_use_scalar_features_var = tk.BooleanVar(value=True)
         self.train_dataset_stats_var = tk.StringVar(value="Dataset stats not loaded yet.")
         self.train_quality_summary_var = tk.StringVar(value="No training run yet.")
         self.use_pretrained_var = tk.BooleanVar(value=False)
@@ -151,6 +152,8 @@ class SynergieToolsApp:
         self.tuner_trials_var = tk.StringVar(value="6")
         self.tuner_epochs_var = tk.StringVar(value="8")
         self.tuner_summary_var = tk.StringVar(value="Run a bounded validation search to compare candidates.")
+        self.tuner_progress_var = tk.DoubleVar(value=0.0)
+        self.tuner_progress_text_var = tk.StringVar(value="No search running.")
         self.detection_review_summary_var = tk.StringVar(value="Run the review scan to inspect false positives and false negatives.")
         self.detection_review_records_var = tk.StringVar(value=[])
         self.detection_tuning_summary_var = tk.StringVar(value="No threshold sweep run yet.")
@@ -1031,26 +1034,36 @@ class SynergieToolsApp:
             sticky="w",
             pady=(0, 4),
         )
+        scalar_check = ttk.Checkbutton(
+            controls,
+            text="Use weight and height",
+            variable=self.train_use_scalar_features_var,
+        )
+        scalar_check.grid(row=6, column=0, columnspan=2, sticky="w", pady=(4, 4))
+        self._add_tooltip(
+            scalar_check,
+            "Si decoche, l'entrainement neutralise les entrees masse/taille avec des zeros et ne requiert plus skaterData.csv pour ces lignes.",
+        )
 
-        ttk.Label(controls, text="Batch size").grid(row=6, column=0, sticky="w", pady=4)
+        ttk.Label(controls, text="Batch size").grid(row=7, column=0, sticky="w", pady=4)
         batch_entry = ttk.Entry(controls, textvariable=self.train_batch_size_var, width=10)
-        batch_entry.grid(row=6, column=1, sticky="w")
+        batch_entry.grid(row=7, column=1, sticky="w")
         self._add_tooltip(batch_entry, "Nombre d'exemples traites avant chaque mise a jour des poids. Vide = valeur Keras par defaut.")
-        ttk.Label(controls, text="Learning rate").grid(row=7, column=0, sticky="w", pady=4)
+        ttk.Label(controls, text="Learning rate").grid(row=8, column=0, sticky="w", pady=4)
         learning_rate_entry = ttk.Entry(controls, textvariable=self.train_learning_rate_var, width=10)
-        learning_rate_entry.grid(row=7, column=1, sticky="w")
+        learning_rate_entry.grid(row=8, column=1, sticky="w")
         self._add_tooltip(learning_rate_entry, "Taille des mises a jour de l'optimiseur. Vide = valeur de l'architecture.")
-        ttk.Label(controls, text="Dropout").grid(row=8, column=0, sticky="w", pady=4)
+        ttk.Label(controls, text="Dropout").grid(row=9, column=0, sticky="w", pady=4)
         dropout_entry = ttk.Entry(controls, textvariable=self.train_dropout_var, width=10)
-        dropout_entry.grid(row=8, column=1, sticky="w")
+        dropout_entry.grid(row=9, column=1, sticky="w")
         self._add_tooltip(dropout_entry, "Part de neurones coupes pendant l'entrainement pour limiter le surapprentissage.")
-        ttk.Label(controls, text="Filters / units").grid(row=9, column=0, sticky="w", pady=4)
+        ttk.Label(controls, text="Filters / units").grid(row=10, column=0, sticky="w", pady=4)
         filters_entry = ttk.Entry(controls, textvariable=self.train_filters_var, width=10)
-        filters_entry.grid(row=9, column=1, sticky="w")
+        filters_entry.grid(row=10, column=1, sticky="w")
         self._add_tooltip(filters_entry, "Largeur principale du modele: filtres convolutionnels ou unites LSTM selon l'architecture.")
-        ttk.Label(controls, text="Modules / blocks").grid(row=10, column=0, sticky="w", pady=4)
+        ttk.Label(controls, text="Modules / blocks").grid(row=11, column=0, sticky="w", pady=4)
         modules_entry = ttk.Entry(controls, textvariable=self.train_modules_var, width=10)
-        modules_entry.grid(row=10, column=1, sticky="w")
+        modules_entry.grid(row=11, column=1, sticky="w")
         self._add_tooltip(modules_entry, "Profondeur principale: modules Inception ou blocs Transformer selon l'architecture.")
 
         pretrained_check = ttk.Checkbutton(
@@ -1059,16 +1072,16 @@ class SynergieToolsApp:
             variable=self.use_pretrained_var,
             command=self._sync_pretrained_controls,
         )
-        pretrained_check.grid(row=11, column=0, columnspan=2, sticky="w", pady=(12, 4))
+        pretrained_check.grid(row=12, column=0, columnspan=2, sticky="w", pady=(12, 4))
         self._add_tooltip(pretrained_check, "Reprend un modele existant compatible au lieu de repartir de zero.")
 
         self.pretrained_model_box = ttk.Combobox(controls, textvariable=self.pretrained_model_var, state="readonly", width=34)
-        self.pretrained_model_box.grid(row=12, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        self.pretrained_model_box.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         self._add_tooltip(self.pretrained_model_box, "Modeles compatibles classes du plus recent au moins recent.")
         self.pretrained_model_box.bind("<<ComboboxSelected>>", self._on_pretrained_model_changed)
 
         buttons = ttk.Frame(controls)
-        buttons.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(4, 8))
+        buttons.grid(row=14, column=0, columnspan=2, sticky="ew", pady=(4, 8))
         train_button = ttk.Button(buttons, text="Run training", command=self._run_train)
         train_button.grid(row=0, column=0, sticky="w")
         self._add_tooltip(train_button, "Lance l'entrainement avec les options visibles.")
@@ -1213,8 +1226,18 @@ class SynergieToolsApp:
         ttk.Entry(controls, textvariable=self.tuner_trials_var, width=10).grid(row=3, column=1, sticky="w")
         ttk.Label(controls, text="Epochs / trial").grid(row=4, column=0, sticky="w", pady=4)
         ttk.Entry(controls, textvariable=self.tuner_epochs_var, width=10).grid(row=4, column=1, sticky="w")
+        tuner_scalar_check = ttk.Checkbutton(
+            controls,
+            text="Use weight and height",
+            variable=self.train_use_scalar_features_var,
+        )
+        tuner_scalar_check.grid(row=5, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self._add_tooltip(
+            tuner_scalar_check,
+            "Utilise ou neutralise les entrees masse/taille pour comparer les essais avec la meme configuration que l'entrainement.",
+        )
         ttk.Button(controls, text="Run search", command=self._run_hyperparameter_search).grid(
-            row=5,
+            row=6,
             column=0,
             columnspan=2,
             sticky="w",
@@ -1225,7 +1248,15 @@ class SynergieToolsApp:
             textvariable=self.tuner_summary_var,
             justify=tk.LEFT,
             wraplength=340,
-        ).grid(row=6, column=0, columnspan=2, sticky="w")
+        ).grid(row=7, column=0, columnspan=2, sticky="w")
+        self.tuner_progress = ttk.Progressbar(controls, variable=self.tuner_progress_var, maximum=100)
+        self.tuner_progress.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(12, 4))
+        ttk.Label(controls, textvariable=self.tuner_progress_text_var, justify=tk.LEFT, wraplength=340).grid(
+            row=9,
+            column=0,
+            columnspan=2,
+            sticky="w",
+        )
 
         results = ttk.Frame(parent)
         results.grid(row=0, column=1, sticky="nsew")
@@ -2235,16 +2266,36 @@ class SynergieToolsApp:
     def _run_hyperparameter_search(self) -> None:
         self.status_var.set("Running hyperparameter search...")
         self.tuner_summary_var.set("Hyperparameter search in progress...")
+        self.tuner_progress_var.set(0.0)
+        self.tuner_progress_text_var.set("Preparing search...")
         self.tuner_log.delete("1.0", tk.END)
         self._draw_placeholder_tuner_plot()
 
         def action() -> None:
+            def report_progress(event: dict) -> None:
+                trial = event["trial"]
+                total = event["total_trials"]
+                if event["stage"] == "trial_started":
+                    text = f"Running trial {trial}/{total}: {event['parameters']}"
+                    percent = ((trial - 1) / total) * 100
+                else:
+                    result = event["result"]
+                    text = (
+                        f"Completed trial {trial}/{total}: "
+                        f"best_val_accuracy={result['best_val_accuracy']:.3f}"
+                    )
+                    percent = (trial / total) * 100
+                self.root.after(0, lambda: self.tuner_progress_var.set(percent))
+                self.root.after(0, lambda: self.tuner_progress_text_var.set(text))
+
             summary = operations.run_hyperparameter_search(
                 self.tuner_task_var.get(),
                 self.tuner_dataset_var.get().strip(),
                 self.tuner_architecture_var.get(),
                 max_trials=int(self.tuner_trials_var.get()),
                 epochs=int(self.tuner_epochs_var.get()),
+                use_scalar_features=self.train_use_scalar_features_var.get(),
+                progress_callback=report_progress,
             )
             if summary.get("best_trial"):
                 operations.save_optimized_model_parameters(
@@ -2264,6 +2315,8 @@ class SynergieToolsApp:
             self.root.after(0, lambda: self._replace_text(self.tuner_log, "\n".join(lines)))
             self.root.after(0, lambda: self._draw_hyperparameter_results(summary))
             self.root.after(0, self._sync_train_parameter_profile)
+            self.root.after(0, lambda: self.tuner_progress_var.set(100.0))
+            self.root.after(0, lambda: self.tuner_progress_text_var.set("Search completed."))
             self.root.after(0, lambda: self.status_var.set("Hyperparameter search completed"))
 
         self._run_in_thread(action, "Unable to run hyperparameter search.")
@@ -3441,6 +3494,7 @@ class SynergieToolsApp:
                 pretrained_model_id=pretrained_model_id,
                 model_overrides=model_overrides,
                 batch_size=batch_size,
+                use_scalar_features=self.train_use_scalar_features_var.get(),
             )
             formatted_summary = self._format_training_quality_summary(summary)
             self.root.after(0, lambda: self._draw_training_history(summary))

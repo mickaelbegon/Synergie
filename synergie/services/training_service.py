@@ -18,13 +18,15 @@ def run_hyperparameter_search(
     max_trials: int = 6,
     epochs: int = 8,
     random_seed: int = 42,
+    use_scalar_features: bool = True,
+    progress_callback=None,
 ) -> dict:
     """Run a compact exploratory validation search."""
     import keras
     from core.model import model
     from core.model.training.loader import Loader
 
-    loader = Loader(dataset_path, augment_mirror=True)
+    loader = Loader(dataset_path, augment_mirror=True, use_scalar_features=use_scalar_features)
     dataset = loader.get_type_data() if task == "type" else loader.get_success_data()
     trials = sample_hyperparameter_trials(task, architecture, max_trials, random_seed=random_seed)
     results: list[dict] = []
@@ -33,6 +35,15 @@ def run_hyperparameter_search(
         dataset.labels_test,
     )
     for trial_index, parameters in enumerate(trials, start=1):
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "stage": "trial_started",
+                    "trial": trial_index,
+                    "total_trials": len(trials),
+                    "parameters": parameters,
+                }
+            )
         keras.backend.clear_session()
         build_parameters = dict(parameters)
         batch_size = int(build_parameters.pop("batch_size"))
@@ -64,6 +75,15 @@ def run_hyperparameter_search(
                 "epochs_ran": int(len(history_data.get("loss", []))),
             }
         )
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "stage": "trial_completed",
+                    "trial": trial_index,
+                    "total_trials": len(trials),
+                    "result": results[-1],
+                }
+            )
     results.sort(key=lambda item: item["best_val_accuracy"], reverse=True)
     return {
         "task": task,
@@ -86,6 +106,7 @@ def train_model(
     pretrained_model_id: str | None = None,
     model_overrides: dict | None = None,
     batch_size: int | None = None,
+    use_scalar_features: bool = True,
 ) -> dict:
     """Train one model, promote it as latest, and register it for reuse."""
     from core.model import model
@@ -93,7 +114,7 @@ def train_model(
     from core.model.training.training import Trainer
 
     _raise_for_duplicate_training_paths(dataset_path)
-    dataset = Loader(dataset_path, augment_mirror=True)
+    dataset = Loader(dataset_path, augment_mirror=True, use_scalar_features=use_scalar_features)
     pretrained_entry = _resolve_pretrained_entry(task, pretrained_model_id)
     selected_architecture = architecture or (
         pretrained_entry["architecture"] if pretrained_entry else model.default_architecture(task)
