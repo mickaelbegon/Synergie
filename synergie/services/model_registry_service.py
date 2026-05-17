@@ -11,6 +11,11 @@ def list_pretrained_training_models(task: str | None = None, compatible_only: bo
     return pretrained_models.list_pretrained_models(task=task, compatible_only=compatible_only)
 
 
+def delete_pretrained_training_model(model_id: str) -> dict:
+    """Delete one registered archived model and its checkpoint file."""
+    return pretrained_models.delete_pretrained_model(model_id)
+
+
 def format_pretrained_model_label(model_entry: dict) -> str:
     """Return the GUI label used for one pretrained model entry."""
     performance = model_entry.get("performance") or {}

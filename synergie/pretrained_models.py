@@ -123,3 +123,25 @@ def register_trained_model(
     save_pretrained_models(models)
     entry["path_exists"] = Path(path).exists()
     return entry
+
+
+def delete_pretrained_model(model_id: str) -> dict:
+    """Delete one archived model entry and its file while protecting active aliases."""
+    models = load_pretrained_models()
+    target = next((model for model in models if model["id"] == model_id), None)
+    if target is None:
+        raise KeyError(f"Unknown pretrained model '{model_id}'.")
+    model_path = Path(target["path"])
+    active_aliases = {
+        Path("core/model/saved_models/checkpoint.keras"),
+        Path("core/model/saved_models/success.keras"),
+    }
+    if model_path in active_aliases:
+        raise ValueError("Active model aliases cannot be deleted from the pretrained model list.")
+    remaining = [model for model in models if model["id"] != model_id]
+    if model_path.exists():
+        if model_path.is_dir():
+            raise ValueError(f"Refusing to delete model directory '{model_path}'.")
+        model_path.unlink()
+    save_pretrained_models(remaining)
+    return target

@@ -59,5 +59,16 @@ class LoaderMirrorTests(unittest.TestCase):
         np.testing.assert_array_equal(values, np.zeros(2, dtype=np.float32))
 
 
+class TrainerConfigurationTests(unittest.TestCase):
+    def test_early_stopping_uses_requested_patience(self):
+        from core.model.training.training import Trainer
+
+        trainer = Trainer.__new__(Trainer)
+        callback = trainer.early_stopping()
+
+        self.assertEqual(callback.patience, 40)
+        self.assertEqual(callback.monitor, "val_accuracy")
+
+
 if __name__ == "__main__":
     unittest.main()

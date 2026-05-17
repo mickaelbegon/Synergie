@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from datetime import datetime
@@ -636,6 +637,37 @@ class OperationsTests(unittest.TestCase):
             models = operations.list_pretrained_training_models(task="success", compatible_only=True)
 
             self.assertEqual([model["label"] for model in models], ["Newer", "Older"])
+        pretrained_models.PRETRAINED_MODELS_FILE = original_file
+
+    def test_delete_pretrained_training_model_removes_registry_entry_and_file(self):
+        original_file = pretrained_models.PRETRAINED_MODELS_FILE
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            config_path = root / "pretrained_models.json"
+            model_path = root / "old.keras"
+            model_path.write_text("model", encoding="utf-8")
+            config_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "id": "old-model",
+                            "label": "Old model",
+                            "task": "type",
+                            "architecture": "inceptiontime",
+                            "path": model_path.as_posix(),
+                            "compatible": True,
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            pretrained_models.PRETRAINED_MODELS_FILE = config_path
+
+            removed = operations.delete_pretrained_training_model("old-model")
+
+            self.assertEqual(removed["id"], "old-model")
+            self.assertFalse(model_path.exists())
+            self.assertEqual(pretrained_models.load_pretrained_models(), [])
         pretrained_models.PRETRAINED_MODELS_FILE = original_file
 
     def test_register_trained_model_persists_unique_entry(self):

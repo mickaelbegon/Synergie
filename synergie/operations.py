@@ -76,6 +76,7 @@ from synergie.services.new_data_service import (
 )
 from synergie.services.model_registry_service import (
     audit_saved_models,
+    delete_pretrained_training_model,
     evaluate_registered_model,
     format_pretrained_model_label,
     latest_model_path_for_task,

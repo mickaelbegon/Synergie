@@ -1106,6 +1106,9 @@ class SynergieToolsApp:
         refresh_stats_button = ttk.Button(buttons, text="Refresh dataset stats", command=self._refresh_training_dataset_stats)
         refresh_stats_button.grid(row=0, column=1, sticky="w", padx=(8, 0))
         self._add_tooltip(refresh_stats_button, "Recharge les comptes de classes, doublons et statut de reentrainement.")
+        delete_model_button = ttk.Button(buttons, text="Delete selected model", command=self._delete_selected_pretrained_model)
+        delete_model_button.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        self._add_tooltip(delete_model_button, "Supprime du registre et du disque le modele archive selectionne, apres confirmation.")
 
         ttk.Label(
             controls,
@@ -1735,6 +1738,25 @@ class SynergieToolsApp:
             if operations.format_pretrained_model_label(model) == selected_label:
                 return model["id"]
         return None
+
+    def _delete_selected_pretrained_model(self) -> None:
+        model_id = self._selected_pretrained_model_id()
+        if not model_id:
+            messagebox.showinfo("Synergie Tools", "Select a compatible archived model first.")
+            return
+        if not messagebox.askyesno(
+            "Synergie Tools",
+            f"Delete archived model '{model_id}' from the registry and disk?\n\nThis cannot be undone.",
+        ):
+            return
+        try:
+            removed = operations.delete_pretrained_training_model(model_id)
+        except Exception as exc:
+            messagebox.showerror("Synergie Tools", f"Unable to delete model.\n\n{exc}")
+            return
+        self._refresh_pretrained_models()
+        self._sync_pretrained_controls()
+        messagebox.showinfo("Synergie Tools", f"Deleted model:\n{removed['label']}")
 
     def _training_overrides_from_gui(self) -> tuple[dict, int | None]:
         optimized = None

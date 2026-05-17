@@ -8,6 +8,7 @@ import core.model.training.loader as loader
 
 
 class Trainer:
+    EARLY_STOPPING_PATIENCE = 40
     def __init__(self, dataset : loader.Dataset, model: keras.models.Model, model_filepath: str):
         self.dataset = dataset
         self.model = model
@@ -50,6 +51,15 @@ class Trainer:
         y_pred = model.predict(
             {"temporal_input": self.dataset.temporal_features_test, "scalar_input": self.dataset.scalar_features_test},
             verbose=0,
+        )
+
+    def early_stopping(self):
+        """Stop long runs once validation accuracy no longer improves."""
+        return keras.callbacks.EarlyStopping(
+            monitor="val_accuracy",
+            mode="max",
+            patience=self.EARLY_STOPPING_PATIENCE,
+            restore_best_weights=True,
         )
         predicted_labels = [int(np.argmax(x)) for x in y_pred]
         true_labels = [int(np.argmax(x)) for x in self.dataset.labels_test]
@@ -104,7 +114,7 @@ class Trainer:
                 epochs=epochs,
                 batch_size=batch_size,
                 validation_data=self.dataset.val_dataset,
-                callbacks=[self.model_save_best(self.model_filepath)],
+                callbacks=[self.model_save_best(self.model_filepath), self.early_stopping()],
             )
         except KeyboardInterrupt:
             self.plot(self.model_filepath)
@@ -134,7 +144,7 @@ class Trainer:
                 epochs=epochs,
                 batch_size=batch_size,
                 validation_data=self.dataset.val_dataset,
-                callbacks=[self.model_save_best(self.model_filepath)],
+                callbacks=[self.model_save_best(self.model_filepath), self.early_stopping()],
                 class_weight=self.dataset.class_weight or None,
             )
         except KeyboardInterrupt:
