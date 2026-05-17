@@ -239,6 +239,7 @@ class SynergieToolsApp:
         notebook.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
         self.notebook = notebook
 
+        workflow_tab = ttk.Frame(notebook, padding=12)
         sessions_tab = ttk.Frame(notebook, padding=12)
         process_tab = ttk.Frame(notebook, padding=12)
         new_data_tab = ttk.Frame(notebook, padding=12)
@@ -251,6 +252,7 @@ class SynergieToolsApp:
         detection_tuning_tab = ttk.Frame(notebook, padding=12)
         quality_tab = ttk.Frame(notebook, padding=12)
         notes_tab = ttk.Frame(notebook, padding=12)
+        notebook.add(workflow_tab, text="Start - Workflow")
         notebook.add(sessions_tab, text="Data - Sessions")
         notebook.add(new_data_tab, text="Data - New")
         notebook.add(process_tab, text="Data - Process")
@@ -273,6 +275,7 @@ class SynergieToolsApp:
         self._build_sessions_side_panel(sessions_tab)
         ttk.Button(sessions_tab, text="Refresh sessions", command=self._refresh_all_sessions).grid(row=1, column=0, sticky="w", pady=(8, 0))
 
+        self._build_workflow_tab(workflow_tab)
         self._build_process_tab(process_tab)
         self._build_new_data_tab(new_data_tab)
         self._build_annotate_tab(annotate_tab)
@@ -294,6 +297,58 @@ class SynergieToolsApp:
     def _add_tooltip(self, widget, text: str):
         self._tooltips.append(Tooltip(widget, text))
         return widget
+
+    def _build_workflow_tab(self, parent: ttk.Frame) -> None:
+        """Build the first-tab guide for the end-to-end data workflow."""
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(1, weight=1)
+
+        ttk.Label(
+            parent,
+            text="Workflow conseille pour ajouter de nouvelles donnees et re-entrainer les modeles",
+            font=("Segoe UI", 13, "bold"),
+        ).grid(row=0, column=0, sticky="w", pady=(0, 10))
+
+        workflow_text = scrolledtext.ScrolledText(parent, wrap=tk.WORD, height=24)
+        workflow_text.grid(row=1, column=0, sticky="nsew")
+        workflow_text.insert(
+            tk.END,
+            "\n".join(
+                [
+                    "1. Data - Sessions",
+                    "   Verifier que la seance existe et que son offset de synchronisation est renseigne.",
+                    "   Si la seance n'existe pas encore, l'ajouter avant de traiter les fichiers.",
+                    "",
+                    "2. Data - New",
+                    "   Choisir un dossier brut dans data/new, verifier les capteurs detectes, puis utiliser Process for annotation.",
+                    "   Cette etape cree les segments IMU et un fichier *_for_annotation.csv dans data/pending.",
+                    "",
+                    "3. Data - Process",
+                    "   Optionnel pour le flux d'annotation complet.",
+                    "   Sert au retraitement manuel ou en batch de CSV deja classes par session, avec les modeles initiaux choisis.",
+                    "",
+                    "4. Data - Annotate",
+                    "   Charger le fichier for_annotation, synchroniser la video, verifier/corriger les labels, traiter les faux positifs",
+                    "   et les sauts manques, puis utiliser Finalize annotated file quand tout est termine.",
+                    "",
+                    "5. Review - Quality et Review - Detection",
+                    "   Verifier les outliers, les sequences suspectes, les faux positifs et les faux negatifs avant d'entrainer.",
+                    "",
+                    "6. Models - Train",
+                    "   Re-entrainer type, success et turns quand le dataset a change.",
+                    "",
+                    "7. Models - Audit / Importance / Tune",
+                    "   Verifier les performances, comprendre les signaux utiles et ajuster les hyperparametres avant de promouvoir un modele.",
+                    "",
+                    "Points de vigilance",
+                    "- La preparation de session est une vraie etape du flux: sans session correcte, les offsets et les batchs peuvent etre faux.",
+                    "- Finalize annotated file est l'etape qui ajoute reellement les nouveaux labels au dataset d'entrainement.",
+                    "- Les fichiers jumplist sont des sorties derivees; ils ne doivent pas etre retraités comme des CSV IMU bruts.",
+                    "- Le controle apres entrainement est recommande avant d'utiliser un nouveau modele pour pre-remplir d'autres annotations.",
+                ]
+            ),
+        )
+        workflow_text.configure(state=tk.DISABLED)
 
     def _build_process_tab(self, parent: ttk.Frame) -> None:
         for index in range(3):
@@ -340,7 +395,7 @@ class SynergieToolsApp:
         self._add_tooltip(batch_process_button, "Traite tous les CSV selectionnes et genere un nom de sortie libre pour chacun.")
         global_batch_button = ttk.Button(parent, text="Batch process all", command=self._run_global_batch_process_files)
         global_batch_button.grid(row=6, column=2, sticky="w", pady=(12, 12))
-        self._add_tooltip(global_batch_button, "Traite tous les fichiers CSV disponibles dans la session courante.")
+        self._add_tooltip(global_batch_button, "Traite tous les fichiers CSV bruts disponibles dans toutes les sessions configurees.")
 
         batch_progress_label = ttk.Label(parent, textvariable=self.process_batch_progress_var, justify=tk.LEFT)
         batch_progress_label.grid(row=7, column=0, columnspan=3, sticky="w", pady=(0, 12))
