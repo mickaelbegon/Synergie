@@ -93,6 +93,7 @@ class SynergieToolsApp:
         self.new_data_output_var = tk.StringVar()
         self.new_data_summary_var = tk.StringVar(value="No file selected.")
         self.new_data_session_suggestion_var = tk.StringVar(value="No session selected.")
+        self.new_data_automation_var = tk.StringVar(value="Select a session to see the automatic actions that will be applied.")
         self.annotation_files_var = tk.StringVar(value=[])
         self.annotation_summary_var = tk.StringVar(value="No annotation file selected.")
         self.annotation_progress_var = tk.StringVar(value="Pending annotations: 0")
@@ -553,7 +554,8 @@ class SynergieToolsApp:
         ttk.Label(parent, textvariable=self.new_data_summary_var, justify=tk.LEFT).grid(row=4, column=1, columnspan=2, sticky="w", padx=8)
         ttk.Label(
             parent,
-            text="Initial labels use the models selected in Process CSV.",
+            textvariable=self.new_data_automation_var,
+            justify=tk.LEFT,
             foreground="gray",
         ).grid(row=5, column=0, columnspan=3, sticky="w", pady=(0, 8))
 
@@ -1311,6 +1313,7 @@ class SynergieToolsApp:
         if not sessions:
             self.new_data_output_var.set("")
             self.new_data_session_suggestion_var.set("No session selected.")
+            self.new_data_automation_var.set("Select a session to see the automatic actions that will be applied.")
 
     def _format_new_data_file_label(self, metadata: dict) -> str:
         if "files" in metadata:
@@ -2158,6 +2161,16 @@ class SynergieToolsApp:
             f"Sensors: {sensors} | {session['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')}\n"
             f"Workflow: {(session.get('workflow') or {}).get('status', 'not processed yet')}"
         )
+        workflow = session.get("workflow") or {}
+        workflow_status = workflow.get("status", "not processed yet")
+        prediction_status = workflow.get("prediction_status", "will use selected models when processed")
+        self.new_data_automation_var.set(
+            "Automatic actions:\n"
+            f"- annotation CSV path reserved automatically\n"
+            f"- session target inferred from IMU timestamp\n"
+            f"- workflow state: {workflow_status}\n"
+            f"- prediction status: {prediction_status}"
+        )
 
     def _add_selected_new_data_session(self) -> None:
         raw_file = self.new_data_selected_file_var.get().strip()
@@ -2178,6 +2191,12 @@ class SynergieToolsApp:
         self.inspect_session_var.set(suggestion["session_id"])
         self._refresh_all_sessions()
         self.status_var.set(f"Session added automatically: {suggestion['session_id']} -> {metadata['path']}")
+        self.new_data_automation_var.set(
+            "Automatic session created.\n"
+            f"- ID: {suggestion['session_id']}\n"
+            f"- raw destination: data/raw/{metadata['path']}\n"
+            "- sync offset starts at 0 until corrected or measured"
+        )
 
     def _refresh_annotation_files(self) -> None:
         files = operations.list_pending_annotation_files()
@@ -2233,7 +2252,8 @@ class SynergieToolsApp:
             prefilled_count = int(self.annotation_dataframe["prediction_source"].fillna("").astype(str).ne("").sum())
         self.annotation_summary_var.set(
             f"{file_path.name}\nEntries: {len(self.annotation_dataframe)} | Sensors: {sensor_count} | "
-            f"Model-prefilled: {prefilled_count}"
+            f"Model-prefilled: {prefilled_count}\n"
+            f"{'Predicted labels will initialize the controls.' if prefilled_count else 'No model predictions stored: labels start blank until reviewed.'}"
         )
         self._refresh_annotation_progress()
         video_path = self.annotation_metadata.get("video_path", "")
@@ -2932,6 +2952,10 @@ class SynergieToolsApp:
             f"Finalization complete.\n\n"
             f"Rows added: {result['rows_added']}\n"
             f"Raw IMU files moved: {result['raw_files_moved']}\n"
+            "Automatic actions completed:\n"
+            "- labelled segments moved into data/annotated\n"
+            "- completed annotation file archived with the session\n"
+            "- workflow status marked finalized\n"
             f"Previous jumplist archived at: {result['archive_path']}\n\n"
             "The training dataset changed; retraining is recommended.",
         )
@@ -3180,12 +3204,18 @@ class SynergieToolsApp:
         if workflow.get("status") == "pending_annotation":
             if not messagebox.askyesno(
                 "Synergie Tools",
-                "This session is already available in pending annotation files.\n\nProcess it again anyway?",
+                "This session is already available in pending annotation files.\n\n"
+                f"Existing annotation CSV: {workflow.get('annotation_csv', 'unknown')}\n"
+                "Processing again will generate another pending annotation file for the same source session.\n\n"
+                "Process it again anyway?",
             ):
                 return
 
         self.status_var.set("Processing new IMU file for annotation...")
         self.new_data_log.delete("1.0", tk.END)
+        self._log(self.new_data_log, f"Selected source session: {session_suggestion['session_id']}")
+        self._log(self.new_data_log, f"Automatic annotation CSV: {self.new_data_output_var.get()}")
+        self._log(self.new_data_log, f"Automatic raw destination after finalization: data/raw/{session_suggestion['path']}")
 
         def action() -> None:
             type_path = self._process_prediction_model_path("type", self.process_type_model_var.get())
@@ -3212,6 +3242,13 @@ class SynergieToolsApp:
                         f"Initial model predictions: {result['prediction_status']} | "
                         f"updated={result['predictions_updated']} | skipped={result['predictions_skipped']}"
                     ),
+                ),
+            )
+            self.root.after(
+                0,
+                lambda: self._log(
+                    self.new_data_log,
+                    "Workflow recorded: this session is now marked pending_annotation until finalization.",
                 ),
             )
             self.root.after(0, self._refresh_annotation_files)
