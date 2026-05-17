@@ -115,6 +115,7 @@ def register_trained_model(
             "dataset": dataset,
             "test_accuracy": performance.get("test_accuracy"),
             "test_samples": performance.get("test_samples"),
+            "confusion_matrix": performance.get("confusion_matrix"),
         },
     }
     models = [model for model in models if model["id"] != model_id]

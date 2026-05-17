@@ -2193,6 +2193,31 @@ class SynergieToolsApp:
 
     def _on_pretrained_model_changed(self, _event=None) -> None:
         self._sync_pretrained_architecture()
+        pretrained_model_id = self._selected_pretrained_model_id()
+        if not pretrained_model_id:
+            self._draw_placeholder_confusion_matrix()
+            return
+        self.status_var.set("Loading confusion matrix for selected model...")
+
+        def action() -> None:
+            model_entry = next(
+                model
+                for model in operations.list_pretrained_training_models(task=self.train_task_var.get(), compatible_only=True)
+                if model["id"] == pretrained_model_id
+            )
+            summary = operations.evaluate_registered_model(model_entry)
+            self.root.after(0, lambda: self._draw_confusion_matrix(summary))
+            self.root.after(
+                0,
+                lambda: self.train_quality_summary_var.set(
+                    f"Selected model: {model_entry['label']}\n"
+                    f"Test accuracy: {summary.get('test_accuracy', 0.0):.3f} | "
+                    f"Test samples: {summary.get('test_samples', 0)}"
+                ),
+            )
+            self.root.after(0, lambda: self.status_var.set("Selected model metrics loaded"))
+
+        self._run_in_thread(action, "Unable to evaluate selected pretrained model.")
 
     def _on_process_file_selected(self, _event=None) -> None:
         selection = self.process_session_files.curselection()

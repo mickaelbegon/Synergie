@@ -42,6 +42,40 @@ def list_pretrained_models_by_performance(task: str) -> list[dict]:
     )
 
 
+def evaluate_registered_model(model_entry: dict) -> dict:
+    """Return stored or recomputed evaluation metrics for one registered model."""
+    performance = dict(model_entry.get("performance") or {})
+    if performance.get("confusion_matrix"):
+        return {
+            "task": model_entry["task"],
+            "confusion_matrix": performance["confusion_matrix"],
+            "test_accuracy": performance.get("test_accuracy"),
+            "test_samples": performance.get("test_samples"),
+        }
+
+    from core.model import model
+    from core.model.training.loader import Loader
+    from sklearn.metrics import accuracy_score, confusion_matrix
+    import numpy as np
+
+    dataset_path = performance.get("dataset") or "data/annotated/total"
+    dataset = Loader(dataset_path, augment_mirror=True)
+    data = dataset.get_type_data() if model_entry["task"] == "type" else dataset.get_success_data()
+    trained_model = model.load_model(model_entry["path"], for_training=False)
+    predicted = trained_model.predict(
+        {"temporal_input": data.temporal_features_test, "scalar_input": data.scalar_features_test},
+        verbose=0,
+    )
+    predicted_labels = [int(np.argmax(row)) for row in predicted]
+    true_labels = [int(np.argmax(row)) for row in data.labels_test]
+    return {
+        "task": model_entry["task"],
+        "confusion_matrix": confusion_matrix(true_labels, predicted_labels).tolist(),
+        "test_accuracy": float(accuracy_score(true_labels, predicted_labels)),
+        "test_samples": int(len(true_labels)),
+    }
+
+
 def audit_saved_models() -> list[dict]:
     """Inspect active and registered models under the current environment."""
     from core.model import model
