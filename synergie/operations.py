@@ -42,7 +42,9 @@ from synergie.services.hyperparameter_search_service import (
 )
 from synergie.services.detection_tuning_service import (
     analyze_detection_review_labels,
+    load_optimized_detection_parameters,
     optimize_detection_parameters,
+    save_optimized_detection_parameters,
 )
 from synergie.services.data_inventory_service import build_data_inventory
 from synergie.services.quality_service import analyze_jump_quality

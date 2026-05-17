@@ -4,7 +4,9 @@ from pathlib import Path
 
 from synergie.services.detection_tuning_service import (
     analyze_detection_review_labels,
+    load_optimized_detection_parameters,
     optimize_detection_parameters,
+    save_optimized_detection_parameters,
 )
 
 
@@ -45,3 +47,22 @@ class DetectionTuningServiceTests(unittest.TestCase):
             self.assertEqual(result["reviewed_segments"], 2)
             self.assertEqual(len(result["results"]), 1)
             self.assertIsNotNone(result["best"])
+
+    def test_saves_and_loads_optimized_parameters(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "optimized.json"
+            save_optimized_detection_parameters(
+                {
+                    "threshold": -0.2,
+                    "smoothing_sigma": 20,
+                    "balanced_error": 0.1,
+                    "false_positive": 1,
+                    "false_negative": 2,
+                },
+                path=path,
+            )
+
+            loaded = load_optimized_detection_parameters(path)
+
+            self.assertEqual(loaded["threshold"], -0.2)
+            self.assertEqual(loaded["smoothing_sigma"], 20.0)

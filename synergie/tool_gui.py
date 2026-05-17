@@ -166,6 +166,8 @@ class SynergieToolsApp:
         self.process_selected_file_info_var = tk.StringVar(value="No file selected.")
         self.process_batch_progress_var = tk.StringVar(value="No batch running.")
         self.inspect_selected_file_info_var = tk.StringVar(value="No file selected.")
+        self.detection_parameter_mode_var = tk.StringVar(value="Default parameters")
+        self.detection_parameter_summary_var = tk.StringVar(value="Using default detection parameters.")
 
         self.inspect_dataframe = None
         self.inspect_session = None
@@ -488,7 +490,18 @@ class SynergieToolsApp:
         ttk.Label(controls, textvariable=self.inspect_folder_summary_var, justify=tk.LEFT).grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
         ttk.Label(controls, textvariable=self.inspect_selected_file_info_var, justify=tk.LEFT).grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 8))
 
-        ttk.Label(controls, text="2nd derivative threshold").grid(row=5, column=0, sticky="w", pady=(12, 0))
+        ttk.Label(controls, text="Parameter set").grid(row=5, column=0, sticky="w", pady=(12, 0))
+        self.detection_parameter_mode_box = ttk.Combobox(
+            controls,
+            textvariable=self.detection_parameter_mode_var,
+            values=["Default parameters"],
+            state="readonly",
+        )
+        self.detection_parameter_mode_box.grid(row=5, column=1, sticky="ew", padx=8)
+        self.detection_parameter_mode_box.bind("<<ComboboxSelected>>", self._on_detection_parameter_mode_changed)
+        ttk.Label(controls, textvariable=self.detection_parameter_summary_var, justify=tk.LEFT).grid(row=5, column=2, sticky="w")
+
+        ttk.Label(controls, text="2nd derivative threshold").grid(row=6, column=0, sticky="w", pady=(12, 0))
         threshold_scale = tk.Scale(
             controls,
             from_=-2.0,
@@ -499,11 +512,11 @@ class SynergieToolsApp:
             command=lambda _value: self._sync_slider_labels(),
             length=260,
         )
-        threshold_scale.grid(row=5, column=1, sticky="ew", padx=8)
+        threshold_scale.grid(row=6, column=1, sticky="ew", padx=8)
         self._add_tooltip(threshold_scale, "Seuil applique a la derivee seconde. Plus proche de zero = detection plus permissive.")
-        ttk.Label(controls, textvariable=self.threshold_label_var).grid(row=5, column=2, sticky="w")
+        ttk.Label(controls, textvariable=self.threshold_label_var).grid(row=6, column=2, sticky="w")
 
-        ttk.Label(controls, text="Smoothing sigma").grid(row=6, column=0, sticky="w", pady=(12, 0))
+        ttk.Label(controls, text="Smoothing sigma").grid(row=7, column=0, sticky="w", pady=(12, 0))
         sigma_scale = tk.Scale(
             controls,
             from_=1,
@@ -514,11 +527,11 @@ class SynergieToolsApp:
             command=lambda _value: self._sync_slider_labels(),
             length=260,
         )
-        sigma_scale.grid(row=6, column=1, sticky="ew", padx=8)
+        sigma_scale.grid(row=7, column=1, sticky="ew", padx=8)
         self._add_tooltip(sigma_scale, "Lissage du gyroscope avant detection. Plus grand = signal plus lisse mais moins reactif.")
-        ttk.Label(controls, textvariable=self.sigma_label_var).grid(row=6, column=2, sticky="w")
+        ttk.Label(controls, textvariable=self.sigma_label_var).grid(row=7, column=2, sticky="w")
 
-        ttk.Label(controls, text="Combination gap (frames)").grid(row=7, column=0, sticky="w", pady=(12, 0))
+        ttk.Label(controls, text="Combination gap (frames)").grid(row=8, column=0, sticky="w", pady=(12, 0))
         gap_scale = tk.Scale(
             controls,
             from_=60,
@@ -529,12 +542,12 @@ class SynergieToolsApp:
             command=lambda _value: self._sync_slider_labels(),
             length=260,
         )
-        gap_scale.grid(row=7, column=1, sticky="ew", padx=8)
+        gap_scale.grid(row=8, column=1, sticky="ew", padx=8)
         self._add_tooltip(gap_scale, "Deux sauts proches de moins que cet ecart sont marques comme combinaison.")
-        ttk.Label(controls, textvariable=self.gap_label_var).grid(row=7, column=2, sticky="w")
+        ttk.Label(controls, textvariable=self.gap_label_var).grid(row=8, column=2, sticky="w")
 
         actions = ttk.Frame(controls)
-        actions.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(12, 0))
+        actions.grid(row=9, column=0, columnspan=3, sticky="ew", pady=(12, 0))
         inspect_button = ttk.Button(actions, text="Load and detect", command=self._run_inspection)
         inspect_button.grid(row=0, column=0, sticky="w")
         self._add_tooltip(inspect_button, "Charge le CSV et recalcule les sauts avec les seuils visibles.")
@@ -555,6 +568,7 @@ class SynergieToolsApp:
         self.plot_container = ttk.Frame(plots_frame)
         self.plot_container.grid(row=0, column=0, sticky="nsew")
         self._build_plot_canvas()
+        self._refresh_detection_parameter_modes()
 
     def _build_new_data_tab(self, parent: ttk.Frame) -> None:
         for index in range(3):
@@ -1428,6 +1442,33 @@ class SynergieToolsApp:
         self.threshold_label_var.set(f"{self.threshold_var.get():.2f}")
         self.sigma_label_var.set(f"{self.sigma_var.get():.0f}")
         self.gap_label_var.set(f"{self.gap_var.get()}")
+
+    def _refresh_detection_parameter_modes(self) -> None:
+        optimized = operations.load_optimized_detection_parameters()
+        values = ["Default parameters"]
+        if optimized is not None:
+            values.append("Optimized parameters")
+        self.detection_parameter_mode_box.configure(values=values)
+        if self.detection_parameter_mode_var.get() not in values:
+            self.detection_parameter_mode_var.set(values[0])
+        self._on_detection_parameter_mode_changed()
+
+    def _on_detection_parameter_mode_changed(self, _event=None) -> None:
+        if self.detection_parameter_mode_var.get() == "Optimized parameters":
+            optimized = operations.load_optimized_detection_parameters()
+            if optimized is not None:
+                self.threshold_var.set(optimized["threshold"])
+                self.sigma_var.set(optimized["smoothing_sigma"])
+                self.detection_parameter_summary_var.set(
+                    f"balanced error {optimized['balanced_error']:.3f}"
+                )
+            else:
+                self.detection_parameter_mode_var.set("Default parameters")
+        if self.detection_parameter_mode_var.get() == "Default parameters":
+            self.threshold_var.set(DEFAULT_DETECTION_THRESHOLD)
+            self.sigma_var.set(DEFAULT_SMOOTHING_SIGMA)
+            self.detection_parameter_summary_var.set("using built-in defaults")
+        self._sync_slider_labels()
 
     def _sync_train_architectures(self) -> None:
         task = self.train_task_var.get()
@@ -3082,6 +3123,7 @@ class SynergieToolsApp:
             if best is None:
                 summary = "No reviewed segments available for threshold tuning."
             else:
+                operations.save_optimized_detection_parameters(best)
                 summary = (
                     f"Reviewed windows: {result['reviewed_segments']}\n"
                     f"Best threshold: {best['threshold']:.2f} | sigma: {best['smoothing_sigma']:.0f}\n"
@@ -3089,6 +3131,7 @@ class SynergieToolsApp:
                     f"FP: {best['false_positive']} | FN: {best['false_negative']}"
                 )
             self.root.after(0, lambda: self.detection_tuning_summary_var.set(summary))
+            self.root.after(0, self._refresh_detection_parameter_modes)
             self.root.after(0, lambda: self.status_var.set("Detection parameter sweep completed"))
 
         self._run_in_thread(action, "Unable to optimize detection parameters.")

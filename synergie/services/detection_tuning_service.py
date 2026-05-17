@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 from synergie.services.annotation_service import annotation_review_status_from_row
+
+
+OPTIMIZED_DETECTION_PARAMETERS_FILE = Path("config") / "optimized_detection_parameters.json"
 
 
 def analyze_detection_review_labels(root: str | Path = "data/pending") -> dict:
@@ -98,6 +102,39 @@ def optimize_detection_parameters(
         "results": results,
         "best": results[0] if results else None,
         "scope": "reviewed_candidate_windows_v1",
+    }
+
+
+def save_optimized_detection_parameters(best: dict, path: str | Path = OPTIMIZED_DETECTION_PARAMETERS_FILE) -> Path:
+    """Persist the best reviewed detection parameters for later reuse."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "threshold": float(best["threshold"]),
+        "smoothing_sigma": float(best["smoothing_sigma"]),
+        "balanced_error": float(best["balanced_error"]),
+        "false_positive": int(best["false_positive"]),
+        "false_negative": int(best["false_negative"]),
+    }
+    with output_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=True)
+        handle.write("\n")
+    return output_path
+
+
+def load_optimized_detection_parameters(path: str | Path = OPTIMIZED_DETECTION_PARAMETERS_FILE) -> dict | None:
+    """Load persisted optimized detection parameters when available."""
+    input_path = Path(path)
+    if not input_path.exists():
+        return None
+    with input_path.open("r", encoding="utf-8") as handle:
+        loaded = json.load(handle)
+    return {
+        "threshold": float(loaded["threshold"]),
+        "smoothing_sigma": float(loaded["smoothing_sigma"]),
+        "balanced_error": float(loaded.get("balanced_error", 0.0)),
+        "false_positive": int(loaded.get("false_positive", 0)),
+        "false_negative": int(loaded.get("false_negative", 0)),
     }
 
 
