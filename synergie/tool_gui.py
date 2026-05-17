@@ -447,6 +447,7 @@ class SynergieToolsApp:
         for column in columns:
             self.data_inventory_tree.heading(column, text=headings[column])
             self.data_inventory_tree.column(column, width=widths[column], anchor="center" if column != "session" else "w")
+        self.data_inventory_tree.tag_configure("total", font=("Segoe UI", 9, "bold"))
         self.data_inventory_tree.grid(row=2, column=0, sticky="nsew")
         self._refresh_data_inventory()
 
@@ -1299,7 +1300,28 @@ class SynergieToolsApp:
             return
         for item in self.data_inventory_tree.get_children():
             self.data_inventory_tree.delete(item)
-        for row in operations.build_data_inventory():
+        rows = operations.build_data_inventory()
+        totals = {
+            "new_files": sum(row["new_files"] for row in rows),
+            "pending_files": sum(row["pending_files"] for row in rows),
+            "annotated_files": sum(row["annotated_files"] for row in rows),
+            "training_rows": sum(row["training_rows"] for row in rows),
+        }
+        self.data_inventory_tree.insert(
+            "",
+            tk.END,
+            values=(
+                "TOTAL",
+                totals["new_files"],
+                totals["pending_files"],
+                totals["annotated_files"],
+                totals["training_rows"],
+                "-",
+                "-",
+            ),
+            tags=("total",),
+        )
+        for row in rows:
             self.data_inventory_tree.insert(
                 "",
                 tk.END,
