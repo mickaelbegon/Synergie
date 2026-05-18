@@ -44,12 +44,13 @@ def _inception_module(x, filters: int, bottleneck_filters: int):
 
 
 def lstm(
+    input_shape=(SUCCESS_WINDOW_FRAMES, 10),
     first_units: int = 128,
     second_units: int = 64,
     dropout: float = 0.4,
     learning_rate: float = 0.00001,
 ):
-    temporal_input = keras.Input(shape=(SUCCESS_WINDOW_FRAMES, 10), name="temporal_input")
+    temporal_input = keras.Input(shape=input_shape, name="temporal_input")
     x = layers.BatchNormalization()(temporal_input)
     x = layers.LSTM(first_units, return_sequences=True)(x)
     x = layers.LSTM(second_units)(x)
@@ -71,11 +72,12 @@ def lstm(
 
 
 def tcn_success(
+    input_shape=(SUCCESS_WINDOW_FRAMES, 10),
     filters: int = 64,
     dropout: float = 0.2,
     learning_rate: float = 0.00003,
 ):
-    temporal_input = keras.Input(shape=(SUCCESS_WINDOW_FRAMES, 10), name="temporal_input")
+    temporal_input = keras.Input(shape=input_shape, name="temporal_input")
     x = temporal_input
     for dilation_rate in (1, 2, 4, 8):
         x = _residual_block(x, filters=filters, dilation_rate=dilation_rate, dropout=dropout)

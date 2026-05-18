@@ -154,6 +154,14 @@ class SynergieToolsApp:
         self.tuner_summary_var = tk.StringVar(value="Run a bounded validation search to compare candidates.")
         self.tuner_progress_var = tk.DoubleVar(value=0.0)
         self.tuner_progress_text_var = tk.StringVar(value="No search running.")
+        self.window_task_var = tk.StringVar(value="type")
+        self.window_architecture_var = tk.StringVar(value=self.TRAIN_ARCHITECTURES["type"][0])
+        self.window_dataset_var = tk.StringVar(value="data/annotated/total")
+        self.window_candidates_var = tk.StringVar(value="240,200,160,120")
+        self.window_epochs_var = tk.StringVar(value="8")
+        self.window_summary_var = tk.StringVar(value="Compare shorter windows before changing the training window.")
+        self.window_progress_var = tk.DoubleVar(value=0.0)
+        self.window_progress_text_var = tk.StringVar(value="No benchmark running.")
         self.detection_review_summary_var = tk.StringVar(value="Run the review scan to inspect false positives and false negatives.")
         self.detection_review_records_var = tk.StringVar(value=[])
         self.detection_tuning_summary_var = tk.StringVar(value="No threshold sweep run yet.")
@@ -258,6 +266,7 @@ class SynergieToolsApp:
         model_audit_tab = ttk.Frame(notebook, padding=12)
         signal_tab = ttk.Frame(notebook, padding=12)
         tuner_tab = ttk.Frame(notebook, padding=12)
+        window_tab = ttk.Frame(notebook, padding=12)
         detection_tuning_tab = ttk.Frame(notebook, padding=12)
         quality_tab = ttk.Frame(notebook, padding=12)
         inventory_tab = ttk.Frame(notebook, padding=12)
@@ -274,6 +283,7 @@ class SynergieToolsApp:
         notebook.add(train_tab, text="Models - Train")
         notebook.add(signal_tab, text="Models - Importance")
         notebook.add(tuner_tab, text="Models - Tune")
+        notebook.add(window_tab, text="Models - Windows")
         notebook.add(model_audit_tab, text="Models - Audit")
         notebook.add(notes_tab, text="Notes")
 
@@ -306,6 +316,7 @@ class SynergieToolsApp:
         self._build_model_audit_tab(model_audit_tab)
         self._build_signal_importance_tab(signal_tab)
         self._build_hyperparameter_tab(tuner_tab)
+        self._build_window_benchmark_tab(window_tab)
         self._build_detection_tuning_tab(detection_tuning_tab)
         self._build_quality_tab(quality_tab)
         self._build_notes_tab(notes_tab)
@@ -1297,6 +1308,46 @@ class SynergieToolsApp:
         log_frame.rowconfigure(0, weight=1)
         self.tuner_log = scrolledtext.ScrolledText(log_frame, height=12, wrap=tk.WORD)
         self.tuner_log.grid(row=0, column=0, sticky="nsew")
+
+    def _build_window_benchmark_tab(self, parent: ttk.Frame) -> None:
+        parent.columnconfigure(0, weight=0)
+        parent.columnconfigure(1, weight=1)
+        parent.rowconfigure(0, weight=1)
+        controls = ttk.LabelFrame(parent, text="Window Benchmark Setup", padding=12)
+        controls.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        controls.columnconfigure(1, weight=1)
+        ttk.Label(controls, text="Task").grid(row=0, column=0, sticky="w", pady=4)
+        task_box = ttk.Combobox(controls, textvariable=self.window_task_var, values=["type", "success"], state="readonly")
+        task_box.grid(row=0, column=1, sticky="ew")
+        task_box.bind("<<ComboboxSelected>>", self._on_window_task_changed)
+        ttk.Label(controls, text="Architecture").grid(row=1, column=0, sticky="w", pady=4)
+        self.window_architecture_box = ttk.Combobox(controls, textvariable=self.window_architecture_var, state="readonly")
+        self.window_architecture_box.grid(row=1, column=1, sticky="ew")
+        self._sync_window_architectures()
+        ttk.Label(controls, text="Dataset").grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.window_dataset_var, width=32).grid(row=2, column=1, sticky="ew")
+        ttk.Label(controls, text="Frames").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.window_candidates_var, width=18).grid(row=3, column=1, sticky="w")
+        ttk.Label(controls, text="Epochs / window").grid(row=4, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.window_epochs_var, width=10).grid(row=4, column=1, sticky="w")
+        ttk.Button(controls, text="Run window benchmark", command=self._run_window_benchmark).grid(
+            row=5, column=0, columnspan=2, sticky="w", pady=(12, 8)
+        )
+        ttk.Label(controls, textvariable=self.window_summary_var, justify=tk.LEFT, wraplength=340).grid(
+            row=6, column=0, columnspan=2, sticky="w"
+        )
+        ttk.Progressbar(controls, variable=self.window_progress_var, maximum=100).grid(
+            row=7, column=0, columnspan=2, sticky="ew", pady=(12, 4)
+        )
+        ttk.Label(controls, textvariable=self.window_progress_text_var, justify=tk.LEFT, wraplength=340).grid(
+            row=8, column=0, columnspan=2, sticky="w"
+        )
+        results = ttk.LabelFrame(parent, text="Window Results", padding=8)
+        results.grid(row=0, column=1, sticky="nsew")
+        results.columnconfigure(0, weight=1)
+        results.rowconfigure(0, weight=1)
+        self.window_log = scrolledtext.ScrolledText(results, height=22, wrap=tk.WORD)
+        self.window_log.grid(row=0, column=0, sticky="nsew")
 
     def _build_quality_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=0)
@@ -2363,6 +2414,55 @@ class SynergieToolsApp:
 
         self._run_in_thread(action, "Unable to run hyperparameter search.")
 
+    def _run_window_benchmark(self) -> None:
+        self.status_var.set("Running window benchmark...")
+        self.window_progress_var.set(0.0)
+        self.window_progress_text_var.set("Preparing benchmark...")
+        self.window_log.delete("1.0", tk.END)
+        windows = [int(value.strip()) for value in self.window_candidates_var.get().split(",") if value.strip()]
+
+        def action() -> None:
+            def report(event: dict) -> None:
+                index = event["index"]
+                total = event["total"]
+                if event["stage"] == "started":
+                    percent = ((index - 1) / total) * 100
+                    text = f"Training window {index}/{total}: {event['frames']} frames"
+                else:
+                    percent = (index / total) * 100
+                    result = event["result"]
+                    text = f"Completed {index}/{total}: {result['frames']} frames, balanced_acc={result['balanced_accuracy']:.3f}"
+                self.root.after(0, lambda: self.window_progress_var.set(percent))
+                self.root.after(0, lambda: self.window_progress_text_var.set(text))
+
+            summary = operations.benchmark_temporal_windows(
+                self.window_task_var.get(),
+                self.window_dataset_var.get().strip(),
+                self.window_architecture_var.get(),
+                windows=windows,
+                epochs=int(self.window_epochs_var.get()),
+                use_scalar_features=self.train_use_scalar_features_var.get(),
+                progress_callback=report,
+            )
+            best = summary["best"]
+            lines = [
+                f"Best window: {best['frames']} frames | balanced_acc={best['balanced_accuracy']:.3f} | best_val_acc={best['best_val_accuracy']:.3f}",
+                summary["note"],
+                "",
+            ]
+            for item in summary["results"]:
+                lines.append(
+                    f"{item['frames']} frames: balanced_acc={item['balanced_accuracy']:.3f}, "
+                    f"best_val_acc={item['best_val_accuracy']:.3f}, epochs={item['epochs_ran']}"
+                )
+            self.root.after(0, lambda: self.window_summary_var.set(lines[0]))
+            self.root.after(0, lambda: self._replace_text(self.window_log, "\n".join(lines)))
+            self.root.after(0, lambda: self.window_progress_var.set(100.0))
+            self.root.after(0, lambda: self.window_progress_text_var.set("Benchmark completed."))
+            self.root.after(0, lambda: self.status_var.set("Window benchmark completed"))
+
+        self._run_in_thread(action, "Unable to run window benchmark.")
+
     def _build_detection_tuning_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=0)
         parent.columnconfigure(1, weight=1)
@@ -2451,6 +2551,16 @@ class SynergieToolsApp:
         self.tuner_architecture_box.configure(values=options)
         if options and self.tuner_architecture_var.get() not in options:
             self.tuner_architecture_var.set(options[0])
+
+    def _on_window_task_changed(self, _event=None) -> None:
+        self._sync_window_architectures()
+        self.window_candidates_var.set("240,200,160,120" if self.window_task_var.get() == "type" else "180,160,140,120")
+
+    def _sync_window_architectures(self) -> None:
+        options = self.TRAIN_ARCHITECTURES.get(self.window_task_var.get(), [])
+        self.window_architecture_box.configure(values=options)
+        if options and self.window_architecture_var.get() not in options:
+            self.window_architecture_var.set(options[0])
 
     def _on_pretrained_model_changed(self, _event=None) -> None:
         self._sync_pretrained_architecture()
