@@ -170,6 +170,7 @@ def _summarize_records(root: Path, scanned_files: int, records: list[dict]) -> d
 def _type_summary(labelled) -> list[dict]:
     summary = []
     for jump_type, rows in labelled.groupby("type"):
+        best_rule = _rounding_rule_summary(rows)[0]
         summary.append(
             {
                 "type": int(jump_type),
@@ -178,6 +179,8 @@ def _type_summary(labelled) -> list[dict]:
                 "exact_accuracy": float((rows["annotated_turns"] == rows["estimated_turns"]).mean()),
                 "mean_absolute_error": float(rows["absolute_error"].mean()),
                 "suspicious_count": int(rows["suspicious"].sum()),
+                "best_rule": best_rule["label"],
+                "best_rule_accuracy": best_rule["exact_accuracy"],
             }
         )
     return summary

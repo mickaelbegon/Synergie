@@ -2553,7 +2553,14 @@ class SynergieToolsApp:
             f"Labelled jumps: {analysis['labelled_jumps']} | suspicious: {len(analysis['suspicious_records'])}\n"
             f"Exact turn accuracy: {analysis['exact_accuracy']:.3f} | mean absolute error: {analysis['mean_absolute_error']:.3f}\n"
             f"Best simple rule: {analysis['rounding_rule_summary'][0]['label']} "
-            f"(acc {analysis['rounding_rule_summary'][0]['exact_accuracy']:.3f})"
+            f"(acc {analysis['rounding_rule_summary'][0]['exact_accuracy']:.3f})\n"
+            f"Best per type: {self._format_rotation_rule_by_type(analysis)}"
+        )
+
+    def _format_rotation_rule_by_type(self, analysis: dict) -> str:
+        return ", ".join(
+            f"{item['label']}: {item['best_rule']} ({item['best_rule_accuracy']:.3f})"
+            for item in analysis.get("type_summary", [])
         )
 
     def _apply_rotation_audit(self, analysis: dict) -> None:
