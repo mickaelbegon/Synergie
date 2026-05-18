@@ -2376,18 +2376,18 @@ class SynergieToolsApp:
         self.rotation_audit_signal_ax.set_ylabel("Gyroscope")
         self.rotation_audit_signal_acc_ax.set_ylabel("Acceleration")
         self.rotation_audit_signal_ax.legend(handles, labels, loc="upper right", fontsize=8)
-        angle = self._cumulative_rotation_degrees(frame)
+        angle = self._cumulative_rotation_turns(frame)
         self.rotation_audit_angle_ax.plot(x, angle, color="#2f7d32", linewidth=1.2, label="Integrated Gyr_X")
         self.rotation_audit_angle_ax.axvline(takeoff_x, color="black", linestyle="--", linewidth=1.0)
         self.rotation_audit_angle_ax.axvline(landing_x, color="black", linestyle=":", linewidth=1.0)
         self.rotation_audit_angle_ax.set_title("Cumulative vertical rotation")
         self.rotation_audit_angle_ax.set_xlabel("ms" if "ms" in frame else "frame")
-        self.rotation_audit_angle_ax.set_ylabel("degrees")
+        self.rotation_audit_angle_ax.set_ylabel("turns")
         self.rotation_audit_angle_ax.legend(loc="upper left", fontsize=8)
         self.rotation_audit_signal_figure.tight_layout()
         self.rotation_audit_signal_canvas.draw_idle()
 
-    def _cumulative_rotation_degrees(self, frame):
+    def _cumulative_rotation_turns(self, frame):
         import numpy as np
 
         gyro = frame["Gyr_X"].to_numpy(dtype="float64")
@@ -2395,7 +2395,7 @@ class SynergieToolsApp:
         dt_seconds = np.diff(timestamps, prepend=timestamps[0]) / 1e6
         valid = np.isfinite(gyro) & np.isfinite(dt_seconds)
         increments = np.zeros(len(frame), dtype="float64")
-        increments[valid] = gyro[valid] * dt_seconds[valid]
+        increments[valid] = (gyro[valid] * dt_seconds[valid]) / 360.0
         return np.cumsum(increments)
 
     def _draw_training_history(self, summary: dict) -> None:
@@ -2641,6 +2641,7 @@ class SynergieToolsApp:
             for index, record in enumerate(records)
         ]
         self.rotation_audit_records_var.set(labels)
+        self.root.after(0, lambda: self._color_rotation_audit_records(records))
         if labels:
             self.rotation_audit_listbox.selection_clear(0, tk.END)
             self.rotation_audit_listbox.selection_set(0)
@@ -2648,6 +2649,14 @@ class SynergieToolsApp:
         else:
             self.rotation_audit_details_var.set("No suspicious turn estimate selected.")
             self._draw_placeholder_rotation_audit_signal()
+
+    def _color_rotation_audit_records(self, records: list[dict]) -> None:
+        for index, record in enumerate(records):
+            has_estimation_error = record.get("annotated_turns") != record.get("estimated_turns")
+            self.rotation_audit_listbox.itemconfig(
+                index,
+                foreground="firebrick" if has_estimation_error else "black",
+            )
 
     def _on_rotation_audit_selected(self, _event=None) -> None:
         if not self.rotation_audit_analysis:
@@ -2681,6 +2690,7 @@ class SynergieToolsApp:
             f"Exact turn accuracy: {analysis['exact_accuracy']:.3f} | mean absolute error: {analysis['mean_absolute_error']:.3f}\n"
             f"Best simple rule: {analysis['rounding_rule_summary'][0]['label']} "
             f"(acc {analysis['rounding_rule_summary'][0]['exact_accuracy']:.3f})\n"
+            f"Best fixed on-ice offset: {self._format_rotation_contact_offset(analysis)}\n"
             f"Hybrid strategy: {self._format_rotation_strategy_comparison(analysis)}\n"
             f"Across skaters: {self._format_rotation_strategy_by_skater(analysis)}\n"
             f"Best per type: {self._format_rotation_rule_by_type(analysis)}"
@@ -2707,9 +2717,17 @@ class SynergieToolsApp:
     def _rotation_strategy_label(self, label: str) -> str:
         return {
             "current_round": "Current",
+            "fixed_contact_offset_0.45": "Fixed +0.45",
             "hybrid_non_axel_shift": "Hybrid",
             "best_rule_per_type_observed": "Per-type upper bound",
         }.get(label, label)
+
+    def _format_rotation_contact_offset(self, analysis: dict) -> str:
+        summary = analysis.get("contact_offset_summary", [])
+        if not summary:
+            return "n/a"
+        best = summary[0]
+        return f"+{best['offset_turns']:.2f} turn (acc {best['exact_accuracy']:.3f})"
 
     def _format_rotation_strategy_by_skater(self, analysis: dict) -> str:
         summaries = analysis.get("strategy_by_skater", [])
