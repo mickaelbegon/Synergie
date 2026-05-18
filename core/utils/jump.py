@@ -7,6 +7,7 @@ import math
 from synergie.config import (
     JUMP_WINDOW_FRAMES,
     SEGMENT_FRAMES_BEFORE_TAKEOFF,
+    SUCCESS_WINDOW_FRAMES,
     SUCCESS_WINDOW_START,
     TYPE_WINDOW_START,
     TYPE_WINDOW_FRAMES,
@@ -38,7 +39,7 @@ class Jump:
 
         self.df = self.dynamic_resize(df) # The dataframe containing the jump
         self.df["Combination"] = [int(self.combinate)]*len(self.df)
-        self.df_success = self.df[SUCCESS_WINDOW_START:]
+        self.df_success = self.df[SUCCESS_WINDOW_START : SUCCESS_WINDOW_START + SUCCESS_WINDOW_FRAMES]
         self.df_type = self.df[TYPE_WINDOW_START : TYPE_WINDOW_START + TYPE_WINDOW_FRAMES]
         gyr_source = df["Gyr_X_unfiltered"].replace([np.inf, -np.inf], np.nan).dropna()
         window = gyr_source.iloc[start:end]

@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 import constants
-from synergie.config import JUMP_WINDOW_FRAMES, SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES, TYPE_WINDOW_START
+from synergie.config import JUMP_WINDOW_FRAMES, SUCCESS_WINDOW_FRAMES, SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES, TYPE_WINDOW_START
 
 
 class PredictionService:
@@ -42,11 +42,11 @@ class PredictionService:
 
         for index, segment in enumerate(segments):
             features = self.numeric_features(segment)
-            if len(features) != JUMP_WINDOW_FRAMES:
+            if len(features) < JUMP_WINDOW_FRAMES:
                 continue
             valid_indices.append(index)
             type_windows.append(features[TYPE_WINDOW_START : TYPE_WINDOW_START + TYPE_WINDOW_FRAMES])
-            success_windows.append(features[SUCCESS_WINDOW_START:])
+            success_windows.append(features[SUCCESS_WINDOW_START : SUCCESS_WINDOW_START + SUCCESS_WINDOW_FRAMES])
 
         if not valid_indices:
             return predicted_type, predicted_success
@@ -71,7 +71,7 @@ class PredictionService:
             if not path.exists():
                 continue
             segment = pd.read_csv(path)
-            if len(segment) != JUMP_WINDOW_FRAMES:
+            if len(segment) < JUMP_WINDOW_FRAMES:
                 continue
             segments.append(segment)
             valid_indices.append(index)

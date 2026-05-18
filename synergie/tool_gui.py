@@ -2655,8 +2655,8 @@ class SynergieToolsApp:
             self.window_offsets_var.set("-60,-40,-20,0")
         else:
             self.window_candidates_var.set("180,160,140,120")
-            self.window_offset_frames_var.set("140")
-            self.window_offsets_var.set("40,60,80")
+            self.window_offset_frames_var.set("180")
+            self.window_offsets_var.set("20,40,60")
 
     def _sync_window_architectures(self) -> None:
         options = self.TRAIN_ARCHITECTURES.get(self.window_task_var.get(), [])
