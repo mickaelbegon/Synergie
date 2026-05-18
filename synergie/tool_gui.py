@@ -969,9 +969,9 @@ class SynergieToolsApp:
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
         from matplotlib.figure import Figure
 
-        figure = Figure(figsize=(10.0, 5.4), dpi=100)
-        axis = figure.add_subplot(211)
-        angle_ax = figure.add_subplot(212, sharex=axis)
+        figure = Figure(figsize=(10.0, 4.4), dpi=100)
+        axis = figure.add_subplot(121)
+        angle_ax = figure.add_subplot(122, sharex=axis)
         self.rotation_audit_signal_figure = figure
         self.rotation_audit_signal_ax = axis
         self.rotation_audit_signal_acc_ax = None
