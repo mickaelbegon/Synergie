@@ -222,6 +222,7 @@ class SynergieToolsApp:
         self.rotation_audit_signal_figure = None
         self.rotation_audit_signal_ax = None
         self.rotation_audit_signal_acc_ax = None
+        self.rotation_audit_angle_ax = None
         self.rotation_audit_signal_canvas = None
         self.signal_figure = None
         self.signal_axes = None
@@ -968,11 +969,13 @@ class SynergieToolsApp:
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
         from matplotlib.figure import Figure
 
-        figure = Figure(figsize=(10.0, 4.4), dpi=100)
-        axis = figure.add_subplot(111)
+        figure = Figure(figsize=(10.0, 5.4), dpi=100)
+        axis = figure.add_subplot(211)
+        angle_ax = figure.add_subplot(212, sharex=axis)
         self.rotation_audit_signal_figure = figure
         self.rotation_audit_signal_ax = axis
         self.rotation_audit_signal_acc_ax = None
+        self.rotation_audit_angle_ax = angle_ax
         self.rotation_audit_signal_canvas = FigureCanvasTkAgg(figure, master=self.rotation_audit_signal_container)
         self.rotation_audit_signal_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._draw_placeholder_rotation_audit_signal()
@@ -2312,6 +2315,7 @@ class SynergieToolsApp:
             self.rotation_audit_signal_acc_ax.remove()
             self.rotation_audit_signal_acc_ax = None
         self.rotation_audit_signal_ax.clear()
+        self.rotation_audit_angle_ax.clear()
         self.rotation_audit_signal_ax.set_title("Selected jump signals")
         self.rotation_audit_signal_ax.text(
             0.5,
@@ -2323,6 +2327,16 @@ class SynergieToolsApp:
         )
         self.rotation_audit_signal_ax.set_xticks([])
         self.rotation_audit_signal_ax.set_yticks([])
+        self.rotation_audit_angle_ax.text(
+            0.5,
+            0.5,
+            "Cumulative rotation will appear here",
+            ha="center",
+            va="center",
+            transform=self.rotation_audit_angle_ax.transAxes,
+        )
+        self.rotation_audit_angle_ax.set_xticks([])
+        self.rotation_audit_angle_ax.set_yticks([])
         self.rotation_audit_signal_figure.tight_layout()
         self.rotation_audit_signal_canvas.draw_idle()
 
@@ -2334,6 +2348,7 @@ class SynergieToolsApp:
         if self.rotation_audit_signal_acc_ax is not None:
             self.rotation_audit_signal_acc_ax.remove()
         self.rotation_audit_signal_ax.clear()
+        self.rotation_audit_angle_ax.clear()
         self.rotation_audit_signal_acc_ax = self.rotation_audit_signal_ax.twinx()
         x = frame["ms"] if "ms" in frame else list(range(len(frame)))
         gyro_line = self.rotation_audit_signal_ax.plot(x, frame["Gyr_X"], color="#1f77b4", label="Gyr_X", linewidth=1.1)[0]
@@ -2361,8 +2376,27 @@ class SynergieToolsApp:
         self.rotation_audit_signal_ax.set_ylabel("Gyroscope")
         self.rotation_audit_signal_acc_ax.set_ylabel("Acceleration")
         self.rotation_audit_signal_ax.legend(handles, labels, loc="upper right", fontsize=8)
+        angle = self._cumulative_rotation_degrees(frame)
+        self.rotation_audit_angle_ax.plot(x, angle, color="#2f7d32", linewidth=1.2, label="Integrated Gyr_X")
+        self.rotation_audit_angle_ax.axvline(takeoff_x, color="black", linestyle="--", linewidth=1.0)
+        self.rotation_audit_angle_ax.axvline(landing_x, color="black", linestyle=":", linewidth=1.0)
+        self.rotation_audit_angle_ax.set_title("Cumulative vertical rotation")
+        self.rotation_audit_angle_ax.set_xlabel("ms" if "ms" in frame else "frame")
+        self.rotation_audit_angle_ax.set_ylabel("degrees")
+        self.rotation_audit_angle_ax.legend(loc="upper left", fontsize=8)
         self.rotation_audit_signal_figure.tight_layout()
         self.rotation_audit_signal_canvas.draw_idle()
+
+    def _cumulative_rotation_degrees(self, frame):
+        import numpy as np
+
+        gyro = frame["Gyr_X"].to_numpy(dtype="float64")
+        timestamps = frame["SampleTimeFine"].to_numpy(dtype="float64")
+        dt_seconds = np.diff(timestamps, prepend=timestamps[0]) / 1e6
+        valid = np.isfinite(gyro) & np.isfinite(dt_seconds)
+        increments = np.zeros(len(frame), dtype="float64")
+        increments[valid] = gyro[valid] * dt_seconds[valid]
+        return np.cumsum(increments)
 
     def _draw_training_history(self, summary: dict) -> None:
         if self.train_axes is None:
