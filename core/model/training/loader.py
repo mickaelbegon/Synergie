@@ -15,6 +15,7 @@ from synergie.config import (
     TYPE_WINDOW_FRAMES,
     TrainingConfig,
 )
+from synergie.services.training_cache_service import load_or_build_training_cache
 
 @dataclass
 class Dataset:
@@ -56,6 +57,15 @@ class Loader:
         self.folder_path = folder_path
         main_csv = os.path.join(folder_path, "jumplist.csv")
         mainFrame = pd.read_csv(main_csv)
+        training_cache = load_or_build_training_cache(
+            folder_path,
+            type_window_start=self.type_window_start,
+            type_window_frames=self.type_window_frames,
+            success_window_start=self.success_window_start,
+            success_window_frames=self.success_window_frames,
+        )
+        cached_type_windows = dict(zip(training_cache["paths"], training_cache["type_windows"]))
+        cached_success_windows = dict(zip(training_cache["paths"], training_cache["success_windows"]))
 
         skaterData = pd.read_csv("data/annotated/total/skaterData.csv")
 
@@ -69,34 +79,9 @@ class Loader:
         for index, row in mainFrame.iterrows():
             if row["success"] != 2 and row["type"] != 8:
                 self.path_jumps.append(row["path"])
-                jumpFrame = pd.read_csv(row['path'])
-                jumpFrame = jumpFrame[fields_to_keep]
-
                 skater_info = self._lookup_skater_info(skaterData, row["skater"], use_scalar_features=self.use_scalar_features)
-                type_window_end = self.type_window_start + self.type_window_frames
-                type_window = np.nan_to_num(
-                    jumpFrame[self.type_window_start:type_window_end].copy().to_numpy(),
-                    nan=0.0,
-                    posinf=0.0,
-                    neginf=0.0,
-                )
-                if len(type_window) != self.type_window_frames:
-                    raise ValueError(
-                        f"Type window requires {self.type_window_frames} frames starting at {self.type_window_start}, "
-                        f"but segment '{row['path']}' only provides {len(type_window)} frames."
-                    )
-                success_window_end = self.success_window_start + self.success_window_frames
-                success_window = np.nan_to_num(
-                    jumpFrame[self.success_window_start:success_window_end].copy().reset_index(drop=True).to_numpy(),
-                    nan=0.0,
-                    posinf=0.0,
-                    neginf=0.0,
-                )
-                if len(success_window) != self.success_window_frames:
-                    raise ValueError(
-                        f"Success window requires {self.success_window_frames} frames starting at {self.success_window_start}, "
-                        f"but segment '{row['path']}' only provides {len(success_window)} frames."
-                    )
+                type_window = cached_type_windows[str(row["path"])]
+                success_window = cached_success_windows[str(row["path"])]
                 jumps.append((type_window, skater_info))
                 jumps_success.append((success_window, skater_info))
                 labelstype.append(row['type'])
