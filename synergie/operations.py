@@ -104,6 +104,7 @@ from synergie.services.video_service import (
     select_best_video_datetime as _select_best_video_datetime,
 )
 from synergie.services.window_benchmark_service import benchmark_temporal_offsets, benchmark_temporal_windows
+from synergie.services.segment_reexport_service import ensure_pre_takeoff_context, reexport_segment_with_context
 
 
 def read_video_metadata(video_path: str | Path) -> dict:

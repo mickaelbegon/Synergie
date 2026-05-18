@@ -81,6 +81,7 @@ def benchmark_temporal_offsets(
     offsets: list[int] | None = None,
     epochs: int = 8,
     use_scalar_features: bool = True,
+    auto_reexport: bool = True,
     progress_callback=None,
 ) -> dict:
     """Compare same-length type windows shifted inside the exported segment."""
@@ -95,12 +96,17 @@ def benchmark_temporal_offsets(
     from core.model.training.loader import Loader
 
     candidates = offsets or [0, 20, 40, 60, 80, 120]
-    invalid = [offset for offset in candidates if offset < 0]
-    if invalid:
-        raise ValueError(
-            "Negative offsets need segments re-exported with more pre-takeoff context. "
-            "Current annotated segments begin 120 frames before takeoff."
-        )
+    min_offset = min(candidates)
+    exported_before_frames = 120 - min_offset if min_offset < 0 else 120
+    if min_offset < 0:
+        if not auto_reexport:
+            raise ValueError(
+                "Negative offsets need segments re-exported with more pre-takeoff context. "
+                "Current annotated segments begin 120 frames before takeoff."
+            )
+        from synergie.services.segment_reexport_service import ensure_pre_takeoff_context
+
+        ensure_pre_takeoff_context(dataset_path, 120 - min_offset)
 
     results: list[dict] = []
     for index, offset in enumerate(candidates, start=1):
@@ -111,7 +117,7 @@ def benchmark_temporal_offsets(
             dataset_path,
             augment_mirror=True,
             use_scalar_features=use_scalar_features,
-            type_window_start=offset,
+            type_window_start=exported_before_frames - 120 + offset,
             type_window_frames=window_frames,
         )
         dataset = loader.get_type_data()

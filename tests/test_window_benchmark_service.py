@@ -9,4 +9,4 @@ class WindowBenchmarkServiceTests(unittest.TestCase):
 
     def test_rejects_negative_offsets_without_longer_segments(self):
         with self.assertRaisesRegex(ValueError, "re-exported with more pre-takeoff context"):
-            benchmark_temporal_offsets("type", "unused", "inceptiontime", offsets=[-40])
+            benchmark_temporal_offsets("type", "unused", "inceptiontime", offsets=[-40], auto_reexport=False)

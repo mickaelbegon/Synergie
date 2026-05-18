@@ -4,7 +4,12 @@ import pandas as pd
 import constants
 from constants import jumpType,jumpSuccess
 import math
-from synergie.config import JUMP_WINDOW_FRAMES, SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES
+from synergie.config import (
+    JUMP_WINDOW_FRAMES,
+    SEGMENT_FRAMES_BEFORE_TAKEOFF,
+    SUCCESS_WINDOW_START,
+    TYPE_WINDOW_FRAMES,
+)
 
 class Jump:
     def __init__(self, start: int, end: int, df: pd.DataFrame, combinate : bool, jump_type: jumpType = jumpType.NONE, jump_success: jumpSuccess = jumpSuccess.NONE):
@@ -74,7 +79,7 @@ class Jump:
         :param df: the dataframe containing the session where the jump is
         :return: the new dataframe
         """
-        frames_before_takeoff = SUCCESS_WINDOW_START
+        frames_before_takeoff = SEGMENT_FRAMES_BEFORE_TAKEOFF
         frames_after_takeoff = JUMP_WINDOW_FRAMES - frames_before_takeoff
         resampled_df = df[self.start - frames_before_takeoff:self.start + frames_after_takeoff].copy(deep=True)
 

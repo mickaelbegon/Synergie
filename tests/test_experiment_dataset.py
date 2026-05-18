@@ -83,7 +83,7 @@ class ExperimentDatasetTests(unittest.TestCase):
             dataset = load_classification_dataset("success", str(dataset_dir))
 
             self.assertEqual(dataset.n_samples, 1)
-            self.assertEqual(dataset.sequence_length, 180)
+            self.assertEqual(dataset.sequence_length, 140)
             self.assertEqual(dataset.labels, [0])
 
 
