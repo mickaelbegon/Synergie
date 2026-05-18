@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from synergie.services.rotation_audit_service import audit_turn_estimation
+from synergie.services.rotation_audit_service import audit_turn_estimation, load_turn_audit_signal
 
 
 class RotationAuditServiceTests(unittest.TestCase):
@@ -58,3 +58,21 @@ class RotationAuditServiceTests(unittest.TestCase):
         self.assertEqual(result["labelled_jumps"], 1)
         self.assertEqual(result["records"][0]["annotated_turns"], 2.0)
         self.assertEqual(result["records"][0]["measured_rotation"], 1.8)
+
+    def test_loads_signal_with_same_rotation_interval_bounds(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "jump.csv"
+            path.write_text(
+                "SampleTimeFine,ms,Gyr_X,Acc_X,X_gyr_second_derivative_crossing\n"
+                "0,0,0,1,0\n"
+                "100000,100,10,2,1\n"
+                "200000,200,20,3,1\n"
+                "300000,300,30,4,0\n",
+                encoding="utf-8",
+            )
+
+            signal = load_turn_audit_signal(path)
+
+        self.assertIsNotNone(signal)
+        self.assertEqual(signal["takeoff_index"], 0)
+        self.assertEqual(signal["landing_index"], 2)

@@ -18,6 +18,23 @@ def audit_turn_estimation(
     return _audit_annotation_files(root, annotation_pattern)
 
 
+def load_turn_audit_signal(segment_path: str | Path) -> dict | None:
+    """Load one audited segment with the takeoff/landing bounds used for rotation."""
+    frame = _load_segment_frame(segment_path)
+    if frame is None:
+        return None
+    pair = _rotation_interval_indices(frame)
+    if pair is None:
+        return None
+    begin, end = pair
+    return {
+        "path": str(segment_path),
+        "frame": frame,
+        "takeoff_index": begin,
+        "landing_index": end,
+    }
+
+
 def _audit_training_jumplist(jumplist_path: Path) -> dict:
     """Recompute measured rotations from labelled historical training segments."""
     import pandas as pd
@@ -99,25 +116,14 @@ def _build_record(source_file: Path, row_index: int, row, annotated_turns: float
 
 def _measured_rotation_from_segment(segment_path) -> float | None:
     import numpy as np
-    import pandas as pd
 
-    path = Path(str(segment_path))
-    if not path.exists():
+    frame = _load_segment_frame(segment_path)
+    if frame is None:
         return None
-    frame = pd.read_csv(path)
-    if not {"SampleTimeFine", "Gyr_X"}.issubset(frame.columns):
+    pair = _rotation_interval_indices(frame)
+    if pair is None:
         return None
-    if "X_gyr_second_derivative_crossing" not in frame:
-        from core.data_treatment.data_generation.trainingSession import trainingSession
-
-        frame = trainingSession(frame).df
-    crossing = frame["X_gyr_second_derivative_crossing"].astype(int).to_numpy()
-    begins = np.where(np.diff(crossing) == 1)[0]
-    ends = np.where(np.diff(crossing) == -1)[0]
-    pairs = [(int(begin), int(end)) for begin in begins for end in ends if end > begin]
-    if not pairs:
-        return None
-    begin, end = min(pairs, key=lambda pair: pair[1] - pair[0])
+    begin, end = pair
     interval = frame.iloc[begin:end]
     if len(interval) < 2:
         return None
@@ -130,6 +136,34 @@ def _measured_rotation_from_segment(segment_path) -> float | None:
     if not np.isfinite(rotation):
         return None
     return abs(rotation)
+
+
+def _load_segment_frame(segment_path):
+    import pandas as pd
+
+    path = Path(str(segment_path))
+    if not path.exists():
+        return None
+    frame = pd.read_csv(path)
+    if not {"SampleTimeFine", "Gyr_X"}.issubset(frame.columns):
+        return None
+    if "X_gyr_second_derivative_crossing" not in frame:
+        from core.data_treatment.data_generation.trainingSession import trainingSession
+
+        frame = trainingSession(frame).df
+    return frame
+
+
+def _rotation_interval_indices(frame) -> tuple[int, int] | None:
+    import numpy as np
+
+    crossing = frame["X_gyr_second_derivative_crossing"].astype(int).to_numpy()
+    begins = np.where(np.diff(crossing) == 1)[0]
+    ends = np.where(np.diff(crossing) == -1)[0]
+    pairs = [(int(begin), int(end)) for begin in begins for end in ends if end > begin]
+    if not pairs:
+        return None
+    return min(pairs, key=lambda pair: pair[1] - pair[0])
 
 
 def _summarize_records(root: Path, scanned_files: int, records: list[dict]) -> dict:

@@ -219,6 +219,10 @@ class SynergieToolsApp:
         self.rotation_audit_error_ax = None
         self.rotation_audit_rule_ax = None
         self.rotation_audit_canvas = None
+        self.rotation_audit_signal_figure = None
+        self.rotation_audit_signal_ax = None
+        self.rotation_audit_signal_acc_ax = None
+        self.rotation_audit_signal_canvas = None
         self.signal_figure = None
         self.signal_axes = None
         self.signal_canvas = None
@@ -960,6 +964,19 @@ class SynergieToolsApp:
         self.rotation_audit_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._draw_placeholder_rotation_audit()
 
+    def _build_rotation_audit_signal_canvas(self) -> None:
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        from matplotlib.figure import Figure
+
+        figure = Figure(figsize=(8.2, 3.0), dpi=100)
+        axis = figure.add_subplot(111)
+        self.rotation_audit_signal_figure = figure
+        self.rotation_audit_signal_ax = axis
+        self.rotation_audit_signal_acc_ax = None
+        self.rotation_audit_signal_canvas = FigureCanvasTkAgg(figure, master=self.rotation_audit_signal_container)
+        self.rotation_audit_signal_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self._draw_placeholder_rotation_audit_signal()
+
     def _build_signal_plot_canvas(self) -> None:
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
         from matplotlib.figure import Figure
@@ -1501,6 +1518,14 @@ class SynergieToolsApp:
             justify=tk.LEFT,
             wraplength=760,
         ).grid(row=0, column=0, sticky="w")
+        signal_frame = ttk.LabelFrame(results, text="Selected jump signals", padding=8)
+        signal_frame.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
+        signal_frame.columnconfigure(0, weight=1)
+        signal_frame.rowconfigure(0, weight=1)
+        results.rowconfigure(2, weight=1)
+        self.rotation_audit_signal_container = ttk.Frame(signal_frame)
+        self.rotation_audit_signal_container.grid(row=0, column=0, sticky="nsew")
+        self._build_rotation_audit_signal_canvas()
 
     def _build_notes_tab(self, parent: ttk.Frame) -> None:
         notes = scrolledtext.ScrolledText(parent, height=20, wrap=tk.WORD)
@@ -2275,6 +2300,65 @@ class SynergieToolsApp:
         self.rotation_audit_figure.tight_layout()
         self.rotation_audit_canvas.draw_idle()
 
+    def _draw_placeholder_rotation_audit_signal(self) -> None:
+        if self.rotation_audit_signal_ax is None:
+            return
+        if self.rotation_audit_signal_acc_ax is not None:
+            self.rotation_audit_signal_acc_ax.remove()
+            self.rotation_audit_signal_acc_ax = None
+        self.rotation_audit_signal_ax.clear()
+        self.rotation_audit_signal_ax.set_title("Selected jump signals")
+        self.rotation_audit_signal_ax.text(
+            0.5,
+            0.5,
+            "Select a suspicious turn estimate",
+            ha="center",
+            va="center",
+            transform=self.rotation_audit_signal_ax.transAxes,
+        )
+        self.rotation_audit_signal_ax.set_xticks([])
+        self.rotation_audit_signal_ax.set_yticks([])
+        self.rotation_audit_signal_figure.tight_layout()
+        self.rotation_audit_signal_canvas.draw_idle()
+
+    def _draw_rotation_audit_signal(self, signal: dict | None) -> None:
+        if self.rotation_audit_signal_ax is None or signal is None:
+            self._draw_placeholder_rotation_audit_signal()
+            return
+        frame = signal["frame"]
+        if self.rotation_audit_signal_acc_ax is not None:
+            self.rotation_audit_signal_acc_ax.remove()
+        self.rotation_audit_signal_ax.clear()
+        self.rotation_audit_signal_acc_ax = self.rotation_audit_signal_ax.twinx()
+        x = frame["ms"] if "ms" in frame else list(range(len(frame)))
+        gyro_line = self.rotation_audit_signal_ax.plot(x, frame["Gyr_X"], color="#1f77b4", label="Gyr_X", linewidth=1.1)[0]
+        handles = [gyro_line]
+        labels = ["Gyr_X"]
+        if "Acc_X" in frame:
+            acc_line = self.rotation_audit_signal_acc_ax.plot(
+                x,
+                frame["Acc_X"],
+                color="#ff7f0e",
+                label="Acc_X",
+                linewidth=1.0,
+                alpha=0.85,
+            )[0]
+            handles.append(acc_line)
+            labels.append("Acc_X")
+        takeoff_x = x.iloc[signal["takeoff_index"]] if hasattr(x, "iloc") else x[signal["takeoff_index"]]
+        landing_x = x.iloc[signal["landing_index"]] if hasattr(x, "iloc") else x[signal["landing_index"]]
+        self.rotation_audit_signal_ax.axvline(takeoff_x, color="black", linestyle="--", linewidth=1.0, label="Takeoff")
+        self.rotation_audit_signal_ax.axvline(landing_x, color="black", linestyle=":", linewidth=1.0, label="Landing")
+        handles.extend(self.rotation_audit_signal_ax.lines[-2:])
+        labels.extend(["Takeoff", "Landing"])
+        self.rotation_audit_signal_ax.set_title("Vertical gyro and acceleration")
+        self.rotation_audit_signal_ax.set_xlabel("ms" if "ms" in frame else "frame")
+        self.rotation_audit_signal_ax.set_ylabel("Gyroscope")
+        self.rotation_audit_signal_acc_ax.set_ylabel("Acceleration")
+        self.rotation_audit_signal_ax.legend(handles, labels, loc="upper right", fontsize=8)
+        self.rotation_audit_signal_figure.tight_layout()
+        self.rotation_audit_signal_canvas.draw_idle()
+
     def _draw_training_history(self, summary: dict) -> None:
         if self.train_axes is None:
             return
@@ -2524,15 +2608,18 @@ class SynergieToolsApp:
             self._on_rotation_audit_selected()
         else:
             self.rotation_audit_details_var.set("No suspicious turn estimate selected.")
+            self._draw_placeholder_rotation_audit_signal()
 
     def _on_rotation_audit_selected(self, _event=None) -> None:
         if not self.rotation_audit_analysis:
             self.rotation_audit_details_var.set("No suspicious turn estimate selected.")
+            self._draw_placeholder_rotation_audit_signal()
             return
         selection = self.rotation_audit_listbox.curselection()
         records = self.rotation_audit_analysis.get("suspicious_records", [])
         if not selection or selection[0] >= len(records):
             self.rotation_audit_details_var.set("No suspicious turn estimate selected.")
+            self._draw_placeholder_rotation_audit_signal()
             return
         record = records[selection[0]]
         self.rotation_audit_details_var.set(
@@ -2542,6 +2629,7 @@ class SynergieToolsApp:
             f"Signed error: {record['signed_error']:+.2f} | reasons: {', '.join(record['reasons'])}\n"
             f"Source file: {record['source_file']}"
         )
+        self._draw_rotation_audit_signal(operations.load_turn_audit_signal(record["path"]))
 
     def _format_rotation_audit_summary(self, analysis: dict) -> str:
         if analysis["labelled_jumps"] == 0:
@@ -2603,6 +2691,7 @@ class SynergieToolsApp:
         self.rotation_audit_records_var.set([])
         self.rotation_audit_details_var.set("No suspicious turn estimate selected.")
         self._draw_placeholder_rotation_audit()
+        self._draw_placeholder_rotation_audit_signal()
 
         def action() -> None:
             analysis = operations.audit_turn_estimation(root)
