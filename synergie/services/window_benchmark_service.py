@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from synergie.config import SUCCESS_WINDOW_FRAMES
+
 
 def benchmark_temporal_windows(
     task: str,
@@ -31,6 +33,7 @@ def benchmark_temporal_windows(
             use_scalar_features=use_scalar_features,
             type_window_frames=frame_count if task == "type" else 240,
             success_window_start=300 - frame_count if task == "success" else 120,
+            success_window_frames=frame_count if task == "success" else SUCCESS_WINDOW_FRAMES,
         )
         dataset = loader.get_type_data() if task == "type" else loader.get_success_data()
         overrides = {"input_shape": (frame_count, 10)}
@@ -88,13 +91,6 @@ def benchmark_temporal_offsets(
     if task != "type":
         raise ValueError("Offset benchmark currently supports only task='type'.")
 
-    import keras
-    from sklearn.metrics import balanced_accuracy_score
-    import numpy as np
-
-    from core.model import model
-    from core.model.training.loader import Loader
-
     candidates = offsets or [0, 20, 40, 60, 80, 120]
     min_offset = min(candidates)
     exported_before_frames = 120 - min_offset if min_offset < 0 else 120
@@ -106,7 +102,25 @@ def benchmark_temporal_offsets(
             )
         from synergie.services.segment_reexport_service import ensure_pre_takeoff_context
 
-        ensure_pre_takeoff_context(dataset_path, 120 - min_offset)
+        def report_reexport(event: dict) -> None:
+            if progress_callback:
+                progress_callback(
+                    {
+                        "stage": "reexporting",
+                        "index": event["current"],
+                        "total": event["total"],
+                        "reexported": event["reexported"],
+                    }
+                )
+
+        ensure_pre_takeoff_context(dataset_path, 120 - min_offset, progress_callback=report_reexport)
+
+    import keras
+    from sklearn.metrics import balanced_accuracy_score
+    import numpy as np
+
+    from core.model import model
+    from core.model.training.loader import Loader
 
     results: list[dict] = []
     for index, offset in enumerate(candidates, start=1):

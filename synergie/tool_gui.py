@@ -2483,7 +2483,10 @@ class SynergieToolsApp:
             def report(event: dict) -> None:
                 index = event["index"]
                 total = event["total"]
-                if event["stage"] == "started":
+                if event["stage"] == "reexporting":
+                    percent = (index / total) * 25
+                    text = f"Re-exporting segments {index}/{total}: {event['reexported']} extended"
+                elif event["stage"] == "started":
                     percent = ((index - 1) / total) * 100
                     text = f"Training offset {index}/{total}: segment start {event['offset']}"
                 else:

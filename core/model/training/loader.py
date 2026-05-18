@@ -8,7 +8,13 @@ from sklearn.preprocessing import LabelEncoder
 from dataclasses import dataclass
 
 import constants
-from synergie.config import ROTATION_MIRROR_COLUMNS, SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES, TrainingConfig
+from synergie.config import (
+    ROTATION_MIRROR_COLUMNS,
+    SUCCESS_WINDOW_FRAMES,
+    SUCCESS_WINDOW_START,
+    TYPE_WINDOW_FRAMES,
+    TrainingConfig,
+)
 
 @dataclass
 class Dataset:
@@ -37,6 +43,7 @@ class Loader:
         type_window_start: int = 0,
         type_window_frames: int = TYPE_WINDOW_FRAMES,
         success_window_start: int = SUCCESS_WINDOW_START,
+        success_window_frames: int = SUCCESS_WINDOW_FRAMES,
     ):
         assert 0 <= train_ratio <= 1
         self.training_config = TrainingConfig(train_ratio=train_ratio, augment_mirror=augment_mirror)
@@ -44,6 +51,7 @@ class Loader:
         self.type_window_start = int(type_window_start)
         self.type_window_frames = int(type_window_frames)
         self.success_window_start = int(success_window_start)
+        self.success_window_frames = int(success_window_frames)
 
         self.folder_path = folder_path
         main_csv = os.path.join(folder_path, "jumplist.csv")
@@ -72,7 +80,23 @@ class Loader:
                     posinf=0.0,
                     neginf=0.0,
                 )
-                success_window = np.nan_to_num(jumpFrame[self.success_window_start:].copy().reset_index(drop=True).to_numpy(), nan=0.0, posinf=0.0, neginf=0.0)
+                if len(type_window) != self.type_window_frames:
+                    raise ValueError(
+                        f"Type window requires {self.type_window_frames} frames starting at {self.type_window_start}, "
+                        f"but segment '{row['path']}' only provides {len(type_window)} frames."
+                    )
+                success_window_end = self.success_window_start + self.success_window_frames
+                success_window = np.nan_to_num(
+                    jumpFrame[self.success_window_start:success_window_end].copy().reset_index(drop=True).to_numpy(),
+                    nan=0.0,
+                    posinf=0.0,
+                    neginf=0.0,
+                )
+                if len(success_window) != self.success_window_frames:
+                    raise ValueError(
+                        f"Success window requires {self.success_window_frames} frames starting at {self.success_window_start}, "
+                        f"but segment '{row['path']}' only provides {len(success_window)} frames."
+                    )
                 jumps.append((type_window, skater_info))
                 jumps_success.append((success_window, skater_info))
                 labelstype.append(row['type'])
