@@ -32,6 +32,6 @@ class WindowBenchmarkServiceTests(unittest.TestCase):
                 "synergie.services.segment_reexport_service.reexport_segment_with_context",
                 return_value=False,
             ):
-                result = ensure_pre_takeoff_context(dataset, 160)
+                result = ensure_pre_takeoff_context(dataset, 180)
 
         self.assertEqual(result, {"reexported": 0, "already_sufficient": 1, "skipped": 0})

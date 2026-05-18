@@ -5,6 +5,7 @@ from pathlib import Path
 try:
     import pandas as pd
     from synergie.experiments.dataset import load_classification_dataset
+    from synergie.config import JUMP_WINDOW_FRAMES, SUCCESS_WINDOW_FRAMES, TYPE_WINDOW_FRAMES
 
     HAS_PANDAS = True
 except Exception:
@@ -24,16 +25,16 @@ class ExperimentDatasetTests(unittest.TestCase):
             jump_path = jumps_dir / "jump.csv"
             frame = pd.DataFrame(
                 {
-                    "Euler_X": [0.0] * 300,
-                    "Euler_Y": [0.0] * 300,
-                    "Euler_Z": [0.0] * 300,
-                    "Gyr_X": [1.0] * 300,
-                    "Gyr_Y": [0.0] * 300,
-                    "Gyr_Z": [0.0] * 300,
-                    "Acc_X": [0.0] * 300,
-                    "Acc_Y": [0.0] * 300,
-                    "Acc_Z": [0.0] * 300,
-                    "Combination": [0] * 300,
+                    "Euler_X": [0.0] * JUMP_WINDOW_FRAMES,
+                    "Euler_Y": [0.0] * JUMP_WINDOW_FRAMES,
+                    "Euler_Z": [0.0] * JUMP_WINDOW_FRAMES,
+                    "Gyr_X": [1.0] * JUMP_WINDOW_FRAMES,
+                    "Gyr_Y": [0.0] * JUMP_WINDOW_FRAMES,
+                    "Gyr_Z": [0.0] * JUMP_WINDOW_FRAMES,
+                    "Acc_X": [0.0] * JUMP_WINDOW_FRAMES,
+                    "Acc_Y": [0.0] * JUMP_WINDOW_FRAMES,
+                    "Acc_Z": [0.0] * JUMP_WINDOW_FRAMES,
+                    "Combination": [0] * JUMP_WINDOW_FRAMES,
                 }
             )
             frame.to_csv(jump_path, index=False)
@@ -47,7 +48,7 @@ class ExperimentDatasetTests(unittest.TestCase):
 
             self.assertEqual(dataset.n_samples, 1)
             self.assertEqual(dataset.n_channels, 10)
-            self.assertEqual(dataset.sequence_length, 240)
+            self.assertEqual(dataset.sequence_length, TYPE_WINDOW_FRAMES)
             self.assertEqual(dataset.labels, [1])
 
     def test_load_classification_dataset_for_success_uses_shorter_window(self):
@@ -61,16 +62,16 @@ class ExperimentDatasetTests(unittest.TestCase):
             jump_path = jumps_dir / "jump.csv"
             frame = pd.DataFrame(
                 {
-                    "Euler_X": [0.0] * 300,
-                    "Euler_Y": [0.0] * 300,
-                    "Euler_Z": [0.0] * 300,
-                    "Gyr_X": [1.0] * 300,
-                    "Gyr_Y": [0.0] * 300,
-                    "Gyr_Z": [0.0] * 300,
-                    "Acc_X": [0.0] * 300,
-                    "Acc_Y": [0.0] * 300,
-                    "Acc_Z": [0.0] * 300,
-                    "Combination": [0] * 300,
+                    "Euler_X": [0.0] * JUMP_WINDOW_FRAMES,
+                    "Euler_Y": [0.0] * JUMP_WINDOW_FRAMES,
+                    "Euler_Z": [0.0] * JUMP_WINDOW_FRAMES,
+                    "Gyr_X": [1.0] * JUMP_WINDOW_FRAMES,
+                    "Gyr_Y": [0.0] * JUMP_WINDOW_FRAMES,
+                    "Gyr_Z": [0.0] * JUMP_WINDOW_FRAMES,
+                    "Acc_X": [0.0] * JUMP_WINDOW_FRAMES,
+                    "Acc_Y": [0.0] * JUMP_WINDOW_FRAMES,
+                    "Acc_Z": [0.0] * JUMP_WINDOW_FRAMES,
+                    "Combination": [0] * JUMP_WINDOW_FRAMES,
                 }
             )
             frame.to_csv(jump_path, index=False)
@@ -83,7 +84,7 @@ class ExperimentDatasetTests(unittest.TestCase):
             dataset = load_classification_dataset("success", str(dataset_dir))
 
             self.assertEqual(dataset.n_samples, 1)
-            self.assertEqual(dataset.sequence_length, 140)
+            self.assertEqual(dataset.sequence_length, SUCCESS_WINDOW_FRAMES)
             self.assertEqual(dataset.labels, [0])
 
 

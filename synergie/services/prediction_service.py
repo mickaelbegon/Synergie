@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 import constants
-from synergie.config import JUMP_WINDOW_FRAMES, SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES
+from synergie.config import JUMP_WINDOW_FRAMES, SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES, TYPE_WINDOW_START
 
 
 class PredictionService:
@@ -45,7 +45,7 @@ class PredictionService:
             if len(features) != JUMP_WINDOW_FRAMES:
                 continue
             valid_indices.append(index)
-            type_windows.append(features[:TYPE_WINDOW_FRAMES])
+            type_windows.append(features[TYPE_WINDOW_START : TYPE_WINDOW_START + TYPE_WINDOW_FRAMES])
             success_windows.append(features[SUCCESS_WINDOW_START:])
 
         if not valid_indices:

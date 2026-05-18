@@ -14,7 +14,9 @@ from synergie.config import (
     DEFAULT_DETECTION_THRESHOLD,
     DEFAULT_SMOOTHING_SIGMA,
     GYRO_SATURATION_WARNING_THRESHOLD,
+    SEGMENT_FRAMES_BEFORE_TAKEOFF,
     SUCCESS_WINDOW_START,
+    TYPE_WINDOW_START,
     TYPE_WINDOW_FRAMES,
 )
 
@@ -3861,8 +3863,9 @@ class SynergieToolsApp:
         self.canvas.draw_idle()
 
     def _jump_window_bounds_ms(self, session_df, jump) -> dict[str, tuple[float, float]]:
-        type_start_idx = max(0, jump.start - SUCCESS_WINDOW_START)
-        type_end_idx = min(len(session_df) - 1, jump.start + (TYPE_WINDOW_FRAMES - SUCCESS_WINDOW_START) - 1)
+        segment_start_idx = jump.start - SEGMENT_FRAMES_BEFORE_TAKEOFF
+        type_start_idx = max(0, segment_start_idx + TYPE_WINDOW_START)
+        type_end_idx = min(len(session_df) - 1, type_start_idx + TYPE_WINDOW_FRAMES - 1)
         success_start_idx = max(0, jump.start)
         success_end_idx = min(len(session_df) - 1, jump.start + (len(jump.df_success) - 1))
         return {
@@ -3876,7 +3879,7 @@ class SynergieToolsApp:
         return (bounds["detected"][0] + bounds["detected"][1]) / 2.0
 
     def _jump_has_gyro_saturation(self, session_df, jump) -> bool:
-        start_idx = max(0, jump.start - SUCCESS_WINDOW_START)
+        start_idx = max(0, jump.start - SEGMENT_FRAMES_BEFORE_TAKEOFF)
         end_idx = min(len(session_df), jump.start + len(jump.df))
         window = session_df.iloc[start_idx:end_idx]["Gyr_X_unfiltered"].abs()
         return bool((window >= GYRO_SATURATION_WARNING_THRESHOLD).any())

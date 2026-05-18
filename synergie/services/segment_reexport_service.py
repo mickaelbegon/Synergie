@@ -62,7 +62,7 @@ def reexport_segment_with_context(
     cache = raw_session_cache if raw_session_cache is not None else {}
     raw_session = cache.get(raw_path)
     if raw_session is None:
-        raw_session = trainingSession(pd.read_csv(raw_path))
+        raw_session = trainingSession(pd.read_csv(raw_path, low_memory=False))
         cache[raw_path] = raw_session
     takeoff_sample = int(segment.iloc[existing_before]["SampleTimeFine"])
     matches = raw_session.df.index[raw_session.df["SampleTimeFine"].astype("int64") == takeoff_sample].tolist()

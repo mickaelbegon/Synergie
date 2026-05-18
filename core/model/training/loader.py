@@ -12,6 +12,7 @@ from synergie.config import (
     ROTATION_MIRROR_COLUMNS,
     SUCCESS_WINDOW_FRAMES,
     SUCCESS_WINDOW_START,
+    TYPE_WINDOW_START,
     TYPE_WINDOW_FRAMES,
     TrainingConfig,
 )
@@ -41,7 +42,7 @@ class Loader:
         train_ratio: float = 0.8,
         augment_mirror: bool = True,
         use_scalar_features: bool = True,
-        type_window_start: int = 0,
+        type_window_start: int = TYPE_WINDOW_START,
         type_window_frames: int = TYPE_WINDOW_FRAMES,
         success_window_start: int = SUCCESS_WINDOW_START,
         success_window_frames: int = SUCCESS_WINDOW_FRAMES,

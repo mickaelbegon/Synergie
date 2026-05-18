@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 import constants
-from synergie.config import SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES
+from synergie.config import SUCCESS_WINDOW_FRAMES, SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES, TYPE_WINDOW_START
 
 
 @dataclass
@@ -53,10 +53,10 @@ def load_classification_dataset(task: str, dataset_path: str) -> ClassificationD
         jump_frame = jump_frame[fields_to_keep]
 
         if task == "type":
-            temporal = jump_frame[:TYPE_WINDOW_FRAMES].copy().to_numpy()
+            temporal = jump_frame[TYPE_WINDOW_START : TYPE_WINDOW_START + TYPE_WINDOW_FRAMES].copy().to_numpy()
             label = int(row["type"])
         elif task == "success":
-            temporal = jump_frame[SUCCESS_WINDOW_START:].copy().reset_index(drop=True).to_numpy()
+            temporal = jump_frame[SUCCESS_WINDOW_START : SUCCESS_WINDOW_START + SUCCESS_WINDOW_FRAMES].copy().reset_index(drop=True).to_numpy()
             label = int(row["success"])
         else:
             raise ValueError(f"Unsupported task: {task}")

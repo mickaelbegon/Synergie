@@ -8,6 +8,7 @@ from synergie.config import (
     JUMP_WINDOW_FRAMES,
     SEGMENT_FRAMES_BEFORE_TAKEOFF,
     SUCCESS_WINDOW_START,
+    TYPE_WINDOW_START,
     TYPE_WINDOW_FRAMES,
 )
 
@@ -38,7 +39,7 @@ class Jump:
         self.df = self.dynamic_resize(df) # The dataframe containing the jump
         self.df["Combination"] = [int(self.combinate)]*len(self.df)
         self.df_success = self.df[SUCCESS_WINDOW_START:]
-        self.df_type = self.df[:TYPE_WINDOW_FRAMES]
+        self.df_type = self.df[TYPE_WINDOW_START : TYPE_WINDOW_START + TYPE_WINDOW_FRAMES]
         gyr_source = df["Gyr_X_unfiltered"].replace([np.inf, -np.inf], np.nan).dropna()
         window = gyr_source.iloc[start:end]
         self.max_rotation_speed = round(window.abs().max() / 360, 1) if not window.empty else 0.0
@@ -74,8 +75,7 @@ class Jump:
 
     def dynamic_resize(self, df: pd.DataFrame = None):
         """
-        normalize the jump to a given time frame. It takes 120 frames (2s) before the takeoff and 180 frames after (3s),
-        so that we have at least 120 frames (2s) after the landing.
+        normalize the jump to the configured frame window around takeoff.
         :param df: the dataframe containing the session where the jump is
         :return: the new dataframe
         """
