@@ -162,6 +162,8 @@ class SynergieToolsApp:
         self.window_summary_var = tk.StringVar(value="Compare shorter windows before changing the training window.")
         self.window_progress_var = tk.DoubleVar(value=0.0)
         self.window_progress_text_var = tk.StringVar(value="No benchmark running.")
+        self.window_offset_frames_var = tk.StringVar(value="120")
+        self.window_offsets_var = tk.StringVar(value="0,20,40,60,80,120")
         self.detection_review_summary_var = tk.StringVar(value="Run the review scan to inspect false positives and false negatives.")
         self.detection_review_records_var = tk.StringVar(value=[])
         self.detection_tuning_summary_var = tk.StringVar(value="No threshold sweep run yet.")
@@ -1333,14 +1335,21 @@ class SynergieToolsApp:
         ttk.Button(controls, text="Run window benchmark", command=self._run_window_benchmark).grid(
             row=5, column=0, columnspan=2, sticky="w", pady=(12, 8)
         )
+        ttk.Label(controls, text="Offset window frames").grid(row=6, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.window_offset_frames_var, width=10).grid(row=6, column=1, sticky="w")
+        ttk.Label(controls, text="Offsets in segment").grid(row=7, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.window_offsets_var, width=18).grid(row=7, column=1, sticky="w")
+        ttk.Button(controls, text="Run offset benchmark", command=self._run_window_offset_benchmark).grid(
+            row=8, column=0, columnspan=2, sticky="w", pady=(8, 8)
+        )
         ttk.Label(controls, textvariable=self.window_summary_var, justify=tk.LEFT, wraplength=340).grid(
-            row=6, column=0, columnspan=2, sticky="w"
+            row=9, column=0, columnspan=2, sticky="w"
         )
         ttk.Progressbar(controls, variable=self.window_progress_var, maximum=100).grid(
-            row=7, column=0, columnspan=2, sticky="ew", pady=(12, 4)
+            row=10, column=0, columnspan=2, sticky="ew", pady=(12, 4)
         )
         ttk.Label(controls, textvariable=self.window_progress_text_var, justify=tk.LEFT, wraplength=340).grid(
-            row=8, column=0, columnspan=2, sticky="w"
+            row=11, column=0, columnspan=2, sticky="w"
         )
         results = ttk.LabelFrame(parent, text="Window Results", padding=8)
         results.grid(row=0, column=1, sticky="nsew")
@@ -2462,6 +2471,62 @@ class SynergieToolsApp:
             self.root.after(0, lambda: self.status_var.set("Window benchmark completed"))
 
         self._run_in_thread(action, "Unable to run window benchmark.")
+
+    def _run_window_offset_benchmark(self) -> None:
+        self.status_var.set("Running window offset benchmark...")
+        self.window_progress_var.set(0.0)
+        self.window_progress_text_var.set("Preparing offset benchmark...")
+        self.window_log.delete("1.0", tk.END)
+        offsets = [int(value.strip()) for value in self.window_offsets_var.get().split(",") if value.strip()]
+
+        def action() -> None:
+            def report(event: dict) -> None:
+                index = event["index"]
+                total = event["total"]
+                if event["stage"] == "started":
+                    percent = ((index - 1) / total) * 100
+                    text = f"Training offset {index}/{total}: segment start {event['offset']}"
+                else:
+                    percent = (index / total) * 100
+                    result = event["result"]
+                    text = (
+                        f"Completed {index}/{total}: "
+                        f"[{result['start_relative_to_takeoff']},{result['end_relative_to_takeoff']}] "
+                        f"balanced_acc={result['balanced_accuracy']:.3f}"
+                    )
+                self.root.after(0, lambda: self.window_progress_var.set(percent))
+                self.root.after(0, lambda: self.window_progress_text_var.set(text))
+
+            summary = operations.benchmark_temporal_offsets(
+                self.window_task_var.get(),
+                self.window_dataset_var.get().strip(),
+                self.window_architecture_var.get(),
+                window_frames=int(self.window_offset_frames_var.get()),
+                offsets=offsets,
+                epochs=int(self.window_epochs_var.get()),
+                use_scalar_features=self.train_use_scalar_features_var.get(),
+                progress_callback=report,
+            )
+            best = summary["best"]
+            lines = [
+                f"Best offset window: [{best['start_relative_to_takeoff']},{best['end_relative_to_takeoff']}] "
+                f"| balanced_acc={best['balanced_accuracy']:.3f} | best_val_acc={best['best_val_accuracy']:.3f}",
+                summary["note"],
+                "",
+            ]
+            for item in summary["results"]:
+                lines.append(
+                    f"[{item['start_relative_to_takeoff']},{item['end_relative_to_takeoff']}] "
+                    f"(segment offset {item['offset']}): balanced_acc={item['balanced_accuracy']:.3f}, "
+                    f"best_val_acc={item['best_val_accuracy']:.3f}, epochs={item['epochs_ran']}"
+                )
+            self.root.after(0, lambda: self.window_summary_var.set(lines[0]))
+            self.root.after(0, lambda: self._replace_text(self.window_log, "\n".join(lines)))
+            self.root.after(0, lambda: self.window_progress_var.set(100.0))
+            self.root.after(0, lambda: self.window_progress_text_var.set("Offset benchmark completed."))
+            self.root.after(0, lambda: self.status_var.set("Window offset benchmark completed"))
+
+        self._run_in_thread(action, "Unable to run window offset benchmark.")
 
     def _build_detection_tuning_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=0)

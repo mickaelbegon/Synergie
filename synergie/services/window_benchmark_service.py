@@ -70,3 +70,89 @@ def benchmark_temporal_windows(
         "best": ranked[0] if ranked else None,
         "note": "Short ablation benchmark; retrain the chosen setting with the full training schedule before adopting it.",
     }
+
+
+def benchmark_temporal_offsets(
+    task: str,
+    dataset_path: str,
+    architecture: str,
+    *,
+    window_frames: int = 120,
+    offsets: list[int] | None = None,
+    epochs: int = 8,
+    use_scalar_features: bool = True,
+    progress_callback=None,
+) -> dict:
+    """Compare same-length type windows shifted inside the exported segment."""
+    if task != "type":
+        raise ValueError("Offset benchmark currently supports only task='type'.")
+
+    import keras
+    from sklearn.metrics import balanced_accuracy_score
+    import numpy as np
+
+    from core.model import model
+    from core.model.training.loader import Loader
+
+    candidates = offsets or [0, 20, 40, 60, 80, 120]
+    invalid = [offset for offset in candidates if offset < 0]
+    if invalid:
+        raise ValueError(
+            "Negative offsets need segments re-exported with more pre-takeoff context. "
+            "Current annotated segments begin 120 frames before takeoff."
+        )
+
+    results: list[dict] = []
+    for index, offset in enumerate(candidates, start=1):
+        if progress_callback:
+            progress_callback({"stage": "started", "index": index, "total": len(candidates), "offset": offset})
+        keras.backend.clear_session()
+        loader = Loader(
+            dataset_path,
+            augment_mirror=True,
+            use_scalar_features=use_scalar_features,
+            type_window_start=offset,
+            type_window_frames=window_frames,
+        )
+        dataset = loader.get_type_data()
+        candidate_model = model.build_model(task, architecture, input_shape=(window_frames, 10))
+        history = candidate_model.fit(
+            {"temporal_input": dataset.temporal_features_train, "scalar_input": dataset.scalar_features_train},
+            dataset.labels_train,
+            validation_data=(
+                {"temporal_input": dataset.temporal_features_test, "scalar_input": dataset.scalar_features_test},
+                dataset.labels_test,
+            ),
+            epochs=epochs,
+            verbose=0,
+            callbacks=[keras.callbacks.EarlyStopping(monitor="val_accuracy", mode="max", patience=3, restore_best_weights=True)],
+        )
+        predictions = candidate_model.predict(
+            {"temporal_input": dataset.temporal_features_test, "scalar_input": dataset.scalar_features_test},
+            verbose=0,
+        )
+        true_labels = [int(np.argmax(row)) for row in dataset.labels_test]
+        predicted_labels = [int(np.argmax(row)) for row in predictions]
+        result = {
+            "offset": int(offset),
+            "start_relative_to_takeoff": int(offset - 120),
+            "end_relative_to_takeoff": int(offset - 120 + window_frames),
+            "best_val_accuracy": float(max(history.history.get("val_accuracy", [0.0]))),
+            "balanced_accuracy": float(balanced_accuracy_score(true_labels, predicted_labels)),
+            "epochs_ran": int(len(history.history.get("loss", []))),
+        }
+        results.append(result)
+        if progress_callback:
+            progress_callback({"stage": "completed", "index": index, "total": len(candidates), "result": result})
+    ranked = sorted(results, key=lambda item: (item["balanced_accuracy"], item["best_val_accuracy"]), reverse=True)
+    return {
+        "task": task,
+        "architecture": architecture,
+        "window_frames": int(window_frames),
+        "results": results,
+        "best": ranked[0] if ranked else None,
+        "note": (
+            "Offsets are relative to the existing exported segments. "
+            "To test windows earlier than -120 frames, re-export longer segments with more pre-takeoff context."
+        ),
+    }

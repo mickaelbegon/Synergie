@@ -34,12 +34,14 @@ class Loader:
         train_ratio: float = 0.8,
         augment_mirror: bool = True,
         use_scalar_features: bool = True,
+        type_window_start: int = 0,
         type_window_frames: int = TYPE_WINDOW_FRAMES,
         success_window_start: int = SUCCESS_WINDOW_START,
     ):
         assert 0 <= train_ratio <= 1
         self.training_config = TrainingConfig(train_ratio=train_ratio, augment_mirror=augment_mirror)
         self.use_scalar_features = bool(use_scalar_features)
+        self.type_window_start = int(type_window_start)
         self.type_window_frames = int(type_window_frames)
         self.success_window_start = int(success_window_start)
 
@@ -63,7 +65,13 @@ class Loader:
                 jumpFrame = jumpFrame[fields_to_keep]
 
                 skater_info = self._lookup_skater_info(skaterData, row["skater"], use_scalar_features=self.use_scalar_features)
-                type_window = np.nan_to_num(jumpFrame[:self.type_window_frames].copy().to_numpy(), nan=0.0, posinf=0.0, neginf=0.0)
+                type_window_end = self.type_window_start + self.type_window_frames
+                type_window = np.nan_to_num(
+                    jumpFrame[self.type_window_start:type_window_end].copy().to_numpy(),
+                    nan=0.0,
+                    posinf=0.0,
+                    neginf=0.0,
+                )
                 success_window = np.nan_to_num(jumpFrame[self.success_window_start:].copy().reset_index(drop=True).to_numpy(), nan=0.0, posinf=0.0, neginf=0.0)
                 jumps.append((type_window, skater_info))
                 jumps_success.append((success_window, skater_info))

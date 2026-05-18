@@ -103,7 +103,7 @@ from synergie.services.video_service import (
     read_video_creation_time_with_ffprobe as _read_video_creation_time_with_ffprobe,
     select_best_video_datetime as _select_best_video_datetime,
 )
-from synergie.services.window_benchmark_service import benchmark_temporal_windows
+from synergie.services.window_benchmark_service import benchmark_temporal_offsets, benchmark_temporal_windows
 
 
 def read_video_metadata(video_path: str | Path) -> dict:
