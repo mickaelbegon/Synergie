@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 
 from synergie.services.window_benchmark_service import benchmark_temporal_offsets, benchmark_temporal_windows
-from synergie.services.segment_reexport_service import _matching_raw_path, ensure_pre_takeoff_context
+from synergie.services.segment_reexport_service import _matching_raw_path, ensure_post_takeoff_context, ensure_pre_takeoff_context
 
 
 class WindowBenchmarkServiceTests(unittest.TestCase):
@@ -33,5 +33,21 @@ class WindowBenchmarkServiceTests(unittest.TestCase):
                 return_value=False,
             ):
                 result = ensure_pre_takeoff_context(dataset, 180)
+
+        self.assertEqual(result, {"reexported": 0, "already_sufficient": 1, "skipped": 0})
+
+    def test_post_context_accepts_already_sufficient_segments(self):
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as temp_dir:
+            dataset = Path(temp_dir) / "dataset"
+            dataset.mkdir()
+            (dataset / "jumplist.csv").write_text("path\nsegment.csv\n", encoding="utf-8")
+            with patch(
+                "synergie.services.segment_reexport_service.reexport_segment_with_post_context",
+                return_value=False,
+            ):
+                result = ensure_post_takeoff_context(dataset, 220)
 
         self.assertEqual(result, {"reexported": 0, "already_sufficient": 1, "skipped": 0})

@@ -77,3 +77,19 @@ class TrainingCacheServiceTests(unittest.TestCase):
 
         self.assertFalse(first["from_cache"])
         self.assertFalse(second["from_cache"])
+
+    def test_can_skip_incomplete_windows_for_benchmarks(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dataset = self._build_dataset(Path(temp_dir))
+            result = load_or_build_training_cache(
+                dataset,
+                type_window_start=0,
+                type_window_frames=240,
+                success_window_start=200,
+                success_window_frames=140,
+                skip_incomplete_windows=True,
+            )
+
+        expected_path = str(dataset / "segment.csv").replace("\\", "/")
+        self.assertEqual(result["paths"], [])
+        self.assertEqual(result["metadata"]["skipped_paths"], [expected_path])

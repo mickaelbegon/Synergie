@@ -46,6 +46,7 @@ class Loader:
         type_window_frames: int = TYPE_WINDOW_FRAMES,
         success_window_start: int = SUCCESS_WINDOW_START,
         success_window_frames: int = SUCCESS_WINDOW_FRAMES,
+        skip_incomplete_windows: bool = False,
     ):
         assert 0 <= train_ratio <= 1
         self.training_config = TrainingConfig(train_ratio=train_ratio, augment_mirror=augment_mirror)
@@ -64,9 +65,11 @@ class Loader:
             type_window_frames=self.type_window_frames,
             success_window_start=self.success_window_start,
             success_window_frames=self.success_window_frames,
+            skip_incomplete_windows=skip_incomplete_windows,
         )
         cached_type_windows = dict(zip(training_cache["paths"], training_cache["type_windows"]))
         cached_success_windows = dict(zip(training_cache["paths"], training_cache["success_windows"]))
+        retained_paths = set(training_cache["paths"])
 
         skaterData = pd.read_csv("data/annotated/total/skaterData.csv")
 
@@ -79,6 +82,8 @@ class Loader:
 
         for index, row in mainFrame.iterrows():
             if row["success"] != 2 and row["type"] != 8:
+                if str(row["path"]) not in retained_paths:
+                    continue
                 self.path_jumps.append(row["path"])
                 skater_info = self._lookup_skater_info(skaterData, row["skater"], use_scalar_features=self.use_scalar_features)
                 type_window = cached_type_windows[str(row["path"])]

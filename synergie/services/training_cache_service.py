@@ -19,6 +19,7 @@ def load_or_build_training_cache(
     type_window_frames: int,
     success_window_start: int,
     success_window_frames: int,
+    skip_incomplete_windows: bool = False,
 ) -> dict:
     """Load a valid numeric-window cache or rebuild it from segment CSV files."""
     import numpy as np
@@ -35,6 +36,7 @@ def load_or_build_training_cache(
         type_window_frames=type_window_frames,
         success_window_start=success_window_start,
         success_window_frames=success_window_frames,
+        skip_incomplete_windows=skip_incomplete_windows,
     )
     cache_path = training_cache_path(dataset_root)
     cached = _load_valid_cache(cache_path, fingerprint)
@@ -43,26 +45,36 @@ def load_or_build_training_cache(
 
     type_windows = []
     success_windows = []
+    retained_paths = []
+    skipped_paths = []
     for path_value in paths:
         frame = pd.read_csv(path_value)[constants.fields_to_keep]
         type_window = frame[type_window_start : type_window_start + type_window_frames].to_numpy(dtype="float32")
         success_window = frame[success_window_start : success_window_start + success_window_frames].to_numpy(dtype="float32")
         if len(type_window) != type_window_frames:
+            if skip_incomplete_windows:
+                skipped_paths.append(path_value)
+                continue
             raise ValueError(
                 f"Type window requires {type_window_frames} frames starting at {type_window_start}, "
                 f"but segment '{path_value}' only provides {len(type_window)} frames."
             )
         if len(success_window) != success_window_frames:
+            if skip_incomplete_windows:
+                skipped_paths.append(path_value)
+                continue
             raise ValueError(
                 f"Success window requires {success_window_frames} frames starting at {success_window_start}, "
                 f"but segment '{path_value}' only provides {len(success_window)} frames."
             )
         type_windows.append(np.nan_to_num(type_window, nan=0.0, posinf=0.0, neginf=0.0))
         success_windows.append(np.nan_to_num(success_window, nan=0.0, posinf=0.0, neginf=0.0))
+        retained_paths.append(path_value)
 
     metadata = {
         "fingerprint": fingerprint,
-        "count": len(paths),
+        "count": len(retained_paths),
+        "skipped_paths": skipped_paths,
         "type_window_start": int(type_window_start),
         "type_window_frames": int(type_window_frames),
         "success_window_start": int(success_window_start),
@@ -70,7 +82,7 @@ def load_or_build_training_cache(
     }
     payload = {
         "metadata": metadata,
-        "paths": paths,
+        "paths": retained_paths,
         "type_windows": np.asarray(type_windows, dtype="float32"),
         "success_windows": np.asarray(success_windows, dtype="float32"),
         "from_cache": False,
@@ -78,7 +90,7 @@ def load_or_build_training_cache(
     np.savez_compressed(
         cache_path,
         metadata=json.dumps(metadata),
-        paths=np.asarray(paths),
+        paths=np.asarray(retained_paths),
         type_windows=payload["type_windows"],
         success_windows=payload["success_windows"],
     )
@@ -112,6 +124,7 @@ def _cache_fingerprint(
     type_window_frames: int,
     success_window_start: int,
     success_window_frames: int,
+    skip_incomplete_windows: bool,
 ) -> str:
     """Hash all inputs that change the numeric training windows."""
     digest = hashlib.sha256()
@@ -119,7 +132,7 @@ def _cache_fingerprint(
     digest.update(jumplist_path.read_bytes())
     digest.update(",".join(constants.fields_to_keep).encode("utf-8"))
     digest.update(
-        f"{type_window_start}:{type_window_frames}:{success_window_start}:{success_window_frames}".encode("utf-8")
+        f"{type_window_start}:{type_window_frames}:{success_window_start}:{success_window_frames}:{skip_incomplete_windows}".encode("utf-8")
     )
     for path_value in paths:
         path = Path(path_value)

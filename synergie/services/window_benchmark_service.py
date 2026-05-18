@@ -134,6 +134,23 @@ def benchmark_temporal_offsets(
                 )
 
         ensure_pre_takeoff_context(dataset_path, OFFSET_REFERENCE_FRAMES - min_offset, progress_callback=report_reexport)
+    elif task == "success":
+        required_after_frames = max(candidates) + window_frames
+        if required_after_frames > SEGMENT_FRAMES_AFTER_TAKEOFF:
+            from synergie.services.segment_reexport_service import ensure_post_takeoff_context
+
+            def report_reexport(event: dict) -> None:
+                if progress_callback:
+                    progress_callback(
+                        {
+                            "stage": "reexporting",
+                            "index": event["current"],
+                            "total": event["total"],
+                            "reexported": event["reexported"],
+                        }
+                    )
+
+            ensure_post_takeoff_context(dataset_path, required_after_frames, progress_callback=report_reexport)
 
     import keras
     from sklearn.metrics import balanced_accuracy_score
@@ -155,6 +172,7 @@ def benchmark_temporal_offsets(
             type_window_frames=window_frames if task == "type" else TYPE_WINDOW_FRAMES,
             success_window_start=SEGMENT_FRAMES_BEFORE_TAKEOFF + offset if task == "success" else SUCCESS_WINDOW_START,
             success_window_frames=window_frames if task == "success" else SUCCESS_WINDOW_FRAMES,
+            skip_incomplete_windows=task == "success",
         )
         dataset = loader.get_type_data() if task == "type" else loader.get_success_data()
         candidate_model = model.build_model(task, architecture, input_shape=(window_frames, 10))
