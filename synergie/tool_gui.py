@@ -144,6 +144,7 @@ class SynergieToolsApp:
         self.model_audit_summary_var = tk.StringVar(value="Run the audit to verify model compatibility in the current environment.")
         self.signal_task_var = tk.StringVar(value="type")
         self.signal_dataset_var = tk.StringVar(value="data/annotated/total")
+        self.signal_model_choice_var = tk.StringVar()
         self.signal_model_path_var = tk.StringVar(value=operations.latest_model_path_for_task("type"))
         self.signal_repeats_var = tk.StringVar(value="3")
         self.signal_windows_var = tk.StringVar(value="6")
@@ -1212,14 +1213,19 @@ class SynergieToolsApp:
         signal_task_box.bind("<<ComboboxSelected>>", self._on_signal_task_changed)
         ttk.Label(controls, text="Dataset").grid(row=1, column=0, sticky="w", pady=4)
         ttk.Entry(controls, textvariable=self.signal_dataset_var, width=34).grid(row=1, column=1, sticky="ew")
-        ttk.Label(controls, text="Model path").grid(row=2, column=0, sticky="w", pady=4)
-        ttk.Entry(controls, textvariable=self.signal_model_path_var, width=34).grid(row=2, column=1, sticky="ew")
-        ttk.Label(controls, text="Repeats").grid(row=3, column=0, sticky="w", pady=4)
-        ttk.Entry(controls, textvariable=self.signal_repeats_var, width=10).grid(row=3, column=1, sticky="w")
-        ttk.Label(controls, text="Time windows").grid(row=4, column=0, sticky="w", pady=4)
-        ttk.Entry(controls, textvariable=self.signal_windows_var, width=10).grid(row=4, column=1, sticky="w")
+        ttk.Label(controls, text="Saved model").grid(row=2, column=0, sticky="w", pady=4)
+        self.signal_model_box = ttk.Combobox(controls, textvariable=self.signal_model_choice_var, state="readonly", width=34)
+        self.signal_model_box.grid(row=2, column=1, sticky="ew")
+        self.signal_model_box.bind("<<ComboboxSelected>>", self._on_signal_model_changed)
+        self._add_tooltip(self.signal_model_box, "Modeles compatibles classes du plus recent au moins recent.")
+        ttk.Label(controls, text="Model path").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.signal_model_path_var, width=34).grid(row=3, column=1, sticky="ew")
+        ttk.Label(controls, text="Repeats").grid(row=4, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.signal_repeats_var, width=10).grid(row=4, column=1, sticky="w")
+        ttk.Label(controls, text="Time windows").grid(row=5, column=0, sticky="w", pady=4)
+        ttk.Entry(controls, textvariable=self.signal_windows_var, width=10).grid(row=5, column=1, sticky="w")
         ttk.Button(controls, text="Run signal importance", command=self._run_signal_importance).grid(
-            row=5,
+            row=6,
             column=0,
             columnspan=2,
             sticky="w",
@@ -1230,7 +1236,8 @@ class SynergieToolsApp:
             textvariable=self.signal_summary_var,
             justify=tk.LEFT,
             wraplength=340,
-        ).grid(row=6, column=0, columnspan=2, sticky="w")
+        ).grid(row=7, column=0, columnspan=2, sticky="w")
+        self._refresh_signal_models()
 
         plot_frame = ttk.LabelFrame(parent, text="Permutation Importance", padding=8)
         plot_frame.grid(row=0, column=1, sticky="nsew")
@@ -2612,6 +2619,24 @@ class SynergieToolsApp:
 
     def _on_signal_task_changed(self, _event=None) -> None:
         self.signal_model_path_var.set(operations.latest_model_path_for_task(self.signal_task_var.get()))
+        self._refresh_signal_models()
+
+    def _refresh_signal_models(self) -> None:
+        task = self.signal_task_var.get()
+        models = operations.list_pretrained_training_models(task=task, compatible_only=True)
+        labels = ["Active model alias"] + [operations.format_pretrained_model_label(model) for model in models]
+        self.signal_model_box.configure(values=labels)
+        self.signal_model_choice_var.set(labels[0])
+
+    def _on_signal_model_changed(self, _event=None) -> None:
+        selected = self.signal_model_choice_var.get()
+        if selected == "Active model alias":
+            self.signal_model_path_var.set(operations.latest_model_path_for_task(self.signal_task_var.get()))
+            return
+        for model in operations.list_pretrained_training_models(task=self.signal_task_var.get(), compatible_only=True):
+            if operations.format_pretrained_model_label(model) == selected:
+                self.signal_model_path_var.set(model["path"])
+                return
 
     def _on_tuner_task_changed(self, _event=None) -> None:
         self._sync_tuner_architectures()
