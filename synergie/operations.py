@@ -52,6 +52,7 @@ from synergie.services.detection_tuning_service import (
 from synergie.services.data_inventory_service import build_data_inventory
 from synergie.services.quality_service import analyze_jump_quality
 from synergie.services.signal_importance_service import compute_signal_importance
+from synergie.services.rotation_audit_service import audit_turn_estimation
 from synergie.services.session_service import (
     add_session,
     describe_file,

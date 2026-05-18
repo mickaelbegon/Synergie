@@ -141,6 +141,10 @@ class SynergieToolsApp:
         self.quality_summary_var = tk.StringVar(value="Run the quality control analysis to inspect suspicious jumps.")
         self.quality_details_var = tk.StringVar(value="No suspicious jump selected.")
         self.quality_suspicious_var = tk.StringVar(value=[])
+        self.rotation_audit_root_var = tk.StringVar(value="data/pending")
+        self.rotation_audit_summary_var = tk.StringVar(value="Run the audit after labelled turn annotations are available.")
+        self.rotation_audit_records_var = tk.StringVar(value=[])
+        self.rotation_audit_details_var = tk.StringVar(value="No suspicious turn estimate selected.")
         self.model_audit_summary_var = tk.StringVar(value="Run the audit to verify model compatibility in the current environment.")
         self.signal_task_var = tk.StringVar(value="type")
         self.signal_dataset_var = tk.StringVar(value="data/annotated/total")
@@ -210,6 +214,9 @@ class SynergieToolsApp:
         self.quality_figure = None
         self.quality_axes = None
         self.quality_canvas = None
+        self.rotation_audit_figure = None
+        self.rotation_audit_ax = None
+        self.rotation_audit_canvas = None
         self.signal_figure = None
         self.signal_axes = None
         self.signal_canvas = None
@@ -219,6 +226,7 @@ class SynergieToolsApp:
         self.annotation_dataframe = None
         self.annotation_file_path: Path | None = None
         self.quality_analysis: dict | None = None
+        self.rotation_audit_analysis: dict | None = None
         self.annotation_type_buttons: list[ttk.Radiobutton] = []
         self.annotation_turn_buttons: list[ttk.Radiobutton] = []
         self.annotation_success_buttons: list[ttk.Radiobutton] = []
@@ -274,6 +282,7 @@ class SynergieToolsApp:
         window_tab = ttk.Frame(notebook, padding=12)
         detection_tuning_tab = ttk.Frame(notebook, padding=12)
         quality_tab = ttk.Frame(notebook, padding=12)
+        rotation_audit_tab = ttk.Frame(notebook, padding=12)
         inventory_tab = ttk.Frame(notebook, padding=12)
         notes_tab = ttk.Frame(notebook, padding=12)
         notebook.add(workflow_tab, text="Start - Workflow")
@@ -283,6 +292,7 @@ class SynergieToolsApp:
         notebook.add(process_tab, text="Data - Process")
         notebook.add(annotate_tab, text="Data - Annotate")
         notebook.add(quality_tab, text="Review - Quality")
+        notebook.add(rotation_audit_tab, text="Review - Turns")
         notebook.add(inspect_tab, text="Review - Inspect IMU")
         notebook.add(detection_tuning_tab, text="Review - Detection")
         notebook.add(train_tab, text="Models - Train")
@@ -324,6 +334,7 @@ class SynergieToolsApp:
         self._build_window_benchmark_tab(window_tab)
         self._build_detection_tuning_tab(detection_tuning_tab)
         self._build_quality_tab(quality_tab)
+        self._build_rotation_audit_tab(rotation_audit_tab)
         self._build_notes_tab(notes_tab)
 
         footer = ttk.Frame(self.root, padding=(12, 0, 12, 12))
@@ -931,6 +942,18 @@ class SynergieToolsApp:
         self.quality_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._draw_placeholder_quality_plot()
 
+    def _build_rotation_audit_canvas(self) -> None:
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        from matplotlib.figure import Figure
+
+        figure = Figure(figsize=(6.8, 5.2), dpi=100)
+        axis = figure.add_subplot(111)
+        self.rotation_audit_figure = figure
+        self.rotation_audit_ax = axis
+        self.rotation_audit_canvas = FigureCanvasTkAgg(figure, master=self.rotation_audit_plot_container)
+        self.rotation_audit_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self._draw_placeholder_rotation_audit()
+
     def _build_signal_plot_canvas(self) -> None:
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
         from matplotlib.figure import Figure
@@ -1418,6 +1441,57 @@ class SynergieToolsApp:
         ttk.Label(
             details_frame,
             textvariable=self.quality_details_var,
+            justify=tk.LEFT,
+            wraplength=760,
+        ).grid(row=0, column=0, sticky="w")
+
+    def _build_rotation_audit_tab(self, parent: ttk.Frame) -> None:
+        parent.columnconfigure(0, weight=0)
+        parent.columnconfigure(1, weight=1)
+        parent.rowconfigure(0, weight=1)
+        controls = ttk.LabelFrame(parent, text="Turn Estimation Audit", padding=12)
+        controls.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        controls.columnconfigure(0, weight=1)
+        controls.rowconfigure(4, weight=1)
+        ttk.Label(controls, text="Annotation folder").grid(row=0, column=0, sticky="w")
+        ttk.Entry(controls, textvariable=self.rotation_audit_root_var, width=34).grid(row=1, column=0, sticky="ew", pady=(4, 8))
+        ttk.Button(controls, text="Run turn audit", command=self._run_rotation_audit).grid(row=2, column=0, sticky="w")
+        ttk.Label(
+            controls,
+            textvariable=self.rotation_audit_summary_var,
+            justify=tk.LEFT,
+            wraplength=320,
+        ).grid(row=3, column=0, sticky="w", pady=(8, 8))
+        list_frame = ttk.LabelFrame(controls, text="Suspicious estimates", padding=8)
+        list_frame.grid(row=4, column=0, sticky="nsew")
+        list_frame.columnconfigure(0, weight=1)
+        list_frame.rowconfigure(0, weight=1)
+        self.rotation_audit_listbox = tk.Listbox(
+            list_frame,
+            listvariable=self.rotation_audit_records_var,
+            exportselection=False,
+            height=18,
+            width=42,
+        )
+        self.rotation_audit_listbox.grid(row=0, column=0, sticky="nsew")
+        self.rotation_audit_listbox.bind("<<ListboxSelect>>", self._on_rotation_audit_selected)
+        results = ttk.Frame(parent)
+        results.grid(row=0, column=1, sticky="nsew")
+        results.columnconfigure(0, weight=1)
+        results.rowconfigure(0, weight=1)
+        results.rowconfigure(1, weight=0)
+        plot_frame = ttk.LabelFrame(results, text="Annotated vs estimated turns", padding=8)
+        plot_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
+        plot_frame.columnconfigure(0, weight=1)
+        plot_frame.rowconfigure(0, weight=1)
+        self.rotation_audit_plot_container = ttk.Frame(plot_frame)
+        self.rotation_audit_plot_container.grid(row=0, column=0, sticky="nsew")
+        self._build_rotation_audit_canvas()
+        details_frame = ttk.LabelFrame(results, text="Selected estimate details", padding=8)
+        details_frame.grid(row=1, column=0, sticky="ew")
+        ttk.Label(
+            details_frame,
+            textvariable=self.rotation_audit_details_var,
             justify=tk.LEFT,
             wraplength=760,
         ).grid(row=0, column=0, sticky="w")
@@ -2097,6 +2171,48 @@ class SynergieToolsApp:
         self.quality_figure.tight_layout()
         self.quality_canvas.draw_idle()
 
+    def _draw_placeholder_rotation_audit(self) -> None:
+        if self.rotation_audit_ax is None:
+            return
+        self.rotation_audit_ax.clear()
+        self.rotation_audit_ax.set_title("Turn estimation confusion matrix")
+        self.rotation_audit_ax.text(
+            0.5,
+            0.5,
+            "Run turn audit after labelled turns exist",
+            ha="center",
+            va="center",
+            transform=self.rotation_audit_ax.transAxes,
+        )
+        self.rotation_audit_ax.set_xticks([])
+        self.rotation_audit_ax.set_yticks([])
+        self.rotation_audit_figure.tight_layout()
+        self.rotation_audit_canvas.draw_idle()
+
+    def _draw_rotation_audit(self, analysis: dict) -> None:
+        if self.rotation_audit_ax is None:
+            return
+        matrix = analysis.get("confusion_matrix", [])
+        labels = analysis.get("labels", [])
+        if not matrix:
+            self._draw_placeholder_rotation_audit()
+            return
+        self.rotation_audit_ax.clear()
+        image = self.rotation_audit_ax.imshow(matrix, cmap="Blues")
+        self.rotation_audit_ax.set_title("Annotated vs estimated turns")
+        self.rotation_audit_ax.set_xlabel("Estimated turns")
+        self.rotation_audit_ax.set_ylabel("Annotated turns")
+        self.rotation_audit_ax.set_xticks(range(len(labels)), labels)
+        self.rotation_audit_ax.set_yticks(range(len(labels)), labels)
+        for row_index, row in enumerate(matrix):
+            for column_index, value in enumerate(row):
+                self.rotation_audit_ax.text(column_index, row_index, str(value), ha="center", va="center")
+        if getattr(self, "_rotation_audit_colorbar", None) is not None:
+            self._rotation_audit_colorbar.remove()
+        self._rotation_audit_colorbar = self.rotation_audit_figure.colorbar(image, ax=self.rotation_audit_ax, fraction=0.046, pad=0.04)
+        self.rotation_audit_figure.tight_layout()
+        self.rotation_audit_canvas.draw_idle()
+
     def _draw_training_history(self, summary: dict) -> None:
         if self.train_axes is None:
             return
@@ -2328,6 +2444,77 @@ class SynergieToolsApp:
             self.root.after(0, lambda: self._apply_quality_analysis(analysis))
 
         self._run_in_thread(action, "Unable to run the quality scan.")
+
+    def _refresh_rotation_audit_records(self) -> None:
+        if not self.rotation_audit_analysis:
+            self.rotation_audit_records_var.set([])
+            return
+        records = self.rotation_audit_analysis.get("suspicious_records", [])
+        labels = [
+            f"{index + 1:03d} | {record['type_label']} | "
+            f"annotated {record['annotated_turns']:g} vs estimated {record['estimated_turns']:g}"
+            for index, record in enumerate(records)
+        ]
+        self.rotation_audit_records_var.set(labels)
+        if labels:
+            self.rotation_audit_listbox.selection_clear(0, tk.END)
+            self.rotation_audit_listbox.selection_set(0)
+            self._on_rotation_audit_selected()
+        else:
+            self.rotation_audit_details_var.set("No suspicious turn estimate selected.")
+
+    def _on_rotation_audit_selected(self, _event=None) -> None:
+        if not self.rotation_audit_analysis:
+            self.rotation_audit_details_var.set("No suspicious turn estimate selected.")
+            return
+        selection = self.rotation_audit_listbox.curselection()
+        records = self.rotation_audit_analysis.get("suspicious_records", [])
+        if not selection or selection[0] >= len(records):
+            self.rotation_audit_details_var.set("No suspicious turn estimate selected.")
+            return
+        record = records[selection[0]]
+        self.rotation_audit_details_var.set(
+            f"Type: {record['type_label']} | path: {record['path']}\n"
+            f"Annotated: {record['annotated_turns']:g} | measured IMU: {record['measured_rotation']:.2f} | "
+            f"estimated: {record['estimated_turns']:g}\n"
+            f"Signed error: {record['signed_error']:+.2f} | reasons: {', '.join(record['reasons'])}\n"
+            f"Source file: {record['source_file']}"
+        )
+
+    def _format_rotation_audit_summary(self, analysis: dict) -> str:
+        if analysis["labelled_jumps"] == 0:
+            return (
+                f"Scanned {analysis['scanned_files']} annotation files, but no completed labelled jumps with turns were found yet.\n"
+                "Complete annotations first; this audit will then compare measured IMU rotation with human turn labels."
+            )
+        return (
+            f"Labelled jumps: {analysis['labelled_jumps']} | suspicious: {len(analysis['suspicious_records'])}\n"
+            f"Exact turn accuracy: {analysis['exact_accuracy']:.3f} | mean absolute error: {analysis['mean_absolute_error']:.3f}"
+        )
+
+    def _apply_rotation_audit(self, analysis: dict) -> None:
+        self.rotation_audit_analysis = analysis
+        self.rotation_audit_summary_var.set(self._format_rotation_audit_summary(analysis))
+        self._refresh_rotation_audit_records()
+        self._draw_rotation_audit(analysis)
+        self.status_var.set(f"Turn audit ready: {analysis['labelled_jumps']} labelled jumps")
+
+    def _run_rotation_audit(self) -> None:
+        root = self.rotation_audit_root_var.get().strip()
+        if not root:
+            messagebox.showwarning("Synergie Tools", "Select an annotation folder first.")
+            return
+        self.status_var.set("Running turn estimation audit...")
+        self.rotation_audit_summary_var.set("Turn audit in progress...")
+        self.rotation_audit_records_var.set([])
+        self.rotation_audit_details_var.set("No suspicious turn estimate selected.")
+        self._draw_placeholder_rotation_audit()
+
+        def action() -> None:
+            analysis = operations.audit_turn_estimation(root)
+            self.root.after(0, lambda: self._apply_rotation_audit(analysis))
+
+        self._run_in_thread(action, "Unable to run the turn estimation audit.")
 
     def _run_model_audit(self) -> None:
         self.status_var.set("Auditing saved models...")
