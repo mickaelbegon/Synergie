@@ -144,6 +144,7 @@ def _summarize_records(root: Path, scanned_files: int, records: list[dict]) -> d
             "records": [],
             "suspicious_records": [],
             "type_summary": [],
+            "rounding_rule_summary": [],
             "confusion_matrix": [],
             "labels": [],
         }
@@ -160,6 +161,7 @@ def _summarize_records(root: Path, scanned_files: int, records: list[dict]) -> d
         "records": labelled.to_dict("records"),
         "suspicious_records": suspicious,
         "type_summary": _type_summary(labelled),
+        "rounding_rule_summary": _rounding_rule_summary(labelled),
         "confusion_matrix": matrix.to_numpy(dtype=int).tolist(),
         "labels": labels,
     }
@@ -179,6 +181,40 @@ def _type_summary(labelled) -> list[dict]:
             }
         )
     return summary
+
+
+def _rounding_rule_summary(labelled) -> list[dict]:
+    """Compare simple post-processing rules before considering a learned model."""
+    rules = {
+        "round": lambda value: round(value),
+        "ceil_minus_0.15": lambda value: _ceil_shift(value, 0.15),
+        "ceil_minus_0.30": lambda value: _ceil_shift(value, 0.30),
+        "floor_plus_0.50": lambda value: int(value + 0.50),
+    }
+    summaries = []
+    for label, rule in rules.items():
+        predicted = labelled.apply(lambda row: _estimate_turns_for_rule(row, rule), axis=1)
+        summaries.append(
+            {
+                "label": label,
+                "exact_accuracy": float((predicted == labelled["annotated_turns"]).mean()),
+                "mean_absolute_error": float((predicted - labelled["annotated_turns"]).abs().mean()),
+            }
+        )
+    return sorted(summaries, key=lambda item: (item["exact_accuracy"], -item["mean_absolute_error"]), reverse=True)
+
+
+def _estimate_turns_for_rule(row, rule) -> float:
+    from synergie.operations import annotation_turn_value_for_storage
+
+    estimate = min(4, max(1, int(rule(float(row["measured_rotation"])))))
+    return float(annotation_turn_value_for_storage(row["type"], estimate))
+
+
+def _ceil_shift(value: float, shift: float) -> int:
+    import math
+
+    return int(math.ceil(value - shift))
 
 
 def _safe_float(value, default=None):

@@ -25,6 +25,12 @@ class RotationAuditServiceTests(unittest.TestCase):
         self.assertEqual(result["confusion_matrix"], [[1, 0, 0], [0, 1, 0], [1, 0, 0]])
         self.assertEqual(len(result["suspicious_records"]), 1)
         self.assertEqual(result["suspicious_records"][0]["path"], "c.csv")
+        self.assertEqual(result["rounding_rule_summary"][0]["label"], "round")
+        self.assertEqual(
+            [item["label"] for item in result["rounding_rule_summary"]],
+            ["round", "ceil_minus_0.30", "floor_plus_0.50", "ceil_minus_0.15"],
+        )
+        self.assertEqual(result["rounding_rule_summary"][0]["exact_accuracy"], 2 / 3)
 
     def test_recomputes_measured_rotation_from_training_jumplist(self):
         import pandas as pd

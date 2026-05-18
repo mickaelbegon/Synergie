@@ -216,6 +216,8 @@ class SynergieToolsApp:
         self.quality_canvas = None
         self.rotation_audit_figure = None
         self.rotation_audit_ax = None
+        self.rotation_audit_error_ax = None
+        self.rotation_audit_rule_ax = None
         self.rotation_audit_canvas = None
         self.signal_figure = None
         self.signal_axes = None
@@ -946,10 +948,14 @@ class SynergieToolsApp:
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
         from matplotlib.figure import Figure
 
-        figure = Figure(figsize=(6.8, 5.2), dpi=100)
-        axis = figure.add_subplot(111)
+        figure = Figure(figsize=(8.2, 6.2), dpi=100)
+        matrix_ax = figure.add_subplot(221)
+        error_ax = figure.add_subplot(222)
+        rule_ax = figure.add_subplot(212)
         self.rotation_audit_figure = figure
-        self.rotation_audit_ax = axis
+        self.rotation_audit_ax = matrix_ax
+        self.rotation_audit_error_ax = error_ax
+        self.rotation_audit_rule_ax = rule_ax
         self.rotation_audit_canvas = FigureCanvasTkAgg(figure, master=self.rotation_audit_plot_container)
         self.rotation_audit_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._draw_placeholder_rotation_audit()
@@ -2175,6 +2181,8 @@ class SynergieToolsApp:
         if self.rotation_audit_ax is None:
             return
         self.rotation_audit_ax.clear()
+        self.rotation_audit_error_ax.clear()
+        self.rotation_audit_rule_ax.clear()
         self.rotation_audit_ax.set_title("Turn estimation confusion matrix")
         self.rotation_audit_ax.text(
             0.5,
@@ -2186,6 +2194,28 @@ class SynergieToolsApp:
         )
         self.rotation_audit_ax.set_xticks([])
         self.rotation_audit_ax.set_yticks([])
+        self.rotation_audit_error_ax.set_title("Signed error by type")
+        self.rotation_audit_error_ax.text(
+            0.5,
+            0.5,
+            "No labelled turns yet",
+            ha="center",
+            va="center",
+            transform=self.rotation_audit_error_ax.transAxes,
+        )
+        self.rotation_audit_error_ax.set_xticks([])
+        self.rotation_audit_error_ax.set_yticks([])
+        self.rotation_audit_rule_ax.set_title("Simple turn rules")
+        self.rotation_audit_rule_ax.text(
+            0.5,
+            0.5,
+            "No rule comparison yet",
+            ha="center",
+            va="center",
+            transform=self.rotation_audit_rule_ax.transAxes,
+        )
+        self.rotation_audit_rule_ax.set_xticks([])
+        self.rotation_audit_rule_ax.set_yticks([])
         self.rotation_audit_figure.tight_layout()
         self.rotation_audit_canvas.draw_idle()
 
@@ -2198,6 +2228,8 @@ class SynergieToolsApp:
             self._draw_placeholder_rotation_audit()
             return
         self.rotation_audit_ax.clear()
+        self.rotation_audit_error_ax.clear()
+        self.rotation_audit_rule_ax.clear()
         image = self.rotation_audit_ax.imshow(matrix, cmap="Blues")
         self.rotation_audit_ax.set_title("Annotated vs estimated turns")
         self.rotation_audit_ax.set_xlabel("Estimated turns")
@@ -2210,6 +2242,36 @@ class SynergieToolsApp:
         if getattr(self, "_rotation_audit_colorbar", None) is not None:
             self._rotation_audit_colorbar.remove()
         self._rotation_audit_colorbar = self.rotation_audit_figure.colorbar(image, ax=self.rotation_audit_ax, fraction=0.046, pad=0.04)
+        type_summary = analysis.get("type_summary", [])
+        type_labels = [item["label"] for item in type_summary]
+        grouped_errors = [
+            [record["signed_error"] for record in analysis["records"] if record["type_label"] == label]
+            for label in type_labels
+        ]
+        self.rotation_audit_error_ax.boxplot(grouped_errors, tick_labels=type_labels, patch_artist=True)
+        self.rotation_audit_error_ax.axhline(0.0, color="black", linewidth=1.0)
+        self.rotation_audit_error_ax.set_title("Measured - annotated turns")
+        self.rotation_audit_error_ax.set_ylabel("turns")
+        self.rotation_audit_error_ax.tick_params(axis="x", rotation=30)
+        rule_summary = analysis.get("rounding_rule_summary", [])
+        rule_labels = [item["label"] for item in rule_summary]
+        rule_scores = [item["exact_accuracy"] for item in rule_summary]
+        bars = self.rotation_audit_rule_ax.bar(rule_labels, rule_scores, color="#5b8ff9")
+        if bars:
+            bars[0].set_color("#2f7d32")
+        self.rotation_audit_rule_ax.set_ylim(0.0, 1.0)
+        self.rotation_audit_rule_ax.set_ylabel("exact accuracy")
+        self.rotation_audit_rule_ax.set_title("Candidate rules on labelled history")
+        self.rotation_audit_rule_ax.tick_params(axis="x", rotation=20)
+        for bar, item in zip(bars, rule_summary):
+            self.rotation_audit_rule_ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + 0.02,
+                f"{item['exact_accuracy']:.3f}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
         self.rotation_audit_figure.tight_layout()
         self.rotation_audit_canvas.draw_idle()
 
@@ -2489,7 +2551,9 @@ class SynergieToolsApp:
             )
         return (
             f"Labelled jumps: {analysis['labelled_jumps']} | suspicious: {len(analysis['suspicious_records'])}\n"
-            f"Exact turn accuracy: {analysis['exact_accuracy']:.3f} | mean absolute error: {analysis['mean_absolute_error']:.3f}"
+            f"Exact turn accuracy: {analysis['exact_accuracy']:.3f} | mean absolute error: {analysis['mean_absolute_error']:.3f}\n"
+            f"Best simple rule: {analysis['rounding_rule_summary'][0]['label']} "
+            f"(acc {analysis['rounding_rule_summary'][0]['exact_accuracy']:.3f})"
         )
 
     def _apply_rotation_audit(self, analysis: dict) -> None:
