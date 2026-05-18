@@ -952,10 +952,10 @@ class SynergieToolsApp:
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
         from matplotlib.figure import Figure
 
-        figure = Figure(figsize=(8.2, 6.2), dpi=100)
-        matrix_ax = figure.add_subplot(221)
-        error_ax = figure.add_subplot(222)
-        rule_ax = figure.add_subplot(212)
+        figure = Figure(figsize=(10.0, 3.8), dpi=100)
+        matrix_ax = figure.add_subplot(131)
+        error_ax = figure.add_subplot(132)
+        rule_ax = figure.add_subplot(133)
         self.rotation_audit_figure = figure
         self.rotation_audit_ax = matrix_ax
         self.rotation_audit_error_ax = error_ax
@@ -968,7 +968,7 @@ class SynergieToolsApp:
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
         from matplotlib.figure import Figure
 
-        figure = Figure(figsize=(8.2, 3.0), dpi=100)
+        figure = Figure(figsize=(10.0, 4.4), dpi=100)
         axis = figure.add_subplot(111)
         self.rotation_audit_signal_figure = figure
         self.rotation_audit_signal_ax = axis
@@ -1498,34 +1498,39 @@ class SynergieToolsApp:
         )
         self.rotation_audit_listbox.grid(row=0, column=0, sticky="nsew")
         self.rotation_audit_listbox.bind("<<ListboxSelect>>", self._on_rotation_audit_selected)
-        results = ttk.Frame(parent)
+        results = ttk.PanedWindow(parent, orient=tk.VERTICAL)
         results.grid(row=0, column=1, sticky="nsew")
-        results.columnconfigure(0, weight=1)
-        results.rowconfigure(0, weight=1)
-        results.rowconfigure(1, weight=0)
-        plot_frame = ttk.LabelFrame(results, text="Annotated vs estimated turns", padding=8)
-        plot_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
-        plot_frame.columnconfigure(0, weight=1)
-        plot_frame.rowconfigure(0, weight=1)
-        self.rotation_audit_plot_container = ttk.Frame(plot_frame)
-        self.rotation_audit_plot_container.grid(row=0, column=0, sticky="nsew")
-        self._build_rotation_audit_canvas()
-        details_frame = ttk.LabelFrame(results, text="Selected estimate details", padding=8)
-        details_frame.grid(row=1, column=0, sticky="ew")
+        selected_panel = ttk.Frame(results)
+        selected_panel.columnconfigure(0, weight=1)
+        selected_panel.rowconfigure(1, weight=1)
+        details_frame = ttk.LabelFrame(selected_panel, text="Selected estimate details", padding=8)
+        details_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         ttk.Label(
             details_frame,
             textvariable=self.rotation_audit_details_var,
             justify=tk.LEFT,
             wraplength=760,
         ).grid(row=0, column=0, sticky="w")
-        signal_frame = ttk.LabelFrame(results, text="Selected jump signals", padding=8)
-        signal_frame.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
+        signal_frame = ttk.LabelFrame(selected_panel, text="Selected jump signals", padding=8)
+        signal_frame.grid(row=1, column=0, sticky="nsew")
         signal_frame.columnconfigure(0, weight=1)
         signal_frame.rowconfigure(0, weight=1)
-        results.rowconfigure(2, weight=1)
         self.rotation_audit_signal_container = ttk.Frame(signal_frame)
         self.rotation_audit_signal_container.grid(row=0, column=0, sticky="nsew")
         self._build_rotation_audit_signal_canvas()
+
+        diagnostics_panel = ttk.Frame(results)
+        diagnostics_panel.columnconfigure(0, weight=1)
+        diagnostics_panel.rowconfigure(0, weight=1)
+        plot_frame = ttk.LabelFrame(diagnostics_panel, text="Turn estimation diagnostics", padding=8)
+        plot_frame.grid(row=0, column=0, sticky="nsew")
+        plot_frame.columnconfigure(0, weight=1)
+        plot_frame.rowconfigure(0, weight=1)
+        self.rotation_audit_plot_container = ttk.Frame(plot_frame)
+        self.rotation_audit_plot_container.grid(row=0, column=0, sticky="nsew")
+        self._build_rotation_audit_canvas()
+        results.add(selected_panel, weight=3)
+        results.add(diagnostics_panel, weight=2)
 
     def _build_notes_tab(self, parent: ttk.Frame) -> None:
         notes = scrolledtext.ScrolledText(parent, height=20, wrap=tk.WORD)
@@ -2208,7 +2213,7 @@ class SynergieToolsApp:
         self.rotation_audit_ax.clear()
         self.rotation_audit_error_ax.clear()
         self.rotation_audit_rule_ax.clear()
-        self.rotation_audit_ax.set_title("Turn estimation confusion matrix")
+        self.rotation_audit_ax.set_title("Confusion matrix")
         self.rotation_audit_ax.text(
             0.5,
             0.5,
@@ -2219,7 +2224,7 @@ class SynergieToolsApp:
         )
         self.rotation_audit_ax.set_xticks([])
         self.rotation_audit_ax.set_yticks([])
-        self.rotation_audit_error_ax.set_title("Signed error by type")
+        self.rotation_audit_error_ax.set_title("Error by type")
         self.rotation_audit_error_ax.text(
             0.5,
             0.5,
@@ -2230,7 +2235,7 @@ class SynergieToolsApp:
         )
         self.rotation_audit_error_ax.set_xticks([])
         self.rotation_audit_error_ax.set_yticks([])
-        self.rotation_audit_rule_ax.set_title("Simple turn rules")
+        self.rotation_audit_rule_ax.set_title("Strategies")
         self.rotation_audit_rule_ax.text(
             0.5,
             0.5,
@@ -2256,14 +2261,15 @@ class SynergieToolsApp:
         self.rotation_audit_error_ax.clear()
         self.rotation_audit_rule_ax.clear()
         image = self.rotation_audit_ax.imshow(matrix, cmap="Blues")
-        self.rotation_audit_ax.set_title("Annotated vs estimated turns")
+        self.rotation_audit_ax.set_title("Annotated vs estimated")
         self.rotation_audit_ax.set_xlabel("Estimated turns")
         self.rotation_audit_ax.set_ylabel("Annotated turns")
         self.rotation_audit_ax.set_xticks(range(len(labels)), labels)
         self.rotation_audit_ax.set_yticks(range(len(labels)), labels)
         for row_index, row in enumerate(matrix):
             for column_index, value in enumerate(row):
-                self.rotation_audit_ax.text(column_index, row_index, str(value), ha="center", va="center")
+                if value:
+                    self.rotation_audit_ax.text(column_index, row_index, str(value), ha="center", va="center", fontsize=8)
         if getattr(self, "_rotation_audit_colorbar", None) is not None:
             self._rotation_audit_colorbar.remove()
         self._rotation_audit_colorbar = self.rotation_audit_figure.colorbar(image, ax=self.rotation_audit_ax, fraction=0.046, pad=0.04)
@@ -2275,26 +2281,25 @@ class SynergieToolsApp:
         ]
         self.rotation_audit_error_ax.boxplot(grouped_errors, tick_labels=type_labels, patch_artist=True)
         self.rotation_audit_error_ax.axhline(0.0, color="black", linewidth=1.0)
-        self.rotation_audit_error_ax.set_title("Measured - annotated turns")
+        self.rotation_audit_error_ax.set_title("Measured - annotated")
         self.rotation_audit_error_ax.set_ylabel("turns")
         self.rotation_audit_error_ax.tick_params(axis="x", rotation=30)
         rule_summary = analysis.get("strategy_summary", [])
-        rule_labels = [item["label"] for item in rule_summary]
+        rule_labels = [self._rotation_strategy_label(item["label"]) for item in rule_summary]
         rule_scores = [item["exact_accuracy"] for item in rule_summary]
-        bars = self.rotation_audit_rule_ax.bar(rule_labels, rule_scores, color="#5b8ff9")
+        bars = self.rotation_audit_rule_ax.barh(rule_labels, rule_scores, color="#5b8ff9")
         if len(bars) >= 2:
             bars[1].set_color("#2f7d32")
-        self.rotation_audit_rule_ax.set_ylim(0.0, 1.0)
-        self.rotation_audit_rule_ax.set_ylabel("exact accuracy")
-        self.rotation_audit_rule_ax.set_title("Deployable strategy comparison")
-        self.rotation_audit_rule_ax.tick_params(axis="x", rotation=20)
+        self.rotation_audit_rule_ax.set_xlim(0.0, 1.0)
+        self.rotation_audit_rule_ax.set_xlabel("exact accuracy")
+        self.rotation_audit_rule_ax.set_title("Strategies")
         for bar, item in zip(bars, rule_summary):
             self.rotation_audit_rule_ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 0.02,
+                bar.get_width() + 0.02,
+                bar.get_y() + bar.get_height() / 2,
                 f"{item['exact_accuracy']:.3f}",
-                ha="center",
-                va="bottom",
+                ha="left",
+                va="center",
                 fontsize=8,
             )
         self.rotation_audit_figure.tight_layout()
@@ -2664,6 +2669,13 @@ class SynergieToolsApp:
             f"current {current['exact_accuracy']:.3f} -> "
             f"hybrid {hybrid['exact_accuracy']:.3f} ({gain:+.3f})"
         )
+
+    def _rotation_strategy_label(self, label: str) -> str:
+        return {
+            "current_round": "Current",
+            "hybrid_non_axel_shift": "Hybrid",
+            "best_rule_per_type_observed": "Per-type upper bound",
+        }.get(label, label)
 
     def _format_rotation_strategy_by_skater(self, analysis: dict) -> str:
         summaries = analysis.get("strategy_by_skater", [])
