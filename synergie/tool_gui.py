@@ -141,7 +141,7 @@ class SynergieToolsApp:
         self.quality_summary_var = tk.StringVar(value="Run the quality control analysis to inspect suspicious jumps.")
         self.quality_details_var = tk.StringVar(value="No suspicious jump selected.")
         self.quality_suspicious_var = tk.StringVar(value=[])
-        self.rotation_audit_root_var = tk.StringVar(value="data/pending")
+        self.rotation_audit_root_var = tk.StringVar(value="data/annotated/total")
         self.rotation_audit_summary_var = tk.StringVar(value="Run the audit after labelled turn annotations are available.")
         self.rotation_audit_records_var = tk.StringVar(value=[])
         self.rotation_audit_details_var = tk.StringVar(value="No suspicious turn estimate selected.")
@@ -1453,7 +1453,7 @@ class SynergieToolsApp:
         controls.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
         controls.columnconfigure(0, weight=1)
         controls.rowconfigure(4, weight=1)
-        ttk.Label(controls, text="Annotation folder").grid(row=0, column=0, sticky="w")
+        ttk.Label(controls, text="Annotation source").grid(row=0, column=0, sticky="w")
         ttk.Entry(controls, textvariable=self.rotation_audit_root_var, width=34).grid(row=1, column=0, sticky="ew", pady=(4, 8))
         ttk.Button(controls, text="Run turn audit", command=self._run_rotation_audit).grid(row=2, column=0, sticky="w")
         ttk.Label(

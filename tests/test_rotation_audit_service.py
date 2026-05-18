@@ -25,3 +25,22 @@ class RotationAuditServiceTests(unittest.TestCase):
         self.assertEqual(result["confusion_matrix"], [[1, 0, 0], [0, 1, 0], [1, 0, 0]])
         self.assertEqual(len(result["suspicious_records"]), 1)
         self.assertEqual(result["suspicious_records"][0]["path"], "c.csv")
+
+    def test_recomputes_measured_rotation_from_training_jumplist(self):
+        import pandas as pd
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            segment = root / "jump.csv"
+            segment.write_text("placeholder\n", encoding="utf-8")
+            pd.DataFrame([{"path": segment.as_posix(), "type": 0, "rotations": 2.0}]).to_csv(root / "jumplist.csv", index=False)
+            with patch(
+                "synergie.services.rotation_audit_service._measured_rotation_from_segment",
+                return_value=1.8,
+            ):
+                result = audit_turn_estimation(root)
+
+        self.assertEqual(result["labelled_jumps"], 1)
+        self.assertEqual(result["records"][0]["annotated_turns"], 2.0)
+        self.assertEqual(result["records"][0]["measured_rotation"], 1.8)
