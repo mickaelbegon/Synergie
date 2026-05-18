@@ -165,8 +165,8 @@ class SynergieToolsApp:
         self.window_summary_var = tk.StringVar(value="Compare shorter windows before changing the training window.")
         self.window_progress_var = tk.DoubleVar(value=0.0)
         self.window_progress_text_var = tk.StringVar(value="No benchmark running.")
-        self.window_offset_frames_var = tk.StringVar(value="120")
-        self.window_offsets_var = tk.StringVar(value="0,20,40,60,80,120")
+        self.window_offset_frames_var = tk.StringVar(value="200")
+        self.window_offsets_var = tk.StringVar(value="-60,-40,-20,0")
         self.detection_review_summary_var = tk.StringVar(value="Run the review scan to inspect false positives and false negatives.")
         self.detection_review_records_var = tk.StringVar(value=[])
         self.detection_tuning_summary_var = tk.StringVar(value="No threshold sweep run yet.")
@@ -2649,7 +2649,14 @@ class SynergieToolsApp:
 
     def _on_window_task_changed(self, _event=None) -> None:
         self._sync_window_architectures()
-        self.window_candidates_var.set("240,200,160,120" if self.window_task_var.get() == "type" else "180,160,140,120")
+        if self.window_task_var.get() == "type":
+            self.window_candidates_var.set("240,200,160,120")
+            self.window_offset_frames_var.set("200")
+            self.window_offsets_var.set("-60,-40,-20,0")
+        else:
+            self.window_candidates_var.set("180,160,140,120")
+            self.window_offset_frames_var.set("140")
+            self.window_offsets_var.set("40,60,80")
 
     def _sync_window_architectures(self) -> None:
         options = self.TRAIN_ARCHITECTURES.get(self.window_task_var.get(), [])

@@ -101,14 +101,20 @@ def benchmark_temporal_offsets(
     auto_reexport: bool = True,
     progress_callback=None,
 ) -> dict:
-    """Compare same-length type windows shifted inside the exported segment."""
-    if task != "type":
-        raise ValueError("Offset benchmark currently supports only task='type'.")
+    """Compare same-length windows shifted relative to takeoff."""
+    if task not in {"type", "success"}:
+        raise ValueError(f"Unsupported training task: {task}")
 
-    candidates = offsets or [-60, -40, -20, 0]
-    min_offset = min(candidates)
-    exported_before_frames = OFFSET_REFERENCE_FRAMES - min_offset if min_offset < 0 else OFFSET_REFERENCE_FRAMES
-    if min_offset < 0:
+    if task == "type":
+        candidates = offsets or [-60, -40, -20, 0]
+        min_offset = min(candidates)
+        exported_before_frames = OFFSET_REFERENCE_FRAMES - min_offset if min_offset < 0 else OFFSET_REFERENCE_FRAMES
+    else:
+        candidates = offsets or [40, 60, 80]
+        min_offset = 0
+        exported_before_frames = SEGMENT_FRAMES_BEFORE_TAKEOFF
+
+    if task == "type" and min_offset < 0:
         if not auto_reexport:
             raise ValueError(
                 "Negative offsets need segments re-exported with more pre-takeoff context. "
@@ -145,10 +151,12 @@ def benchmark_temporal_offsets(
             dataset_path,
             augment_mirror=True,
             use_scalar_features=use_scalar_features,
-            type_window_start=exported_before_frames - OFFSET_REFERENCE_FRAMES + offset,
-            type_window_frames=window_frames,
+            type_window_start=exported_before_frames - OFFSET_REFERENCE_FRAMES + offset if task == "type" else 0,
+            type_window_frames=window_frames if task == "type" else TYPE_WINDOW_FRAMES,
+            success_window_start=SEGMENT_FRAMES_BEFORE_TAKEOFF + offset if task == "success" else SUCCESS_WINDOW_START,
+            success_window_frames=window_frames if task == "success" else SUCCESS_WINDOW_FRAMES,
         )
-        dataset = loader.get_type_data()
+        dataset = loader.get_type_data() if task == "type" else loader.get_success_data()
         candidate_model = model.build_model(task, architecture, input_shape=(window_frames, 10))
         history = candidate_model.fit(
             {"temporal_input": dataset.temporal_features_train, "scalar_input": dataset.scalar_features_train},
@@ -169,8 +177,8 @@ def benchmark_temporal_offsets(
         predicted_labels = [int(np.argmax(row)) for row in predictions]
         result = {
             "offset": int(offset),
-            "start_relative_to_takeoff": int(offset - OFFSET_REFERENCE_FRAMES),
-            "end_relative_to_takeoff": int(offset - OFFSET_REFERENCE_FRAMES + window_frames),
+            "start_relative_to_takeoff": int(offset - OFFSET_REFERENCE_FRAMES) if task == "type" else int(offset),
+            "end_relative_to_takeoff": int(offset - OFFSET_REFERENCE_FRAMES + window_frames) if task == "type" else int(offset + window_frames),
             "best_val_accuracy": float(max(history.history.get("val_accuracy", [0.0]))),
             "balanced_accuracy": float(balanced_accuracy_score(true_labels, predicted_labels)),
             "epochs_ran": int(len(history.history.get("loss", []))),
@@ -186,7 +194,10 @@ def benchmark_temporal_offsets(
         "results": results,
         "best": ranked[0] if ranked else None,
         "note": (
-            "Offsets are relative to the existing exported segments. "
+            "Type offsets keep the historical segment convention where -40 means [-160,40]. "
+            "Success offsets are frames after takeoff."
+            if task == "success"
+            else "Offsets are relative to the historical segment convention. "
             "To test windows earlier than -120 frames, re-export longer segments with more pre-takeoff context."
         ),
     }
