@@ -2253,15 +2253,15 @@ class SynergieToolsApp:
         self.rotation_audit_error_ax.set_title("Measured - annotated turns")
         self.rotation_audit_error_ax.set_ylabel("turns")
         self.rotation_audit_error_ax.tick_params(axis="x", rotation=30)
-        rule_summary = analysis.get("rounding_rule_summary", [])
+        rule_summary = analysis.get("strategy_summary", [])
         rule_labels = [item["label"] for item in rule_summary]
         rule_scores = [item["exact_accuracy"] for item in rule_summary]
         bars = self.rotation_audit_rule_ax.bar(rule_labels, rule_scores, color="#5b8ff9")
-        if bars:
-            bars[0].set_color("#2f7d32")
+        if len(bars) >= 2:
+            bars[1].set_color("#2f7d32")
         self.rotation_audit_rule_ax.set_ylim(0.0, 1.0)
         self.rotation_audit_rule_ax.set_ylabel("exact accuracy")
-        self.rotation_audit_rule_ax.set_title("Candidate rules on labelled history")
+        self.rotation_audit_rule_ax.set_title("Deployable strategy comparison")
         self.rotation_audit_rule_ax.tick_params(axis="x", rotation=20)
         for bar, item in zip(bars, rule_summary):
             self.rotation_audit_rule_ax.text(
@@ -2554,6 +2554,8 @@ class SynergieToolsApp:
             f"Exact turn accuracy: {analysis['exact_accuracy']:.3f} | mean absolute error: {analysis['mean_absolute_error']:.3f}\n"
             f"Best simple rule: {analysis['rounding_rule_summary'][0]['label']} "
             f"(acc {analysis['rounding_rule_summary'][0]['exact_accuracy']:.3f})\n"
+            f"Hybrid strategy: {self._format_rotation_strategy_comparison(analysis)}\n"
+            f"Across skaters: {self._format_rotation_strategy_by_skater(analysis)}\n"
             f"Best per type: {self._format_rotation_rule_by_type(analysis)}"
         )
 
@@ -2562,6 +2564,27 @@ class SynergieToolsApp:
             f"{item['label']}: {item['best_rule']} ({item['best_rule_accuracy']:.3f})"
             for item in analysis.get("type_summary", [])
         )
+
+    def _format_rotation_strategy_comparison(self, analysis: dict) -> str:
+        by_label = {item["label"]: item for item in analysis.get("strategy_summary", [])}
+        current = by_label.get("current_round")
+        hybrid = by_label.get("hybrid_non_axel_shift")
+        if not current or not hybrid:
+            return "n/a"
+        gain = hybrid["exact_accuracy"] - current["exact_accuracy"]
+        return (
+            f"current {current['exact_accuracy']:.3f} -> "
+            f"hybrid {hybrid['exact_accuracy']:.3f} ({gain:+.3f})"
+        )
+
+    def _format_rotation_strategy_by_skater(self, analysis: dict) -> str:
+        summaries = analysis.get("strategy_by_skater", [])
+        if not summaries:
+            return "n/a"
+        positive = sum(1 for item in summaries if item["accuracy_gain"] > 0)
+        min_gain = min(item["accuracy_gain"] for item in summaries)
+        max_gain = max(item["accuracy_gain"] for item in summaries)
+        return f"hybrid better for {positive}/{len(summaries)} skaters | gain {min_gain:+.3f} to {max_gain:+.3f}"
 
     def _apply_rotation_audit(self, analysis: dict) -> None:
         self.rotation_audit_analysis = analysis

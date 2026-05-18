@@ -33,6 +33,12 @@ class RotationAuditServiceTests(unittest.TestCase):
         self.assertEqual(result["rounding_rule_summary"][0]["exact_accuracy"], 2 / 3)
         self.assertEqual(result["type_summary"][0]["best_rule"], "round")
         self.assertEqual(result["type_summary"][1]["best_rule"], "round")
+        self.assertEqual(
+            [item["label"] for item in result["strategy_summary"]],
+            ["current_round", "hybrid_non_axel_shift", "best_rule_per_type_observed"],
+        )
+        self.assertEqual(result["strategy_summary"][0]["exact_accuracy"], 2 / 3)
+        self.assertEqual(result["strategy_by_skater"], [])
 
     def test_recomputes_measured_rotation_from_training_jumplist(self):
         import pandas as pd

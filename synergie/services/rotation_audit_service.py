@@ -84,6 +84,7 @@ def _build_record(source_file: Path, row_index: int, row, annotated_turns: float
         "source_file": str(source_file).replace("\\", "/"),
         "row_index": int(row_index),
         "path": str(row.get("path", "")),
+        "skater": _safe_float(row.get("skater"), default=None),
         "type": jump_type,
         "type_label": JUMP_TYPE_LABELS.get(jump_type, str(jump_type)),
         "annotated_turns": annotated_turns,
@@ -145,6 +146,8 @@ def _summarize_records(root: Path, scanned_files: int, records: list[dict]) -> d
             "suspicious_records": [],
             "type_summary": [],
             "rounding_rule_summary": [],
+            "strategy_summary": [],
+            "strategy_by_skater": [],
             "confusion_matrix": [],
             "labels": [],
         }
@@ -162,6 +165,8 @@ def _summarize_records(root: Path, scanned_files: int, records: list[dict]) -> d
         "suspicious_records": suspicious,
         "type_summary": _type_summary(labelled),
         "rounding_rule_summary": _rounding_rule_summary(labelled),
+        "strategy_summary": _strategy_summary(labelled),
+        "strategy_by_skater": _strategy_by_skater(labelled),
         "confusion_matrix": matrix.to_numpy(dtype=int).tolist(),
         "labels": labels,
     }
@@ -205,6 +210,66 @@ def _rounding_rule_summary(labelled) -> list[dict]:
             }
         )
     return sorted(summaries, key=lambda item: (item["exact_accuracy"], -item["mean_absolute_error"]), reverse=True)
+
+
+def _strategy_summary(labelled) -> list[dict]:
+    """Compare deployable and optimistic post-processing strategies."""
+    strategies = {
+        "current_round": lambda row: _estimate_turns_for_rule(row, round),
+        "hybrid_non_axel_shift": _estimate_turns_for_hybrid_rule,
+        "best_rule_per_type_observed": _estimate_turns_for_best_observed_type_rule,
+    }
+    summaries = []
+    for label, strategy in strategies.items():
+        predicted = labelled.apply(strategy, axis=1)
+        summaries.append(
+            {
+                "label": label,
+                "exact_accuracy": float((predicted == labelled["annotated_turns"]).mean()),
+                "mean_absolute_error": float((predicted - labelled["annotated_turns"]).abs().mean()),
+            }
+        )
+    return summaries
+
+
+def _strategy_by_skater(labelled) -> list[dict]:
+    """Check whether strategy gains hold across skaters instead of one pooled total."""
+    if "skater" not in labelled or labelled["skater"].isna().all():
+        return []
+    summaries = []
+    for skater, rows in labelled.dropna(subset=["skater"]).groupby("skater"):
+        strategies = {item["label"]: item for item in _strategy_summary(rows)}
+        current = strategies["current_round"]
+        hybrid = strategies["hybrid_non_axel_shift"]
+        summaries.append(
+            {
+                "skater": int(skater) if float(skater).is_integer() else float(skater),
+                "count": int(len(rows)),
+                "current_accuracy": current["exact_accuracy"],
+                "hybrid_accuracy": hybrid["exact_accuracy"],
+                "accuracy_gain": hybrid["exact_accuracy"] - current["exact_accuracy"],
+            }
+        )
+    return summaries
+
+
+def _estimate_turns_for_hybrid_rule(row) -> float:
+    """Use the empirically better non-Axel rule while keeping Axel on round()."""
+    rule = round if int(row["type"]) == 5 else lambda value: _ceil_shift(value, 0.15)
+    return _estimate_turns_for_rule(row, rule)
+
+
+def _estimate_turns_for_best_observed_type_rule(row) -> float:
+    """Upper-bound strategy based on the best historical rule seen for each jump type."""
+    rules_by_type = {
+        0: lambda value: _ceil_shift(value, 0.15),
+        1: lambda value: _ceil_shift(value, 0.15),
+        2: lambda value: _ceil_shift(value, 0.15),
+        3: lambda value: _ceil_shift(value, 0.15),
+        4: lambda value: _ceil_shift(value, 0.15),
+        5: round,
+    }
+    return _estimate_turns_for_rule(row, rules_by_type.get(int(row["type"]), round))
 
 
 def _estimate_turns_for_rule(row, rule) -> float:
