@@ -1696,6 +1696,8 @@ class SynergieToolsApp:
                 self.pretrained_model_var.set(labels[0])
         else:
             self.pretrained_model_var.set("")
+            self.use_pretrained_var.set(False)
+            self._draw_placeholder_confusion_matrix()
 
         if compatible_models:
             summary_lines = [
@@ -2460,10 +2462,16 @@ class SynergieToolsApp:
 
         def action() -> None:
             model_entry = next(
-                model
-                for model in operations.list_pretrained_training_models(task=self.train_task_var.get(), compatible_only=True)
-                if model["id"] == pretrained_model_id
+                (
+                    model
+                    for model in operations.list_pretrained_training_models(task=self.train_task_var.get(), compatible_only=True)
+                    if model["id"] == pretrained_model_id
+                ),
+                None,
             )
+            if model_entry is None:
+                self.root.after(0, self._draw_placeholder_confusion_matrix)
+                return
             summary = operations.evaluate_registered_model(model_entry)
             self.root.after(0, lambda: self._draw_confusion_matrix(summary))
             self.root.after(

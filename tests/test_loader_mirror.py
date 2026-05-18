@@ -69,6 +69,30 @@ class TrainerConfigurationTests(unittest.TestCase):
         self.assertEqual(callback.patience, 40)
         self.assertEqual(callback.monitor, "val_accuracy")
 
+    def test_evaluate_best_model_returns_metrics(self):
+        from core.model.training.training import Trainer
+
+        trainer = Trainer.__new__(Trainer)
+        trainer.dataset = type(
+            "DatasetStub",
+            (),
+            {
+                "temporal_features_test": np.zeros((2, 1, 1), dtype=np.float32),
+                "scalar_features_test": np.zeros((2, 2), dtype=np.float32),
+                "labels_test": np.array([[1, 0], [0, 1]], dtype=np.float32),
+            },
+        )()
+        trainer.model_load_best = lambda _path: type(
+            "ModelStub",
+            (),
+            {"predict": lambda _self, _inputs, verbose=0: np.array([[0.9, 0.1], [0.2, 0.8]])},
+        )()
+
+        metrics = trainer.evaluate_best_model("unused.keras")
+
+        self.assertEqual(metrics["test_accuracy"], 1.0)
+        self.assertEqual(metrics["test_samples"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

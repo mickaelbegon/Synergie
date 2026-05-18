@@ -52,6 +52,13 @@ class Trainer:
             {"temporal_input": self.dataset.temporal_features_test, "scalar_input": self.dataset.scalar_features_test},
             verbose=0,
         )
+        predicted_labels = [int(np.argmax(x)) for x in y_pred]
+        true_labels = [int(np.argmax(x)) for x in self.dataset.labels_test]
+        return {
+            "test_accuracy": float(accuracy_score(true_labels, predicted_labels)),
+            "confusion_matrix": confusion_matrix(true_labels, predicted_labels).tolist(),
+            "test_samples": int(len(true_labels)),
+        }
 
     def early_stopping(self):
         """Stop long runs once validation accuracy no longer improves."""
@@ -61,13 +68,6 @@ class Trainer:
             patience=self.EARLY_STOPPING_PATIENCE,
             restore_best_weights=True,
         )
-        predicted_labels = [int(np.argmax(x)) for x in y_pred]
-        true_labels = [int(np.argmax(x)) for x in self.dataset.labels_test]
-        return {
-            "test_accuracy": float(accuracy_score(true_labels, predicted_labels)),
-            "confusion_matrix": confusion_matrix(true_labels, predicted_labels).tolist(),
-            "test_samples": int(len(true_labels)),
-        }
 
     def _history_summary(self, history):
         history_data = history.history if history is not None else {}
