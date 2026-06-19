@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import constants
 from synergie import operations
 from synergie.config import (
+    ACCELERATION_ABERRANT_LIMIT_G,
     DEFAULT_COMBINATION_GAP_FRAMES,
     DEFAULT_DETECTION_THRESHOLD,
     DEFAULT_SMOOTHING_SIGMA,
@@ -19,6 +20,7 @@ from synergie.config import (
     TYPE_WINDOW_START,
     TYPE_WINDOW_FRAMES,
 )
+from synergie.services.signal_cleaning_service import clean_acceleration_outliers
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -107,6 +109,12 @@ class SynergieToolsApp:
         self.annotation_athlete_var = tk.StringVar(value="")
         self.annotation_exclusion_hint_var = tk.StringVar(value="")
         self.annotation_combination_var = tk.BooleanVar(value=False)
+        self.annotation_auto_save_var = tk.BooleanVar(value=False)
+        self.add_jump_sensor_var = tk.StringVar()
+        self.add_jump_threshold_var = tk.DoubleVar(value=DEFAULT_DETECTION_THRESHOLD)
+        self.add_jump_sigma_var = tk.IntVar(value=DEFAULT_SMOOTHING_SIGMA)
+        self.add_jump_gap_var = tk.IntVar(value=DEFAULT_COMBINATION_GAP_FRAMES)
+        self.add_jump_candidates_var = tk.StringVar(value=[])
         self.process_type_model_var = tk.StringVar()
         self.process_success_model_var = tk.StringVar()
         self.annotation_video_path_var = tk.StringVar()
@@ -259,6 +267,14 @@ class SynergieToolsApp:
         self.annotation_video_popup = None
         self.annotation_video_popup_info_label = None
         self.annotation_video_matches_listbox = None
+        self.add_jump_popup = None
+        self.add_jump_candidates_listbox = None
+        self.add_jump_figure = None
+        self.add_jump_axis = None
+        self.add_jump_canvas = None
+        self.add_jump_candidates: list[dict] = []
+        self._annotation_loading_selection = False
+        self._annotation_auto_save_after_id = None
         self._tooltips: list[Tooltip] = []
 
         self._build_layout()
@@ -755,10 +771,14 @@ class SynergieToolsApp:
         ttk.Button(video_controls, text="⏩J", width=4, command=self._play_annotation_to_current_jump).grid(row=0, column=4, sticky="w", padx=(6, 0))
         ttk.Button(video_controls, text="⏹", width=3, command=self._stop_annotation_playback).grid(row=0, column=5, sticky="w", padx=(6, 0))
 
+        add_jump_button = ttk.Button(video_frame, text="ADD JUMP", command=self._open_add_jump_popup)
+        add_jump_button.grid(row=5, column=2, sticky="e", pady=(8, 4))
+        self._add_tooltip(add_jump_button, "Ajoute un saut manque en testant des seuils sur le capteur choisi.")
+
         ttk.Label(video_frame, textvariable=self.annotation_sensor_sync_var, justify=tk.LEFT, wraplength=360).grid(
             row=5,
             column=0,
-            columnspan=3,
+            columnspan=2,
             sticky="w",
             pady=(8, 4),
         )
@@ -773,7 +793,8 @@ class SynergieToolsApp:
 
         controls = ttk.LabelFrame(plot_column, text="Annotation", padding=8)
         controls.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        controls.columnconfigure(0, weight=1)
+        for column_index in range(3):
+            controls.columnconfigure(column_index, weight=1)
 
         plot_frame = ttk.LabelFrame(plot_column, text="Jump Signals", padding=8)
         plot_frame.grid(row=1, column=0, sticky="nsew")
@@ -786,13 +807,14 @@ class SynergieToolsApp:
         right_panel.add(plot_column, weight=2)
 
         ttk.Label(controls, text="Athlete ID").grid(row=0, column=0, sticky="w")
-        ttk.Label(controls, textvariable=self.annotation_athlete_var).grid(row=1, column=0, sticky="w", pady=(0, 8))
+        ttk.Label(controls, textvariable=self.annotation_athlete_var).grid(row=0, column=1, columnspan=2, sticky="w", pady=(0, 8))
 
-        ttk.Label(controls, text="Jump type").grid(row=2, column=0, sticky="w")
+        ttk.Label(controls, text="Jump type").grid(row=1, column=0, sticky="w")
         type_frame = ttk.Frame(controls)
-        type_frame.grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        type_frame.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(0, 8))
         type_frame.columnconfigure(0, weight=1)
         type_frame.columnconfigure(1, weight=1)
+        type_frame.columnconfigure(2, weight=0)
         shortcut_labels = {
             "toe_loop": ("Toe loop", 0),
             "flip": ("Flip", 0),
@@ -805,6 +827,8 @@ class SynergieToolsApp:
         toe_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         edge_frame = ttk.LabelFrame(type_frame, text="De carre", padding=6)
         edge_frame.grid(row=0, column=1, sticky="nsew")
+        turns_frame = ttk.LabelFrame(type_frame, text="Turns", padding=6)
+        turns_frame.grid(row=0, column=2, sticky="nsw", padx=(8, 0))
         self.annotation_type_buttons = []
         for index, (key, _label, _value) in enumerate(operations.ANNOTATION_TOE_JUMP_OPTIONS):
             display_label, underline_index = shortcut_labels[key]
@@ -831,11 +855,8 @@ class SynergieToolsApp:
             button.grid(row=index, column=0, sticky="w")
             self.annotation_type_buttons.append(button)
 
-        ttk.Label(controls, text="Turns").grid(row=4, column=0, sticky="w")
-        turns_frame = ttk.Frame(controls)
-        turns_frame.grid(row=5, column=0, sticky="w", pady=(0, 8))
         self.annotation_turn_buttons = []
-        for column_index, turn_value in enumerate(["1", "2", "3", "4"]):
+        for row_index, turn_value in enumerate(["1", "2", "3", "4"]):
             button = ttk.Radiobutton(
                 turns_frame,
                 text=turn_value,
@@ -843,30 +864,24 @@ class SynergieToolsApp:
                 variable=self.annotation_turn_var,
                 underline=0,
             )
-            button.grid(row=0, column=column_index, sticky="w", padx=(0, 8 if column_index < 3 else 0))
+            button.grid(row=row_index, column=0, sticky="w")
             self.annotation_turn_buttons.append(button)
 
-        ttk.Label(controls, text="Success").grid(row=6, column=0, sticky="w")
-        success_frame = ttk.Frame(controls)
-        success_frame.grid(row=7, column=0, sticky="w", pady=(0, 8))
-        success_frame.columnconfigure(0, weight=1)
-        success_frame.columnconfigure(1, weight=1)
+        status_grid = ttk.Frame(controls)
+        status_grid.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(0, 8))
+        for column_index in range(3):
+            status_grid.columnconfigure(column_index, weight=1)
+
+        success_frame = ttk.LabelFrame(status_grid, text="Success", padding=6)
+        success_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         self.annotation_success_buttons = []
-        for label, value in [("Fall", "0"), ("Success", "1"), ("Unknown", "2")]:
-            column_index = 0 if value == "0" else 1 if value == "1" else 0
-            row_index = 0 if value in {"0", "1"} else 1
+        for row_index, (label, value) in enumerate([("Fall", "0"), ("Success", "1"), ("Unknown", "2")]):
             button = ttk.Radiobutton(success_frame, text=label, value=value, variable=self.annotation_success_var)
-            button.grid(
-                row=row_index,
-                column=column_index,
-                sticky="w",
-                padx=(0, 12),
-            )
+            button.grid(row=row_index, column=0, sticky="w")
             self.annotation_success_buttons.append(button)
 
-        ttk.Label(controls, text="Review status").grid(row=8, column=0, sticky="w")
-        review_frame = ttk.Frame(controls)
-        review_frame.grid(row=9, column=0, sticky="w", pady=(0, 8))
+        review_frame = ttk.LabelFrame(status_grid, text="Review status", padding=6)
+        review_frame.grid(row=0, column=1, columnspan=2, sticky="nsew")
         review_frame.columnconfigure(0, weight=1)
         review_frame.columnconfigure(1, weight=1)
         for index, (value, label) in enumerate(operations.ANNOTATION_REVIEW_STATUS_OPTIONS):
@@ -889,32 +904,36 @@ class SynergieToolsApp:
             justify=tk.LEFT,
             wraplength=360,
             foreground="firebrick",
-        ).grid(row=10, column=0, sticky="w", pady=(0, 8))
+        ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(0, 8))
 
         ttk.Label(
             controls,
-            text="Shortcuts: t/f/z/s/l/a = jump type | 1-4 = turns | 0/1 = fall/success | u = unseen | x = weird signal",
+            text="Shortcuts: t/f/z/s/l/a = jump type | 1-4 = turns | c/r/n = chute/reussi/inconnu | u = unseen | x = weird signal | Ctrl+S = save",
             justify=tk.LEFT,
             wraplength=360,
             foreground="#666666",
-        ).grid(row=11, column=0, sticky="w", pady=(0, 8))
+        ).grid(row=5, column=0, columnspan=3, sticky="w", pady=(0, 8))
 
         combination_check = ttk.Checkbutton(controls, text="Combination jump", variable=self.annotation_combination_var)
-        combination_check.grid(row=12, column=0, sticky="w", pady=(0, 8))
+        combination_check.grid(row=6, column=0, sticky="w", pady=(0, 8))
         self._add_tooltip(combination_check, "Deux sauts du meme capteur espaces de moins de 1,5 s sont pre-marques comme combinaison.")
         annotation_actions = ttk.Frame(controls)
-        annotation_actions.grid(row=13, column=0, sticky="w", pady=(8, 0))
+        annotation_actions.grid(row=7, column=0, columnspan=3, sticky="w", pady=(8, 0))
         save_annotation_button = ttk.Button(annotation_actions, text="Save current annotation", command=self._save_current_annotation)
         save_annotation_button.grid(row=0, column=0, sticky="w")
         self._add_tooltip(save_annotation_button, "Enregistre le label du saut actuellement selectionne.")
+        auto_save_check = ttk.Checkbutton(annotation_actions, text="Auto save", variable=self.annotation_auto_save_var)
+        auto_save_check.grid(row=0, column=1, sticky="w", padx=(8, 0))
+        self._add_tooltip(auto_save_check, "Sauvegarde automatiquement le saut courant quand un champ d'annotation change.")
         finalize_button = ttk.Button(annotation_actions, text="Finalize annotated file", command=self._finalize_current_annotation_file)
         finalize_button.grid(
             row=0,
-            column=1,
+            column=2,
             sticky="w",
             padx=(8, 0),
         )
         self._add_tooltip(finalize_button, "Archive le jumplist actuel, deplace les segments et ajoute les labels termines au jeu d'entrainement.")
+        self._install_annotation_auto_save_traces()
         self._sync_annotation_review_controls()
         self._refresh_annotation_files()
 
@@ -2113,12 +2132,22 @@ class SynergieToolsApp:
         self.train_figure.tight_layout()
         self.train_canvas.draw_idle()
 
+    def _remove_train_confusion_colorbar(self) -> None:
+        colorbar = getattr(self, "_train_confusion_colorbar", None)
+        self._train_confusion_colorbar = None
+        if colorbar is None:
+            return
+        try:
+            colorbar.remove()
+        except (AttributeError, KeyError, ValueError):
+            # Matplotlib can leave a stale Colorbar object when Tk callbacks redraw
+            # the figure in quick succession. The next draw recreates a fresh one.
+            pass
+
     def _draw_placeholder_confusion_matrix(self) -> None:
         if self.train_confusion_ax is None:
             return
-        if self._train_confusion_colorbar is not None:
-            self._train_confusion_colorbar.remove()
-            self._train_confusion_colorbar = None
+        self._remove_train_confusion_colorbar()
         self.train_confusion_ax.clear()
         self.train_confusion_ax.set_title("Confusion Matrix")
         self.train_confusion_ax.text(
@@ -2668,8 +2697,7 @@ class SynergieToolsApp:
                     fontweight="bold",
                 )
 
-        if getattr(self, "_train_confusion_colorbar", None) is not None:
-            self._train_confusion_colorbar.remove()
+        self._remove_train_confusion_colorbar()
         self._train_confusion_colorbar = self.train_confusion_figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
         self._train_confusion_colorbar.set_label("Samples")
         self.train_confusion_figure.tight_layout()
@@ -3597,17 +3625,21 @@ class SynergieToolsApp:
         if index is None or self.annotation_dataframe is None:
             return
         row = self.annotation_dataframe.iloc[index]
-        review_status = operations.annotation_review_status_from_row(row)
-        type_value = int(float(row.get("type", 8)))
-        type_key = next((key for key, _label, value in operations.ANNOTATION_JUMP_TYPE_OPTIONS if value == type_value), "")
-        self.annotation_type_var.set(type_key)
-        self.annotation_turn_var.set(operations.annotation_turn_value_for_ui(type_key, row.get("turns", "")))
-        self.annotation_success_var.set(str(int(float(row.get("success", 2)))))
-        self.annotation_review_status_var.set(review_status)
-        self.annotation_athlete_var.set(str(row.get("athlete_id", row.get("skater", ""))))
-        self.annotation_combination_var.set(bool(row.get("combination", False)))
-        self._sync_annotation_turn_options()
-        self._sync_annotation_review_controls()
+        self._annotation_loading_selection = True
+        try:
+            review_status = operations.annotation_review_status_from_row(row)
+            type_value = int(float(row.get("type", 8)))
+            type_key = next((key for key, _label, value in operations.ANNOTATION_JUMP_TYPE_OPTIONS if value == type_value), "")
+            self.annotation_type_var.set(type_key)
+            self.annotation_turn_var.set(operations.annotation_turn_value_for_ui(type_key, row.get("turns", "")))
+            self.annotation_success_var.set(str(int(float(row.get("success", 2)))))
+            self.annotation_review_status_var.set(review_status)
+            self.annotation_athlete_var.set(str(row.get("athlete_id", row.get("skater", ""))))
+            self.annotation_combination_var.set(bool(row.get("combination", False)))
+            self._sync_annotation_turn_options()
+            self._sync_annotation_review_controls()
+        finally:
+            self._annotation_loading_selection = False
         self._refresh_annotation_video_context()
         self._draw_annotation_segment(row)
 
@@ -3618,12 +3650,22 @@ class SynergieToolsApp:
         self._sync_annotation_review_controls()
 
     def _sync_annotation_review_controls(self) -> None:
-        excluded = self.annotation_review_status_var.get() in {"not_seen_on_video", "weird_signal", "not_a_jump"}
+        excluded = self.annotation_review_status_var.get() in {
+            "not_seen_on_video",
+            "weird_signal",
+            "jump_drill",
+            "not_a_jump_or_drill",
+            "not_a_jump",
+        }
         hint = ""
         if self.annotation_review_status_var.get() == "not_seen_on_video":
             hint = "This jump will be excluded from training because it is marked as unseen on video."
         elif self.annotation_review_status_var.get() == "weird_signal":
             hint = "This jump will be excluded from training because the signal or takeoff/landing bounds look unreliable."
+        elif self.annotation_review_status_var.get() == "jump_drill":
+            hint = "This jump will be excluded from training because it is marked as a drill."
+        elif self.annotation_review_status_var.get() == "not_a_jump_or_drill":
+            hint = "This candidate will be excluded from training because it is neither a jump nor a drill."
         elif self.annotation_review_status_var.get() == "not_a_jump":
             hint = "This jump will be excluded from training because it is marked as not a jump."
         self.annotation_exclusion_hint_var.set(hint)
@@ -3635,6 +3677,31 @@ class SynergieToolsApp:
             button.configure(state=desired_state)
         for button in self.annotation_success_buttons:
             button.configure(state=desired_state)
+
+    def _install_annotation_auto_save_traces(self) -> None:
+        for variable in [
+            self.annotation_type_var,
+            self.annotation_turn_var,
+            self.annotation_success_var,
+            self.annotation_review_status_var,
+            self.annotation_athlete_var,
+            self.annotation_combination_var,
+        ]:
+            variable.trace_add("write", self._on_annotation_field_changed)
+
+    def _on_annotation_field_changed(self, *_args) -> None:
+        if self._annotation_loading_selection or not self.annotation_auto_save_var.get():
+            return
+        if self.annotation_dataframe is None or self.annotation_file_path is None or self._selected_annotation_index() is None:
+            return
+        if self._annotation_auto_save_after_id is not None:
+            self.root.after_cancel(self._annotation_auto_save_after_id)
+        self._annotation_auto_save_after_id = self.root.after_idle(self._auto_save_current_annotation)
+
+    def _auto_save_current_annotation(self) -> None:
+        self._annotation_auto_save_after_id = None
+        if self.annotation_auto_save_var.get():
+            self._save_current_annotation(show_status=False)
 
     def _current_tab_text(self) -> str:
         try:
@@ -3667,6 +3734,10 @@ class SynergieToolsApp:
         if self.annotation_dataframe is None or self._selected_annotation_index() is None:
             return
 
+        if key == "s" and (event.state & 0x4):
+            self._save_current_annotation()
+            return
+
         if key in self.ANNOTATION_SHORTCUTS:
             selected_type = self.ANNOTATION_SHORTCUTS[key]
             self.annotation_type_var.set(selected_type)
@@ -3691,8 +3762,9 @@ class SynergieToolsApp:
                 self.status_var.set(f"Annotation turns selected: {key}")
                 return
 
-        if key in {"0", "1"}:
-            self.annotation_success_var.set("0" if key == "0" else "1")
+        success_shortcuts = {"c": "0", "r": "1", "n": "2"}
+        if key in success_shortcuts:
+            self.annotation_success_var.set(success_shortcuts[key])
             self.status_var.set("Annotation success selected")
 
     def _draw_placeholder_annotation_plot(self) -> None:
@@ -3702,7 +3774,6 @@ class SynergieToolsApp:
         if self.annotation_acc_ax is not None:
             self.annotation_acc_ax.remove()
             self.annotation_acc_ax = None
-        self.annotation_ax.set_title("Annotation signals")
         self.annotation_ax.set_xlabel("ms")
         self.annotation_ax.set_ylabel("Gyroscope")
         self.annotation_ax.text(0.5, 0.5, "Select an annotation candidate", ha="center", va="center", transform=self.annotation_ax.transAxes)
@@ -3798,6 +3869,234 @@ class SynergieToolsApp:
         self.annotation_video_popup = None
         self.annotation_video_popup_info_label = None
         self.annotation_video_matches_listbox = None
+
+    def _open_add_jump_popup(self) -> None:
+        if self.annotation_dataframe is None or self.annotation_file_path is None:
+            messagebox.showwarning("Synergie Tools", "Select an annotation file first.")
+            return
+        if self.add_jump_popup is not None and self.add_jump_popup.winfo_exists():
+            self.add_jump_popup.lift()
+            self.add_jump_popup.focus_force()
+            return
+        sensor_ids = sorted({str(value) for value in self.annotation_dataframe.get("sensor_id", []) if str(value)})
+        if not sensor_ids:
+            messagebox.showwarning("Synergie Tools", "No sensor IDs found in this annotation file.")
+            return
+        current_sensor = self._current_annotation_sensor_id()
+        if self.add_jump_sensor_var.get() not in sensor_ids:
+            self.add_jump_sensor_var.set(current_sensor if current_sensor in sensor_ids else sensor_ids[0])
+
+        popup = tk.Toplevel(self.root)
+        popup.title("Add missed jump")
+        popup.geometry("1000x620")
+        popup.transient(self.root)
+        popup.columnconfigure(1, weight=1)
+        popup.rowconfigure(4, weight=1)
+        popup.protocol("WM_DELETE_WINDOW", self._close_add_jump_popup)
+        self.add_jump_popup = popup
+
+        ttk.Label(popup, text="Sensor").grid(row=0, column=0, sticky="w", padx=12, pady=(12, 6))
+        sensor_box = ttk.Combobox(popup, textvariable=self.add_jump_sensor_var, values=sensor_ids, state="readonly", width=16)
+        sensor_box.grid(row=0, column=1, sticky="w", padx=12, pady=(12, 6))
+        sensor_box.bind("<<ComboboxSelected>>", lambda _event: self._detect_add_jump_candidates())
+
+        controls = ttk.Frame(popup)
+        controls.grid(row=1, column=0, columnspan=3, sticky="ew", padx=12, pady=(0, 8))
+        for column_index in [1, 3, 5]:
+            controls.columnconfigure(column_index, weight=1)
+        ttk.Label(controls, text="Threshold").grid(row=0, column=0, sticky="w")
+        tk.Scale(controls, from_=-2.0, to=0.5, resolution=0.01, orient=tk.HORIZONTAL, variable=self.add_jump_threshold_var, length=180).grid(row=0, column=1, sticky="ew", padx=(6, 14))
+        ttk.Label(controls, text="Sigma").grid(row=0, column=2, sticky="w")
+        tk.Scale(controls, from_=1, to=60, resolution=1, orient=tk.HORIZONTAL, variable=self.add_jump_sigma_var, length=180).grid(row=0, column=3, sticky="ew", padx=(6, 14))
+        ttk.Label(controls, text="Gap").grid(row=0, column=4, sticky="w")
+        tk.Scale(controls, from_=60, to=360, resolution=5, orient=tk.HORIZONTAL, variable=self.add_jump_gap_var, length=180).grid(row=0, column=5, sticky="ew", padx=(6, 0))
+
+        buttons = ttk.Frame(popup)
+        buttons.grid(row=2, column=0, columnspan=3, sticky="w", padx=12, pady=(0, 8))
+        ttk.Button(buttons, text="Detect candidates", command=self._detect_add_jump_candidates).grid(row=0, column=0, sticky="w")
+        ttk.Button(buttons, text="Add selected jump", command=self._add_selected_jump_candidate).grid(row=0, column=1, sticky="w", padx=(8, 0))
+
+        self.add_jump_candidates_listbox = tk.Listbox(popup, listvariable=self.add_jump_candidates_var, height=8, exportselection=False)
+        self.add_jump_candidates_listbox.grid(row=3, column=0, columnspan=3, sticky="ew", padx=12, pady=(0, 8))
+        self.add_jump_candidates_listbox.bind("<<ListboxSelect>>", self._on_add_jump_candidate_selected)
+
+        plot_frame = ttk.LabelFrame(popup, text="Detection preview", padding=8)
+        plot_frame.grid(row=4, column=0, columnspan=3, sticky="nsew", padx=12, pady=(0, 12))
+        plot_frame.columnconfigure(0, weight=1)
+        plot_frame.rowconfigure(0, weight=1)
+        self._build_add_jump_plot_canvas(plot_frame)
+        self._detect_add_jump_candidates()
+
+    def _close_add_jump_popup(self) -> None:
+        if self.add_jump_popup is not None and self.add_jump_popup.winfo_exists():
+            self.add_jump_popup.destroy()
+        self.add_jump_popup = None
+        self.add_jump_candidates_listbox = None
+
+    def _build_add_jump_plot_canvas(self, parent: ttk.Frame) -> None:
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        from matplotlib.figure import Figure
+
+        figure = Figure(figsize=(9.5, 3.8), dpi=100)
+        axis = figure.add_subplot(111)
+        self.add_jump_figure = figure
+        self.add_jump_axis = axis
+        self.add_jump_canvas = FigureCanvasTkAgg(figure, master=parent)
+        self.add_jump_canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
+        self._draw_add_jump_placeholder("Detect candidates to preview the signal.")
+
+    def _annotation_raw_source_path(self, sensor_id: str) -> Path | None:
+        if self.annotation_dataframe is None:
+            return None
+        rows = self.annotation_dataframe[self.annotation_dataframe["sensor_id"].astype(str) == str(sensor_id)]
+        for _, row in rows.iterrows():
+            source_name = str(row.get("source_file", "")).strip()
+            if not source_name:
+                continue
+            direct = Path(source_name)
+            if direct.exists():
+                return direct
+            for root in [Path("data/new"), Path("data/raw"), Path("data/pending")]:
+                if root.exists():
+                    matches = sorted(root.rglob(source_name))
+                    if matches:
+                        return matches[0]
+        return None
+
+    def _detect_add_jump_candidates(self) -> None:
+        sensor_id = self.add_jump_sensor_var.get()
+        raw_path = self._annotation_raw_source_path(sensor_id)
+        if raw_path is None:
+            self.add_jump_candidates = []
+            self.add_jump_candidates_var.set([])
+            self._draw_add_jump_placeholder(f"Unable to find raw CSV for sensor {sensor_id}.")
+            return
+
+        import pandas as pd
+        from core.data_treatment.data_generation.trainingSession import trainingSession
+
+        session = trainingSession(
+            pd.read_csv(raw_path, low_memory=False),
+            detection_threshold=float(self.add_jump_threshold_var.get()),
+            smoothing_sigma=float(self.add_jump_sigma_var.get()),
+            combination_gap_frames=int(self.add_jump_gap_var.get()),
+        )
+        self.add_jump_candidates = [
+            {"index": index, "jump": jump, "raw_path": raw_path, "session": session}
+            for index, jump in enumerate(session.jumps, start=1)
+        ]
+        labels = [
+            f"{candidate['index']:03d} | start {candidate['jump'].startTimestamp:.0f} ms | "
+            f"end {candidate['jump'].endTimestamp:.0f} ms | rotation {candidate['jump'].rotation:.1f}"
+            for candidate in self.add_jump_candidates
+        ]
+        self.add_jump_candidates_var.set(labels)
+        if self.add_jump_candidates_listbox is not None and labels:
+            self.add_jump_candidates_listbox.selection_clear(0, tk.END)
+            self.add_jump_candidates_listbox.selection_set(0)
+            self._on_add_jump_candidate_selected()
+        elif not labels:
+            self._draw_add_jump_placeholder("No candidate detected with these settings.")
+
+    def _selected_add_jump_candidate(self) -> dict | None:
+        if self.add_jump_candidates_listbox is None:
+            return None
+        selection = self.add_jump_candidates_listbox.curselection()
+        if not selection:
+            return None
+        index = selection[0]
+        if index >= len(self.add_jump_candidates):
+            return None
+        return self.add_jump_candidates[index]
+
+    def _on_add_jump_candidate_selected(self, _event=None) -> None:
+        candidate = self._selected_add_jump_candidate()
+        if candidate is not None:
+            self._draw_add_jump_candidate(candidate)
+
+    def _draw_add_jump_placeholder(self, message: str) -> None:
+        if self.add_jump_axis is None:
+            return
+        self.add_jump_axis.clear()
+        self.add_jump_axis.text(0.5, 0.5, message, ha="center", va="center", transform=self.add_jump_axis.transAxes)
+        self.add_jump_axis.set_xticks([])
+        self.add_jump_axis.set_yticks([])
+        self.add_jump_figure.tight_layout()
+        self.add_jump_canvas.draw_idle()
+
+    def _draw_add_jump_candidate(self, candidate: dict) -> None:
+        if self.add_jump_axis is None:
+            return
+        session = candidate["session"]
+        jump = candidate["jump"]
+        frame = session.df
+        axis = self.add_jump_axis
+        axis.clear()
+        axis.plot(frame["ms"], frame["Gyr_X"], linewidth=0.7, alpha=0.35, color="#1f77b4")
+        axis.plot(frame["ms"], frame["Gyr_X_smoothed"], linewidth=1.1, color="#1f77b4")
+        axis.plot(frame["ms"], frame["X_gyr_second_derivative"], linewidth=0.8, alpha=0.75, color="crimson")
+        axis.axhline(float(self.add_jump_threshold_var.get()), color="crimson", linestyle="--", linewidth=0.9)
+        axis.axvline(jump.startTimestamp, color="black", linestyle="--", linewidth=1.0)
+        axis.axvline(jump.endTimestamp, color="black", linestyle=":", linewidth=1.0)
+        margin = 1500
+        axis.set_xlim(max(0, jump.startTimestamp - margin), jump.endTimestamp + margin)
+        axis.set_xlabel("ms")
+        axis.set_ylabel("Gyr / derivative")
+        self.add_jump_figure.tight_layout()
+        self.add_jump_canvas.draw_idle()
+
+    def _add_selected_jump_candidate(self) -> None:
+        candidate = self._selected_add_jump_candidate()
+        if candidate is None or self.annotation_dataframe is None or self.annotation_file_path is None:
+            messagebox.showwarning("Synergie Tools", "Select a detected candidate first.")
+            return
+        jump = candidate["jump"]
+        sensor_id = self.add_jump_sensor_var.get()
+        sensor_rows = self.annotation_dataframe[self.annotation_dataframe["sensor_id"].astype(str) == str(sensor_id)]
+        template = sensor_rows.iloc[0].to_dict() if not sensor_rows.empty else {}
+        segment_dir = Path(str(template.get("path", self.annotation_file_path.parent))).parent
+        segment_dir.mkdir(parents=True, exist_ok=True)
+        segment_path = segment_dir / f"manual_sensor{sensor_id}_jump{len(self.annotation_dataframe) + 1:03d}.csv"
+        jump.df.to_csv(segment_path, index=False)
+
+        impact_offset_ms = float(template.get("impact_offset_ms", 0.0) or 0.0)
+        synced_start_ms = round(float(jump.startTimestamp) - impact_offset_ms, 3)
+        normalized_segment_path = str(segment_path).replace("\\", "/")
+        new_row = dict(template)
+        new_row.update(
+            {
+                "path": normalized_segment_path,
+                "videoTimeStamp": self._format_video_ms(max(synced_start_ms, 0.0)),
+                "type": 8,
+                "turns": "",
+                "skater": template.get("skater", f"sensor_{sensor_id}"),
+                "athlete_id": template.get("athlete_id", f"sensor_{sensor_id}"),
+                "success": 2,
+                "rotations": round(float(jump.rotation), 1),
+                "source_file": candidate["raw_path"].name,
+                "sensor_id": sensor_id,
+                "annotation_status": "pending",
+                "video_status": "visible",
+                "detection_status": "detected_jump",
+                "start_ms": round(float(jump.startTimestamp), 3),
+                "end_ms": round(float(jump.endTimestamp), 3),
+                "synced_start_ms": synced_start_ms,
+                "added_by": "add_jump_popup",
+                "detection_threshold": float(self.add_jump_threshold_var.get()),
+                "smoothing_sigma": float(self.add_jump_sigma_var.get()),
+                "combination_gap_frames": int(self.add_jump_gap_var.get()),
+            }
+        )
+        self.annotation_dataframe.loc[len(self.annotation_dataframe)] = new_row
+        self.annotation_dataframe = self.annotation_dataframe.sort_values(by=["synced_start_ms", "sensor_id", "start_ms"]).reset_index(drop=True)
+        self.annotation_dataframe.to_csv(self.annotation_file_path, index=False)
+        self._refresh_annotation_jump_list()
+        self._refresh_annotation_progress()
+        new_index = int(self.annotation_dataframe.index[self.annotation_dataframe["path"].astype(str) == normalized_segment_path][0])
+        self.annotation_jump_listbox.selection_clear(0, tk.END)
+        self.annotation_jump_listbox.selection_set(new_index)
+        self._on_annotation_jump_selected()
+        self.status_var.set(f"Added jump candidate for sensor {sensor_id}")
 
     def _browse_annotation_video_directory(self) -> None:
         directory = filedialog.askdirectory(title="Select video folder")
@@ -4127,51 +4426,37 @@ class SynergieToolsApp:
             self._draw_placeholder_annotation_plot()
             return
         dataframe = pd.read_csv(path)
+        dataframe, _cleaning_report = clean_acceleration_outliers(dataframe, limit_g=ACCELERATION_ABERRANT_LIMIT_G)
         sensor_id = str(row.get("sensor_id", ""))
-        offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, sensor_id)
-        video_time_label = self._format_video_ms(operations.compute_annotation_jump_video_time_ms(row, offset_ms))
         self.annotation_ax.clear()
         if self.annotation_acc_ax is not None:
             self.annotation_acc_ax.remove()
             self.annotation_acc_ax = None
         self.annotation_acc_ax = self.annotation_ax.twinx()
         gyro_column = "Gyr_X_smoothed" if "Gyr_X_smoothed" in dataframe else "Gyr_X"
-        raw_line = self.annotation_ax.plot(dataframe["ms"], dataframe["Gyr_X"], label="Gyr_X raw", linewidth=0.8, alpha=0.35, color="#1f77b4")[0]
-        gyro_line = self.annotation_ax.plot(dataframe["ms"], dataframe[gyro_column], label="Gyr_X smoothed", linewidth=1.2, color="#1f77b4")[0]
-        acc_line = self.annotation_acc_ax.plot(dataframe["ms"], dataframe["Acc_X"], label="Acc_X", linewidth=0.9, alpha=0.8, color="#ff7f0e")[0]
-        derivative_line = None
+        self.annotation_ax.plot(dataframe["ms"], dataframe["Gyr_X"], linewidth=0.8, alpha=0.35, color="#1f77b4")
+        self.annotation_ax.plot(dataframe["ms"], dataframe[gyro_column], linewidth=1.2, color="#1f77b4")
+        self.annotation_acc_ax.plot(dataframe["ms"], dataframe["Acc_X"], linewidth=0.9, alpha=0.8, color="#ff7f0e")
         if "X_gyr_second_derivative" in dataframe:
-            derivative_line = self.annotation_acc_ax.plot(
+            self.annotation_acc_ax.plot(
                 dataframe["ms"],
                 dataframe["X_gyr_second_derivative"],
-                label="2nd derivative",
                 linewidth=0.9,
                 alpha=0.8,
                 color="crimson",
-            )[0]
-            self.annotation_acc_ax.axhline(DEFAULT_DETECTION_THRESHOLD, color="crimson", linestyle="--", linewidth=0.9, label="Detection threshold")
+            )
+            self.annotation_acc_ax.axhline(DEFAULT_DETECTION_THRESHOLD, color="crimson", linestyle="--", linewidth=0.9)
         if row.get("start_ms", "") != "":
             self.annotation_ax.axvline(float(row["start_ms"]), color="black", linestyle="--", linewidth=1.0, label="Takeoff")
         if row.get("end_ms", "") != "":
             self.annotation_ax.axvline(float(row["end_ms"]), color="black", linestyle=":", linewidth=1.0, label="Landing")
-        self.annotation_ax.set_title(
-            f"{video_time_label} | "
-            f"{row.get('athlete_id', row.get('skater', 'unknown'))} | "
-            f"sensor {sensor_id} | {row.get('source_file', '')}"
-        )
         self.annotation_ax.set_xlabel("ms")
         self.annotation_ax.set_ylabel("Gyroscope")
         self.annotation_acc_ax.set_ylabel("Acceleration")
-        handles = [raw_line, gyro_line, acc_line]
-        labels = ["Gyr_X raw", "Gyr_X smoothed", "Acc_X"]
-        if derivative_line is not None:
-            handles.append(derivative_line)
-            labels.append("2nd derivative")
-        self.annotation_ax.legend(handles, labels, loc="upper right", fontsize=8)
         self.annotation_figure.tight_layout()
         self.annotation_canvas.draw_idle()
 
-    def _save_current_annotation(self) -> None:
+    def _save_current_annotation(self, *, show_status: bool = True) -> None:
         index = self._selected_annotation_index()
         if index is None or self.annotation_dataframe is None or self.annotation_file_path is None:
             messagebox.showwarning("Synergie Tools", "Select an annotation entry first.")
@@ -4182,7 +4467,13 @@ class SynergieToolsApp:
             if key == self.annotation_type_var.get()
         )
         backend_status = operations.annotation_review_status_to_backend(self.annotation_review_status_var.get())
-        is_excluded_by_status = self.annotation_review_status_var.get() in {"not_seen_on_video", "weird_signal", "not_a_jump"}
+        is_excluded_by_status = self.annotation_review_status_var.get() in {
+            "not_seen_on_video",
+            "weird_signal",
+            "jump_drill",
+            "not_a_jump_or_drill",
+            "not_a_jump",
+        }
         stored_type = 8 if is_excluded_by_status else type_value
         stored_turns = "" if is_excluded_by_status else operations.annotation_turn_value_for_storage(
             self.annotation_type_var.get(),
@@ -4202,7 +4493,7 @@ class SynergieToolsApp:
         self._refresh_annotation_progress()
         self.annotation_jump_listbox.selection_clear(0, tk.END)
         self.annotation_jump_listbox.selection_set(index)
-        self.status_var.set("Annotation saved")
+        self.status_var.set("Annotation saved" if show_status else "Annotation auto-saved")
 
     def _finalize_current_annotation_file(self) -> None:
         if self.annotation_file_path is None:

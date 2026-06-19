@@ -230,6 +230,7 @@ Sur la droite :
 
 - `Video Review` charge et relit une video de la seance
 - `Choose video...` ouvre une popup pour choisir un dossier video, chercher les meilleurs matchs temporels et charger la bonne video
+- `ADD JUMP` ouvre une popup pour chercher un saut manque sur un capteur avec des seuils de detection ajustables
 - le systeme essaie d'utiliser les metadonnees video, le nom du fichier et les timestamps disque pour faire le rapprochement
 - un offset de synchronisation par capteur peut etre memorise pour aligner IMU et video
 - la timeline video, le slider et les boutons permettent de se deplacer rapidement
@@ -247,14 +248,29 @@ Raccourcis d'annotation visibles dans l'interface :
 
 - `t / f / z / s / l / a` : type de saut
 - `1 / 2 / 3 / 4` : nombre de tours
-- `0 / 1` : chute / reussi
+- `c / r / n` : chute / reussi / inconnu
 - `u` : saut non visible sur la video
 - `x` : signal bizarre ou bornes debut/fin incoherentes
+- `Ctrl+S` : sauvegarder l'annotation courante
+
+Ajouter un saut manque :
+
+- cliquer `ADD JUMP`
+- choisir le capteur
+- ajuster `Threshold`, `Sigma` et `Gap`
+- cliquer `Detect candidates`
+- selectionner le candidat voulu
+- cliquer `Add selected jump`
+
+La ligne ajoutee garde les reglages utilises dans les colonnes `detection_threshold`, `smoothing_sigma` et `combination_gap_frames`.
 
 Conseils pratiques :
 
 - utiliser `u` quand la video ne permet pas de conclure
 - utiliser `x` quand le segment IMU parait mauvais, que les traits de debut/fin ne font pas de sens, ou qu'on ne veut pas reutiliser cet exemple pour l'entrainement
+- utiliser `Jump drill` pour un educatif de saut capte comme un saut
+- utiliser `No jump or drill` quand le candidat n'est ni un saut ni un educatif
+- cocher `Auto save` pour sauvegarder automatiquement le saut courant apres chaque changement
 - penser a `Finalize annotated file` seulement quand toute la seance est revue
 - la finalisation est l'etape qui fusionne reellement les labels dans `data/annotated/total/jumplist.csv`
 
@@ -356,6 +372,8 @@ Bon usage :
 - rafraichir d'abord les stats dataset
 - nettoyer les cas douteux avec `Review - Quality` et `Review - Dataset`
 - verifier ensuite le modele dans `Models - Audit`
+
+Avant l'entrainement, les valeurs d'acceleration impossibles au-dela de `32 g` sont remplacees par interpolation dans les segments charges en cache. Cela evite qu'un spike aberrant domine le modele sans lisser les signaux normaux.
 
 #### `Models - Importance`
 

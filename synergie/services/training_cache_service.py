@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 
 import constants
+from synergie.config import ACCELERATION_ABERRANT_LIMIT_G
+from synergie.services.signal_cleaning_service import clean_acceleration_outliers
 
 
 def training_cache_path(dataset_path: str | Path) -> Path:
@@ -49,6 +51,7 @@ def load_or_build_training_cache(
     skipped_paths = []
     for path_value in paths:
         frame = pd.read_csv(path_value)[constants.fields_to_keep]
+        frame, _cleaning_report = clean_acceleration_outliers(frame, limit_g=ACCELERATION_ABERRANT_LIMIT_G)
         type_window = frame[type_window_start : type_window_start + type_window_frames].to_numpy(dtype="float32")
         success_window = frame[success_window_start : success_window_start + success_window_frames].to_numpy(dtype="float32")
         if len(type_window) != type_window_frames:

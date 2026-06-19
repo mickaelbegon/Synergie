@@ -29,7 +29,7 @@ def analyze_detection_review_labels(root: str | Path = "data/pending") -> dict:
                 "start_ms": _safe_float(row.get("start_ms", 0.0)),
                 "synced_start_ms": _safe_float(row.get("synced_start_ms", row.get("start_ms", 0.0))),
             }
-            if status in {"not_a_jump", "weird_signal"}:
+            if status in {"not_a_jump", "not_a_jump_or_drill", "jump_drill", "weird_signal"}:
                 false_positives.append(record)
             elif status == "manual_missing_jump":
                 false_negatives.append(record)
@@ -146,7 +146,7 @@ def _load_reviewed_segments(root: str | Path) -> list[dict]:
         frame = pd.read_csv(path)
         for _, row in frame.iterrows():
             status = annotation_review_status_from_row(row)
-            if status not in {"normal", "weird_signal", "not_a_jump", "manual_missing_jump"}:
+            if status not in {"normal", "weird_signal", "jump_drill", "not_a_jump", "not_a_jump_or_drill", "manual_missing_jump"}:
                 continue
             segment_path = Path(str(row.get("path", "")))
             if not segment_path.exists():

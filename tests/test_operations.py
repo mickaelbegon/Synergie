@@ -175,12 +175,28 @@ class OperationsTests(unittest.TestCase):
             {"video_status": "visible", "detection_status": "weird_signal"},
         )
         self.assertEqual(
+            operations.annotation_review_status_to_backend("jump_drill"),
+            {"video_status": "visible", "detection_status": "jump_drill"},
+        )
+        self.assertEqual(
+            operations.annotation_review_status_to_backend("not_a_jump_or_drill"),
+            {"video_status": "visible", "detection_status": "not_a_jump_or_drill"},
+        )
+        self.assertEqual(
             operations.annotation_review_status_from_row({"video_status": "visible", "detection_status": "manual_missing_jump"}),
             "manual_missing_jump",
         )
         self.assertEqual(
             operations.annotation_review_status_from_row({"video_status": "visible", "detection_status": "weird_signal"}),
             "weird_signal",
+        )
+        self.assertEqual(
+            operations.annotation_review_status_from_row({"video_status": "visible", "detection_status": "jump_drill"}),
+            "jump_drill",
+        )
+        self.assertEqual(
+            operations.annotation_review_status_from_row({"video_status": "visible", "detection_status": "not_a_jump_or_drill"}),
+            "not_a_jump_or_drill",
         )
         self.assertEqual(
             operations.annotation_review_status_from_row({"video_status": "not_seen_on_video", "detection_status": "detected_jump"}),
