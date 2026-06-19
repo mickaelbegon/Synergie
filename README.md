@@ -12,10 +12,17 @@ Le depot contient deux usages principaux :
 
 ### Environnement Conda
 
-Le fichier [environment.yml](C:\Users\micka\Documents\GIT\Synergie_Data\Synergie_Data\environment.yml) decrit l'environnement conseille pour le developpement et les tests.
+Le fichier [environment.yml](C:\Users\micka\Documents\GIT\Synergie_Data\Synergie_Data\environment.yml) decrit l'environnement conseille pour Windows, le developpement et les tests.
 
 ```sh
 conda env create -f environment.yml
+conda activate synergie-data
+```
+
+Sur Mac Intel (`osx-64`), utiliser plutot [environment-macos-intel.yml](C:\Users\micka\Documents\GIT\Synergie_Data\Synergie_Data\environment-macos-intel.yml). TensorFlow `2.20.0` n'est pas publie pour cette plateforme, donc cet environnement utilise TensorFlow `2.16.2` et retire les dependances Windows `winrt-*`.
+
+```sh
+conda env create -f environment-macos-intel.yml
 conda activate synergie-data
 ```
 
@@ -23,6 +30,13 @@ Si l'environnement existe deja et que tu veux le remettre a jour a partir du fic
 
 ```sh
 conda env update -n synergie-data -f environment.yml --prune
+conda activate synergie-data
+```
+
+Sur Mac Intel :
+
+```sh
+conda env update -n synergie-data -f environment-macos-intel.yml --prune
 conda activate synergie-data
 ```
 
@@ -50,6 +64,9 @@ L'application GUI depend aussi :
 
 - du SDK Movella DOT
 - d'un fichier de credentials Firebase local non versionne
+- de `ffprobe` pour lire certaines metadonnees video, si disponible
+
+Sur Mac Intel, `tools_gui.py` peut servir au traitement, a l'annotation et a l'entrainement, mais la collecte capteurs via Movella/Windows Bluetooth n'est pas couverte par `environment-macos-intel.yml`.
 
 Le SDK Movella est disponible ici : [Movella DOT software documentation](https://www.movella.com/support/software-documentation)
 
