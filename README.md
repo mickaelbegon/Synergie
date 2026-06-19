@@ -26,6 +26,16 @@ conda env create -f environment-macos-intel.yml
 conda activate synergie-data
 ```
 
+Si une creation Mac Intel a echoue pendant l'installation `pip`, repartir d'un environnement propre avant de relancer :
+
+```sh
+conda env remove -n synergie-data
+conda env create -f environment-macos-intel.yml
+conda activate synergie-data
+```
+
+L'environnement Mac installe `cryptography`, `openssl` et `pkg-config` via Conda pour eviter que `pip` tente de compiler `cryptography` localement.
+
 Si l'environnement existe deja et que tu veux le remettre a jour a partir du fichier :
 
 ```sh

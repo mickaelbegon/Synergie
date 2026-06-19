@@ -11,6 +11,9 @@ dependencies:
   - matplotlib=3.10
   - seaborn=0.13
   - scikit-learn=1.7
+  - cryptography
+  - openssl
+  - pkg-config
   - pip:
       # TensorFlow 2.20.0 is not published for macOS Intel (osx-64).
       - tensorflow==2.16.2
