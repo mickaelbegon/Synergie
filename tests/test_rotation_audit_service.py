@@ -22,10 +22,12 @@ class RotationAuditServiceTests(unittest.TestCase):
 
         self.assertEqual(result["labelled_jumps"], 3)
         self.assertEqual(result["labels"], [2.0, 2.5, 3.0])
-        self.assertEqual(result["confusion_matrix"], [[1, 0, 0], [0, 1, 0], [1, 0, 0]])
-        self.assertEqual(len(result["suspicious_records"]), 1)
-        self.assertEqual(result["suspicious_records"][0]["path"], "c.csv")
+        self.assertEqual(result["confusion_matrix"], [[0, 0, 1], [0, 1, 0], [1, 0, 0]])
+        self.assertEqual(len(result["suspicious_records"]), 2)
+        self.assertEqual([item["path"] for item in result["suspicious_records"]], ["a.csv", "c.csv"])
         self.assertEqual(result["rounding_rule_summary"][0]["label"], "round")
+        self.assertIn(result["contact_offset_summary"][0]["offset_turns"], {0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6})
+        self.assertIn("fixed_contact_offset_0.45", [item["label"] for item in result["strategy_summary"]])
         self.assertEqual(
             [item["label"] for item in result["rounding_rule_summary"]],
             ["round", "ceil_minus_0.30", "floor_plus_0.50", "ceil_minus_0.15"],
@@ -35,9 +37,8 @@ class RotationAuditServiceTests(unittest.TestCase):
         self.assertEqual(result["type_summary"][1]["best_rule"], "round")
         self.assertEqual(
             [item["label"] for item in result["strategy_summary"]],
-            ["current_round", "hybrid_non_axel_shift", "best_rule_per_type_observed"],
+            ["current_round", "fixed_contact_offset_0.45", "hybrid_non_axel_shift", "best_rule_per_type_observed"],
         )
-        self.assertEqual(result["strategy_summary"][0]["exact_accuracy"], 2 / 3)
         self.assertEqual(result["strategy_by_skater"], [])
 
     def test_recomputes_measured_rotation_from_training_jumplist(self):

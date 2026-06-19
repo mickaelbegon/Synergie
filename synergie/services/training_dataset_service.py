@@ -58,6 +58,61 @@ def describe_training_dataset(task: str, dataset_path: str, augment_mirror: bool
     }
 
 
+def load_training_dataset_rows(dataset_path: str | Path, *, include_excluded: bool = False) -> list[dict]:
+    """Load training dataset rows with stable row indices for GUI review workflows."""
+    import pandas as pd
+
+    jumplist_path = Path(dataset_path) / "jumplist.csv"
+    if not jumplist_path.exists():
+        raise FileNotFoundError(f"Unable to find jumplist.csv in {dataset_path}")
+
+    frame = pd.read_csv(jumplist_path)
+    records: list[dict] = []
+    for row_index, row in frame.iterrows():
+        jump_type = int(float(row.get("type", 8)))
+        success = int(float(row.get("success", 2)))
+        if not include_excluded and (jump_type == 8 or success == 2):
+            continue
+        record = row.to_dict()
+        record["row_index"] = int(row_index)
+        record["type"] = jump_type
+        record["success"] = success
+        records.append(record)
+    return records
+
+
+def exclude_training_dataset_row(
+    dataset_path: str | Path,
+    row_index: int,
+    *,
+    excluded_reason: str = "weird_signal",
+) -> dict:
+    """Exclude one already-finalized training row from future training runs."""
+    import pandas as pd
+
+    dataset_root = Path(dataset_path)
+    jumplist_path = dataset_root / "jumplist.csv"
+    if not jumplist_path.exists():
+        raise FileNotFoundError(f"Unable to find jumplist.csv in {dataset_path}")
+
+    frame = pd.read_csv(jumplist_path)
+    index = int(row_index)
+    if index < 0 or index >= len(frame):
+        raise IndexError(f"Training dataset row index out of range: {row_index}")
+
+    frame.at[index, "type"] = 8
+    frame.at[index, "success"] = 2
+    frame.at[index, "excluded_reason"] = str(excluded_reason)
+    frame.at[index, "review_status"] = str(excluded_reason)
+    frame.to_csv(jumplist_path, index=False)
+
+    record = frame.iloc[index].to_dict()
+    record["row_index"] = index
+    record["type"] = int(float(record.get("type", 8)))
+    record["success"] = int(float(record.get("success", 2)))
+    return record
+
+
 def find_training_dataset_duplicates(dataset_path: str | Path) -> dict:
     """Detect duplicate training rows, primarily by repeated segment path."""
     import pandas as pd

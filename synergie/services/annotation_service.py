@@ -28,6 +28,7 @@ ANNOTATION_EDGE_JUMP_OPTIONS = [
 ANNOTATION_REVIEW_STATUS_OPTIONS = [
     ("normal", "Seen jump"),
     ("not_seen_on_video", "Unseen on video"),
+    ("weird_signal", "Weird signal / bad bounds"),
     ("not_a_jump", "Not a jump"),
     ("manual_missing_jump", "Missed jump added manually"),
 ]
@@ -86,6 +87,8 @@ def annotation_review_status_from_row(row) -> str:
     video_status = str(row.get("video_status", "visible"))
     if detection_status == "manual_missing_jump":
         return "manual_missing_jump"
+    if detection_status == "weird_signal":
+        return "weird_signal"
     if detection_status == "not_a_jump":
         return "not_a_jump"
     if video_status == "not_seen_on_video":
@@ -98,6 +101,8 @@ def annotation_review_status_to_backend(review_status: str) -> dict:
     normalized = str(review_status or "normal")
     if normalized == "manual_missing_jump":
         return {"video_status": "visible", "detection_status": "manual_missing_jump"}
+    if normalized == "weird_signal":
+        return {"video_status": "visible", "detection_status": "weird_signal"}
     if normalized == "not_a_jump":
         return {"video_status": "visible", "detection_status": "not_a_jump"}
     if normalized == "not_seen_on_video":

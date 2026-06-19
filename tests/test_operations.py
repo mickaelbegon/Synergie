@@ -171,8 +171,16 @@ class OperationsTests(unittest.TestCase):
             {"video_status": "visible", "detection_status": "not_a_jump"},
         )
         self.assertEqual(
+            operations.annotation_review_status_to_backend("weird_signal"),
+            {"video_status": "visible", "detection_status": "weird_signal"},
+        )
+        self.assertEqual(
             operations.annotation_review_status_from_row({"video_status": "visible", "detection_status": "manual_missing_jump"}),
             "manual_missing_jump",
+        )
+        self.assertEqual(
+            operations.annotation_review_status_from_row({"video_status": "visible", "detection_status": "weird_signal"}),
+            "weird_signal",
         )
         self.assertEqual(
             operations.annotation_review_status_from_row({"video_status": "not_seen_on_video", "detection_status": "detected_jump"}),
@@ -231,9 +239,15 @@ class OperationsTests(unittest.TestCase):
         self.assertEqual(result["combination"].tolist(), [True, True, False, False])
 
     def test_suggest_turns_from_rotation_bounds_result(self):
+        self.assertEqual(operations.suggest_turns_from_rotation(0.2), "1")
         self.assertEqual(operations.suggest_turns_from_rotation(0.6), "1")
-        self.assertEqual(operations.suggest_turns_from_rotation(2.3), "2")
+        self.assertEqual(operations.suggest_turns_from_rotation(2.3), "3")
         self.assertEqual(operations.suggest_turns_from_rotation(5.1), "4")
+
+    def test_suggest_turns_from_rotation_accepts_custom_contact_offset(self):
+        self.assertEqual(operations.suggest_turns_from_rotation(2.3, contact_offset_turns=0.0), "2")
+        self.assertEqual(operations.suggest_turns_from_rotation(2.3), "3")
+        self.assertEqual(operations.suggest_turns_from_rotation(2.3, jump_type="axel"), "2")
 
     def test_analyze_detection_review_labels_collects_false_positive_and_negative(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -141,6 +141,11 @@ class SynergieToolsApp:
         self.quality_summary_var = tk.StringVar(value="Run the quality control analysis to inspect suspicious jumps.")
         self.quality_details_var = tk.StringVar(value="No suspicious jump selected.")
         self.quality_suspicious_var = tk.StringVar(value=[])
+        self.dataset_review_dataset_var = tk.StringVar(value="data/annotated/total")
+        self.dataset_review_summary_var = tk.StringVar(value="Load the training dataset to review already-finalized jumps.")
+        self.dataset_review_feedback_var = tk.StringVar(value="")
+        self.dataset_review_records_var = tk.StringVar(value=[])
+        self.dataset_review_details_var = tk.StringVar(value="No training jump selected.")
         self.rotation_audit_root_var = tk.StringVar(value="data/annotated/total")
         self.rotation_audit_summary_var = tk.StringVar(value="Run the audit after labelled turn annotations are available.")
         self.rotation_audit_records_var = tk.StringVar(value=[])
@@ -214,6 +219,11 @@ class SynergieToolsApp:
         self.quality_figure = None
         self.quality_axes = None
         self.quality_canvas = None
+        self.dataset_review_signal_figure = None
+        self.dataset_review_signal_ax = None
+        self.dataset_review_signal_acc_ax = None
+        self.dataset_review_angle_ax = None
+        self.dataset_review_signal_canvas = None
         self.rotation_audit_figure = None
         self.rotation_audit_ax = None
         self.rotation_audit_error_ax = None
@@ -233,6 +243,7 @@ class SynergieToolsApp:
         self.annotation_dataframe = None
         self.annotation_file_path: Path | None = None
         self.quality_analysis: dict | None = None
+        self.dataset_review_records: list[dict] = []
         self.rotation_audit_analysis: dict | None = None
         self.annotation_type_buttons: list[ttk.Radiobutton] = []
         self.annotation_turn_buttons: list[ttk.Radiobutton] = []
@@ -289,6 +300,7 @@ class SynergieToolsApp:
         window_tab = ttk.Frame(notebook, padding=12)
         detection_tuning_tab = ttk.Frame(notebook, padding=12)
         quality_tab = ttk.Frame(notebook, padding=12)
+        dataset_review_tab = ttk.Frame(notebook, padding=12)
         rotation_audit_tab = ttk.Frame(notebook, padding=12)
         inventory_tab = ttk.Frame(notebook, padding=12)
         notes_tab = ttk.Frame(notebook, padding=12)
@@ -299,6 +311,7 @@ class SynergieToolsApp:
         notebook.add(process_tab, text="Data - Process")
         notebook.add(annotate_tab, text="Data - Annotate")
         notebook.add(quality_tab, text="Review - Quality")
+        notebook.add(dataset_review_tab, text="Review - Dataset")
         notebook.add(rotation_audit_tab, text="Review - Turns")
         notebook.add(inspect_tab, text="Review - Inspect IMU")
         notebook.add(detection_tuning_tab, text="Review - Detection")
@@ -341,6 +354,7 @@ class SynergieToolsApp:
         self._build_window_benchmark_tab(window_tab)
         self._build_detection_tuning_tab(detection_tuning_tab)
         self._build_quality_tab(quality_tab)
+        self._build_dataset_review_tab(dataset_review_tab)
         self._build_rotation_audit_tab(rotation_audit_tab)
         self._build_notes_tab(notes_tab)
 
@@ -877,11 +891,19 @@ class SynergieToolsApp:
             foreground="firebrick",
         ).grid(row=10, column=0, sticky="w", pady=(0, 8))
 
+        ttk.Label(
+            controls,
+            text="Shortcuts: t/f/z/s/l/a = jump type | 1-4 = turns | 0/1 = fall/success | u = unseen | x = weird signal",
+            justify=tk.LEFT,
+            wraplength=360,
+            foreground="#666666",
+        ).grid(row=11, column=0, sticky="w", pady=(0, 8))
+
         combination_check = ttk.Checkbutton(controls, text="Combination jump", variable=self.annotation_combination_var)
-        combination_check.grid(row=11, column=0, sticky="w", pady=(0, 8))
+        combination_check.grid(row=12, column=0, sticky="w", pady=(0, 8))
         self._add_tooltip(combination_check, "Deux sauts du meme capteur espaces de moins de 1,5 s sont pre-marques comme combinaison.")
         annotation_actions = ttk.Frame(controls)
-        annotation_actions.grid(row=12, column=0, sticky="w", pady=(8, 0))
+        annotation_actions.grid(row=13, column=0, sticky="w", pady=(8, 0))
         save_annotation_button = ttk.Button(annotation_actions, text="Save current annotation", command=self._save_current_annotation)
         save_annotation_button.grid(row=0, column=0, sticky="w")
         self._add_tooltip(save_annotation_button, "Enregistre le label du saut actuellement selectionne.")
@@ -948,6 +970,21 @@ class SynergieToolsApp:
         self.quality_canvas = FigureCanvasTkAgg(figure, master=self.quality_plot_container)
         self.quality_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._draw_placeholder_quality_plot()
+
+    def _build_dataset_review_signal_canvas(self) -> None:
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        from matplotlib.figure import Figure
+
+        figure = Figure(figsize=(10.0, 4.4), dpi=100)
+        axis = figure.add_subplot(121)
+        angle_ax = figure.add_subplot(122, sharex=axis)
+        self.dataset_review_signal_figure = figure
+        self.dataset_review_signal_ax = axis
+        self.dataset_review_signal_acc_ax = None
+        self.dataset_review_angle_ax = angle_ax
+        self.dataset_review_signal_canvas = FigureCanvasTkAgg(figure, master=self.dataset_review_signal_container)
+        self.dataset_review_signal_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self._draw_placeholder_dataset_review_signal()
 
     def _build_rotation_audit_canvas(self) -> None:
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -1470,6 +1507,75 @@ class SynergieToolsApp:
             justify=tk.LEFT,
             wraplength=760,
         ).grid(row=0, column=0, sticky="w")
+
+    def _build_dataset_review_tab(self, parent: ttk.Frame) -> None:
+        parent.columnconfigure(0, weight=0)
+        parent.columnconfigure(1, weight=1)
+        parent.rowconfigure(0, weight=1)
+
+        controls = ttk.LabelFrame(parent, text="Training Dataset Review", padding=12)
+        controls.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        controls.columnconfigure(0, weight=1)
+        controls.rowconfigure(5, weight=1)
+
+        ttk.Label(controls, text="Dataset").grid(row=0, column=0, sticky="w")
+        ttk.Entry(controls, textvariable=self.dataset_review_dataset_var, width=34).grid(row=1, column=0, sticky="ew", pady=(4, 8))
+        buttons = ttk.Frame(controls)
+        buttons.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(buttons, text="Load trainable jumps", command=self._run_dataset_review_load).grid(row=0, column=0, sticky="w")
+        ttk.Button(buttons, text="Exclude selected (x)", command=self._exclude_selected_training_jump).grid(row=0, column=1, sticky="w", padx=(8, 0))
+
+        ttk.Label(
+            controls,
+            textvariable=self.dataset_review_summary_var,
+            justify=tk.LEFT,
+            wraplength=320,
+        ).grid(row=3, column=0, sticky="w", pady=(0, 8))
+        tk.Label(
+            controls,
+            textvariable=self.dataset_review_feedback_var,
+            justify=tk.LEFT,
+            wraplength=320,
+            fg="#9f2a22",
+        ).grid(row=4, column=0, sticky="w", pady=(0, 8))
+
+        list_frame = ttk.LabelFrame(controls, text="Trainable jumps", padding=8)
+        list_frame.grid(row=5, column=0, sticky="nsew")
+        list_frame.columnconfigure(0, weight=1)
+        list_frame.rowconfigure(0, weight=1)
+        self.dataset_review_listbox = tk.Listbox(
+            list_frame,
+            listvariable=self.dataset_review_records_var,
+            exportselection=False,
+            height=18,
+            width=42,
+        )
+        self.dataset_review_listbox.grid(row=0, column=0, sticky="nsew")
+        self.dataset_review_listbox.bind("<<ListboxSelect>>", self._on_dataset_review_selected)
+
+        results = ttk.Frame(parent)
+        results.grid(row=0, column=1, sticky="nsew")
+        results.columnconfigure(0, weight=1)
+        results.rowconfigure(0, weight=0)
+        results.rowconfigure(1, weight=1)
+
+        details_frame = ttk.LabelFrame(results, text="Selected jump details", padding=8)
+        details_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        details_frame.columnconfigure(0, weight=1)
+        ttk.Label(
+            details_frame,
+            textvariable=self.dataset_review_details_var,
+            justify=tk.LEFT,
+            wraplength=760,
+        ).grid(row=0, column=0, sticky="w")
+
+        signal_frame = ttk.LabelFrame(results, text="Selected jump signals", padding=8)
+        signal_frame.grid(row=1, column=0, sticky="nsew")
+        signal_frame.columnconfigure(0, weight=1)
+        signal_frame.rowconfigure(0, weight=1)
+        self.dataset_review_signal_container = ttk.Frame(signal_frame)
+        self.dataset_review_signal_container.grid(row=0, column=0, sticky="nsew")
+        self._build_dataset_review_signal_canvas()
 
     def _build_rotation_audit_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=0)
@@ -2252,6 +2358,85 @@ class SynergieToolsApp:
         self.rotation_audit_figure.tight_layout()
         self.rotation_audit_canvas.draw_idle()
 
+    def _draw_placeholder_dataset_review_signal(self) -> None:
+        if self.dataset_review_signal_ax is None:
+            return
+        if self.dataset_review_signal_acc_ax is not None:
+            self.dataset_review_signal_acc_ax.remove()
+            self.dataset_review_signal_acc_ax = None
+        self.dataset_review_signal_ax.clear()
+        self.dataset_review_angle_ax.clear()
+        self.dataset_review_signal_ax.set_title("Selected training jump signals")
+        self.dataset_review_signal_ax.text(
+            0.5,
+            0.5,
+            "Load the training dataset and select a jump",
+            ha="center",
+            va="center",
+            transform=self.dataset_review_signal_ax.transAxes,
+        )
+        self.dataset_review_signal_ax.set_xticks([])
+        self.dataset_review_signal_ax.set_yticks([])
+        self.dataset_review_angle_ax.text(
+            0.5,
+            0.5,
+            "Cumulative rotation will appear here",
+            ha="center",
+            va="center",
+            transform=self.dataset_review_angle_ax.transAxes,
+        )
+        self.dataset_review_angle_ax.set_xticks([])
+        self.dataset_review_angle_ax.set_yticks([])
+        self.dataset_review_signal_figure.tight_layout()
+        self.dataset_review_signal_canvas.draw_idle()
+
+    def _draw_dataset_review_signal(self, signal: dict | None) -> None:
+        if self.dataset_review_signal_ax is None or signal is None:
+            self._draw_placeholder_dataset_review_signal()
+            return
+        frame = signal["frame"]
+        if self.dataset_review_signal_acc_ax is not None:
+            self.dataset_review_signal_acc_ax.remove()
+        self.dataset_review_signal_ax.clear()
+        self.dataset_review_angle_ax.clear()
+        self.dataset_review_signal_acc_ax = self.dataset_review_signal_ax.twinx()
+        x = frame["ms"] if "ms" in frame else list(range(len(frame)))
+        gyro_line = self.dataset_review_signal_ax.plot(x, frame["Gyr_X"], color="#1f77b4", label="Gyr_X", linewidth=1.1)[0]
+        handles = [gyro_line]
+        labels = ["Gyr_X"]
+        if "Acc_X" in frame:
+            acc_line = self.dataset_review_signal_acc_ax.plot(
+                x,
+                frame["Acc_X"],
+                color="#ff7f0e",
+                label="Acc_X",
+                linewidth=1.0,
+                alpha=0.85,
+            )[0]
+            handles.append(acc_line)
+            labels.append("Acc_X")
+        takeoff_x = x.iloc[signal["takeoff_index"]] if hasattr(x, "iloc") else x[signal["takeoff_index"]]
+        landing_x = x.iloc[signal["landing_index"]] if hasattr(x, "iloc") else x[signal["landing_index"]]
+        self.dataset_review_signal_ax.axvline(takeoff_x, color="black", linestyle="--", linewidth=1.0, label="Takeoff")
+        self.dataset_review_signal_ax.axvline(landing_x, color="black", linestyle=":", linewidth=1.0, label="Landing")
+        handles.extend(self.dataset_review_signal_ax.lines[-2:])
+        labels.extend(["Takeoff", "Landing"])
+        self.dataset_review_signal_ax.set_title("Vertical gyro and acceleration")
+        self.dataset_review_signal_ax.set_xlabel("ms" if "ms" in frame else "frame")
+        self.dataset_review_signal_ax.set_ylabel("Gyroscope")
+        self.dataset_review_signal_acc_ax.set_ylabel("Acceleration")
+        self.dataset_review_signal_ax.legend(handles, labels, loc="upper right", fontsize=8)
+        angle = self._cumulative_rotation_turns(frame)
+        self.dataset_review_angle_ax.plot(x, angle, color="#2f7d32", linewidth=1.2, label="Integrated Gyr_X")
+        self.dataset_review_angle_ax.axvline(takeoff_x, color="black", linestyle="--", linewidth=1.0)
+        self.dataset_review_angle_ax.axvline(landing_x, color="black", linestyle=":", linewidth=1.0)
+        self.dataset_review_angle_ax.set_title("Cumulative vertical rotation")
+        self.dataset_review_angle_ax.set_xlabel("ms" if "ms" in frame else "frame")
+        self.dataset_review_angle_ax.set_ylabel("turns")
+        self.dataset_review_angle_ax.legend(loc="upper left", fontsize=8)
+        self.dataset_review_signal_figure.tight_layout()
+        self.dataset_review_signal_canvas.draw_idle()
+
     def _draw_rotation_audit(self, analysis: dict) -> None:
         if self.rotation_audit_ax is None:
             return
@@ -2602,6 +2787,87 @@ class SynergieToolsApp:
             f"Duration: {record['duration_ms']:.1f} ms | Rotations: {record['rotations']:.2f} | "
             f"Max |Gyr_X|: {record['max_abs_gyr_x']:.1f} | Max |Acc_X|: {record['max_abs_acc_x']:.2f}"
         )
+
+    def _apply_dataset_review_records(self, records: list[dict], dataset_path: str) -> None:
+        self.dataset_review_records = records
+        self.dataset_review_summary_var.set(
+            f"Trainable jumps: {len(records)}\n"
+            f"Shortcut: x = exclude selected jump from future training"
+        )
+        labels = [
+            f"{record['row_index']:04d} | {Path(str(record.get('path', ''))).name} | "
+            f"type {record.get('type')} | success {record.get('success')}"
+            for record in records
+        ]
+        self.dataset_review_records_var.set(labels)
+        if labels:
+            self.dataset_review_listbox.selection_clear(0, tk.END)
+            self.dataset_review_listbox.selection_set(0)
+            self._on_dataset_review_selected()
+        else:
+            self.dataset_review_details_var.set(f"No trainable jumps left in {dataset_path}.")
+            self._draw_placeholder_dataset_review_signal()
+        self.status_var.set(f"Training dataset review ready: {len(records)} trainable jumps")
+
+    def _run_dataset_review_load(self) -> None:
+        dataset_path = self.dataset_review_dataset_var.get().strip()
+        if not dataset_path:
+            messagebox.showwarning("Synergie Tools", "Select a dataset folder first.")
+            return
+        self.dataset_review_summary_var.set("Loading trainable jumps...")
+        self.dataset_review_feedback_var.set("")
+        self.dataset_review_records_var.set([])
+        self.dataset_review_details_var.set("No training jump selected.")
+        self._draw_placeholder_dataset_review_signal()
+
+        def action() -> None:
+            records = operations.load_training_dataset_rows(dataset_path)
+            self.root.after(0, lambda: self._apply_dataset_review_records(records, dataset_path))
+
+        self._run_in_thread(action, "Unable to load training dataset rows.")
+
+    def _selected_dataset_review_record(self) -> dict | None:
+        selection = self.dataset_review_listbox.curselection()
+        if not selection:
+            return None
+        index = selection[0]
+        if index >= len(self.dataset_review_records):
+            return None
+        return self.dataset_review_records[index]
+
+    def _on_dataset_review_selected(self, _event=None) -> None:
+        record = self._selected_dataset_review_record()
+        if record is None:
+            self.dataset_review_details_var.set("No training jump selected.")
+            self._draw_placeholder_dataset_review_signal()
+            return
+        self.dataset_review_details_var.set(
+            f"Row: {record['row_index']} | Type: {record.get('type')} | Success: {record.get('success')}\n"
+            f"Skater: {record.get('skater', '')} | Path: {record.get('path', '')}\n"
+            f"Shortcut: press x to exclude this jump from future training."
+        )
+        self._draw_dataset_review_signal(operations.load_turn_audit_signal(record["path"]))
+
+    def _exclude_selected_training_jump(self) -> None:
+        record = self._selected_dataset_review_record()
+        if record is None:
+            messagebox.showwarning("Synergie Tools", "Select a training jump first.")
+            return
+        dataset_path = self.dataset_review_dataset_var.get().strip()
+        selected_index = self.dataset_review_listbox.curselection()[0]
+        operations.exclude_training_dataset_row(dataset_path, record["row_index"], excluded_reason="weird_signal")
+        records = operations.load_training_dataset_rows(dataset_path)
+        self._apply_dataset_review_records(records, dataset_path)
+        self.dataset_review_feedback_var.set(
+            f"Excluded row {record['row_index']} as weird signal. The jump will not be used in future training."
+        )
+        if records:
+            next_index = min(selected_index, len(records) - 1)
+            self.dataset_review_listbox.selection_clear(0, tk.END)
+            self.dataset_review_listbox.selection_set(next_index)
+            self._on_dataset_review_selected()
+        self.root.after(3000, lambda: self.dataset_review_feedback_var.set(""))
+        self.status_var.set(f"Excluded training jump row {record['row_index']} as weird signal")
 
     def _apply_quality_analysis(self, analysis: dict) -> None:
         self.quality_analysis = analysis
@@ -3352,10 +3618,12 @@ class SynergieToolsApp:
         self._sync_annotation_review_controls()
 
     def _sync_annotation_review_controls(self) -> None:
-        excluded = self.annotation_review_status_var.get() in {"not_seen_on_video", "not_a_jump"}
+        excluded = self.annotation_review_status_var.get() in {"not_seen_on_video", "weird_signal", "not_a_jump"}
         hint = ""
         if self.annotation_review_status_var.get() == "not_seen_on_video":
             hint = "This jump will be excluded from training because it is marked as unseen on video."
+        elif self.annotation_review_status_var.get() == "weird_signal":
+            hint = "This jump will be excluded from training because the signal or takeoff/landing bounds look unreliable."
         elif self.annotation_review_status_var.get() == "not_a_jump":
             hint = "This jump will be excluded from training because it is marked as not a jump."
         self.annotation_exclusion_hint_var.set(hint)
@@ -3368,24 +3636,35 @@ class SynergieToolsApp:
         for button in self.annotation_success_buttons:
             button.configure(state=desired_state)
 
-    def _annotate_tab_active(self) -> bool:
+    def _current_tab_text(self) -> str:
         try:
-            return self.notebook.tab(self.notebook.select(), "text") == "Annotate"
+            return str(self.notebook.tab(self.notebook.select(), "text"))
         except Exception:
-            return False
+            return ""
+
+    def _annotate_tab_active(self) -> bool:
+        return self._current_tab_text() == "Data - Annotate"
+
+    def _dataset_review_tab_active(self) -> bool:
+        return self._current_tab_text() == "Review - Dataset"
 
     def _on_global_keypress(self, event) -> None:
-        if not self._annotate_tab_active():
-            return
-        if self.annotation_dataframe is None or self._selected_annotation_index() is None:
-            return
-
         widget = event.widget
         if isinstance(widget, (tk.Entry, tk.Text, scrolledtext.ScrolledText)):
             return
 
         key = (event.keysym or event.char or "").lower()
         if not key:
+            return
+
+        if self._dataset_review_tab_active():
+            if key == "x" and self._selected_dataset_review_record() is not None:
+                self._exclude_selected_training_jump()
+            return
+
+        if not self._annotate_tab_active():
+            return
+        if self.annotation_dataframe is None or self._selected_annotation_index() is None:
             return
 
         if key in self.ANNOTATION_SHORTCUTS:
@@ -3401,8 +3680,8 @@ class SynergieToolsApp:
             return
 
         if key == "x":
-            self.annotation_review_status_var.set("not_a_jump")
-            self.status_var.set("Annotation review status selected: not a jump")
+            self.annotation_review_status_var.set("weird_signal")
+            self.status_var.set("Annotation review status selected: weird signal / bad bounds")
             return
 
         if key in {"1", "2", "3", "4"}:
@@ -3903,7 +4182,7 @@ class SynergieToolsApp:
             if key == self.annotation_type_var.get()
         )
         backend_status = operations.annotation_review_status_to_backend(self.annotation_review_status_var.get())
-        is_excluded_by_status = self.annotation_review_status_var.get() in {"not_seen_on_video", "not_a_jump"}
+        is_excluded_by_status = self.annotation_review_status_var.get() in {"not_seen_on_video", "weird_signal", "not_a_jump"}
         stored_type = 8 if is_excluded_by_status else type_value
         stored_turns = "" if is_excluded_by_status else operations.annotation_turn_value_for_storage(
             self.annotation_type_var.get(),

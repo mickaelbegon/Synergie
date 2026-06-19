@@ -17,14 +17,15 @@ class DetectionTuningServiceTests(unittest.TestCase):
             (root / "a_for_annotation.csv").write_text(
                 "sensor_id,path,start_ms,synced_start_ms,video_status,detection_status\n"
                 "1,a.csv,10,10,visible,not_a_jump\n"
-                "2,b.csv,20,20,visible,manual_missing_jump\n"
-                "3,c.csv,30,30,visible,detected_jump\n",
+                "2,b.csv,20,20,visible,weird_signal\n"
+                "3,c.csv,30,30,visible,manual_missing_jump\n"
+                "4,d.csv,40,40,visible,detected_jump\n",
                 encoding="utf-8",
             )
 
             analysis = analyze_detection_review_labels(root)
 
-            self.assertEqual(analysis["false_positive_count"], 1)
+            self.assertEqual(analysis["false_positive_count"], 2)
             self.assertEqual(analysis["false_negative_count"], 1)
             self.assertEqual(analysis["reviewed_detected"], 1)
 

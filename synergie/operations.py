@@ -87,7 +87,9 @@ from synergie.services.model_registry_service import (
 )
 from synergie.services.training_dataset_service import (
     describe_training_dataset,
+    exclude_training_dataset_row,
     find_training_dataset_duplicates,
+    load_training_dataset_rows,
     load_training_dataset_state,
     training_dataset_state_path,
 )
@@ -193,9 +195,19 @@ def summarize_pending_annotation_files(root: str | Path = "data/pending") -> dic
     return {"files": file_summaries, **global_summary}
 
 
-def suggest_turns_from_rotation(rotation_value) -> str:
-    """Convert a measured absolute rotation into a conservative 1-4 turn guess."""
-    turns = int(round(_safe_float(rotation_value, default=1.0)))
+def suggest_turns_from_rotation(
+    rotation_value,
+    *,
+    contact_offset_turns: float = 0.45,
+    jump_type: str | int | None = None,
+) -> str:
+    """Convert measured airborne rotation into a 1-4 UI turn guess with on-ice offset."""
+    total_turns = _safe_float(rotation_value, default=1.0) + float(contact_offset_turns)
+    normalized_type = "" if jump_type is None else str(jump_type).strip().lower()
+    if normalized_type in {"5", "axel"}:
+        turns = int(round(total_turns - 0.5))
+    else:
+        turns = int(round(total_turns))
     return str(min(4, max(1, turns)))
 
 
@@ -224,7 +236,10 @@ def prefill_annotation_predictions(
     for index in frame.index:
         if frame.at[index, "type"] == 8:
             continue
-        frame.at[index, "turns"] = suggest_turns_from_rotation(frame.at[index, "rotations"])
+        frame.at[index, "turns"] = suggest_turns_from_rotation(
+            frame.at[index, "rotations"],
+            jump_type=frame.at[index, "type"],
+        )
         frame.at[index, "prediction_source"] = "batch_model_prefill"
     result["rows"] = frame
     return result

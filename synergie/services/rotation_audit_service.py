@@ -73,7 +73,7 @@ def _records_from_frame(frame, source_path: Path) -> list[dict]:
     for row_index, row in frame.iterrows():
         annotation_status = str(row.get("annotation_status", "")).strip().lower()
         detection_status = str(row.get("detection_status", "detected_jump")).strip().lower()
-        if annotation_status != "completed" or detection_status == "not_a_jump":
+        if annotation_status != "completed" or detection_status in {"not_a_jump", "weird_signal"}:
             continue
         annotated_turns = _safe_float(row.get("turns"), default=None)
         measured_rotation = _safe_float(row.get("rotations"), default=None)
@@ -86,7 +86,7 @@ def _records_from_frame(frame, source_path: Path) -> list[dict]:
 def _build_record(source_file: Path, row_index: int, row, annotated_turns: float, measured_rotation: float) -> dict:
     from synergie.operations import annotation_turn_value_for_storage, suggest_turns_from_rotation
 
-    estimated_ui_turns = suggest_turns_from_rotation(measured_rotation)
+    estimated_ui_turns = suggest_turns_from_rotation(measured_rotation, jump_type=row.get("type"))
     estimated_turns = float(annotation_turn_value_for_storage(row.get("type"), estimated_ui_turns))
     signed_error = measured_rotation - annotated_turns
     absolute_error = abs(signed_error)
@@ -181,6 +181,7 @@ def _summarize_records(root: Path, scanned_files: int, records: list[dict]) -> d
             "type_summary": [],
             "rounding_rule_summary": [],
             "strategy_summary": [],
+            "contact_offset_summary": [],
             "strategy_by_skater": [],
             "confusion_matrix": [],
             "labels": [],
@@ -200,6 +201,7 @@ def _summarize_records(root: Path, scanned_files: int, records: list[dict]) -> d
         "type_summary": _type_summary(labelled),
         "rounding_rule_summary": _rounding_rule_summary(labelled),
         "strategy_summary": _strategy_summary(labelled),
+        "contact_offset_summary": _contact_offset_summary(labelled),
         "strategy_by_skater": _strategy_by_skater(labelled),
         "confusion_matrix": matrix.to_numpy(dtype=int).tolist(),
         "labels": labels,
@@ -250,6 +252,7 @@ def _strategy_summary(labelled) -> list[dict]:
     """Compare deployable and optimistic post-processing strategies."""
     strategies = {
         "current_round": lambda row: _estimate_turns_for_rule(row, round),
+        "fixed_contact_offset_0.45": lambda row: _estimate_turns_with_contact_offset(row, 0.45),
         "hybrid_non_axel_shift": _estimate_turns_for_hybrid_rule,
         "best_rule_per_type_observed": _estimate_turns_for_best_observed_type_rule,
     }
@@ -264,6 +267,21 @@ def _strategy_summary(labelled) -> list[dict]:
             }
         )
     return summaries
+
+
+def _contact_offset_summary(labelled) -> list[dict]:
+    summaries = []
+    for offset in _float_range(0.30, 0.60, 0.05):
+        predicted = labelled.apply(lambda row: _estimate_turns_with_contact_offset(row, offset), axis=1)
+        summaries.append(
+            {
+                "offset_turns": round(offset, 2),
+                "label": f"contact_plus_{offset:.2f}",
+                "exact_accuracy": float((predicted == labelled["annotated_turns"]).mean()),
+                "mean_absolute_error": float((predicted - labelled["annotated_turns"]).abs().mean()),
+            }
+        )
+    return sorted(summaries, key=lambda item: (item["exact_accuracy"], -item["mean_absolute_error"]), reverse=True)
 
 
 def _strategy_by_skater(labelled) -> list[dict]:
@@ -306,6 +324,19 @@ def _estimate_turns_for_best_observed_type_rule(row) -> float:
     return _estimate_turns_for_rule(row, rules_by_type.get(int(row["type"]), round))
 
 
+def _estimate_turns_with_contact_offset(row, contact_offset_turns: float) -> float:
+    from synergie.operations import annotation_turn_value_for_storage, suggest_turns_from_rotation
+
+    estimate = int(
+        suggest_turns_from_rotation(
+            row["measured_rotation"],
+            contact_offset_turns=contact_offset_turns,
+            jump_type=row["type"],
+        )
+    )
+    return float(annotation_turn_value_for_storage(row["type"], estimate))
+
+
 def _estimate_turns_for_rule(row, rule) -> float:
     from synergie.operations import annotation_turn_value_for_storage
 
@@ -317,6 +348,13 @@ def _ceil_shift(value: float, shift: float) -> int:
     import math
 
     return int(math.ceil(value - shift))
+
+
+def _float_range(start: float, stop: float, step: float):
+    current = start
+    while current <= stop + 1e-9:
+        yield current
+        current += step
 
 
 def _safe_float(value, default=None):
