@@ -67,6 +67,19 @@ python app.py
 python tools_gui.py
 ```
 
+`app.py` et `tools_gui.py` n'ont pas le meme role :
+
+- `app.py` : interface principale de collecte terrain avec Firebase, capteurs et export
+- `tools_gui.py` : interface utilitaire de dev, de retraitement, d'annotation, d'audit qualite et d'entrainement
+
+Sous Windows, le plus simple pour ouvrir l'outil utilitaire avec le bon environnement est :
+
+```powershell
+& "C:\Users\micka\Documents\GIT\Synergie_Data\Synergie_Data\launch_tools_gui.bat"
+```
+
+### `app.py` : collecte capteurs
+
 Flux principal :
 
 - connexion d'un coach via Firebase
@@ -75,37 +88,306 @@ Flux principal :
 - arret et export au rebranchement
 - prediction automatique des sauts apres export
 
-Dans `tools_gui.py`, l'onglet `Inspect IMU` permet aussi :
+Cette application sert surtout a la prise de donnees. Pour le traitement detaille, la revue des sauts, l'annotation et le re-entrainement, il faut ensuite passer par `tools_gui.py`.
 
-- d'afficher les signaux utilises pour localiser les sauts
-- d'ajuster les sliders de detection
-- de selectionner un saut pour afficher un zoom dedie
-- de lire le dossier de session choisi et lister tous les fichiers disponibles avec infos de base sur le fichier selectionne
+### `tools_gui.py` : guide detaille
 
-Pipeline conseille pour ajouter des donnees d'entrainement dans `tools_gui.py` :
+L'outil est organise en onglets. Le flux normal va de `Data - New` vers `Data - Annotate`, puis vers les onglets de revue et enfin les onglets modeles.
 
-1. `Data - New` : choisir une seance brute depuis `data/new`.
-2. Le GUI propose automatiquement un identifiant de session et un chemin cible dans `data/raw`; `Data - Sessions` sert surtout a verifier ou corriger les exceptions.
-3. `Data - New` : utiliser `Process for annotation`.
-4. Le traitement cree un CSV `*_for_annotation.csv`, des segments IMU, et pre-remplit si possible `type`, `success` et `turns` avec les modeles selectionnes.
-5. `Data - Annotate` : verifier les propositions, synchroniser la video, corriger les labels et finaliser le fichier annote.
-6. `Review - Quality` et `Review - Detection` : verifier les outliers, faux positifs et faux negatifs avant re-entrainement.
-7. `Models - Train` : re-entrainer les modeles quand le dataset a change.
-8. `Models - Audit`, `Models - Importance` et `Models - Tune` : verifier les nouveaux modeles avant de les reutiliser comme solution initiale.
+#### Vue d'ensemble des onglets
 
-`Data - Process` reste utile pour retraiter manuellement ou en batch des CSV deja classes dans `data/raw`, mais n'est pas obligatoire dans le flux principal `new -> annotate -> train`.
+- `Start - Workflow` : rappel textuel du pipeline conseille de bout en bout
+- `Data - Status` : inventaire des fichiers presents dans `data/new`, `data/pending`, `data/raw` et du volume de labels exploitables
+- `Data - Sessions` : consultation et correction manuelle du registre de sessions dans `config/sessions.json`
+- `Data - New` : point d'entree normal pour transformer une nouvelle seance brute en materiel d'annotation
+- `Data - Process` : retraitement manuel ou batch de CSV IMU deja classes dans une session
+- `Data - Annotate` : revue des sauts proposes, synchronisation video, correction des labels et finalisation vers le dataset
+- `Review - Quality` : detection d'outliers et de sauts suspects dans le dataset annote
+- `Review - Dataset` : revue d'exemples deja finalises dans `jumplist.csv`, avec exclusion rapide des cas douteux
+- `Review - Turns` : audit de l'estimation du nombre de tours et comparaison annotation vs mesure IMU
+- `Review - Inspect IMU` : visualisation d'un CSV brut, detection des sauts et ajustement des seuils
+- `Review - Detection` : revue des faux positifs / faux negatifs deja identifies et balayage de seuils
+- `Models - Train` : entrainement supervise des modeles `type` et `success`
+- `Models - Importance` : importance de signaux par permutation pour comprendre ce que le modele utilise
+- `Models - Tune` : recherche exploratoire d'hyperparametres
+- `Models - Windows` : benchmark de tailles de fenetres et offsets de segment
+- `Models - Audit` : synthese des modeles disponibles et de leur compatibilite
+- `Notes` : aide-memoire sur l'algorithme et ses limites
 
-L'onglet `Annotate` permet maintenant aussi de :
+#### Workflow recommande pour ajouter de nouvelles donnees
 
-- charger une video de la seance en plus du CSV `for_annotation`
-- memoriser un offset de synchronisation par capteur IMU
-- relire rapidement (`x5`) les 5 secondes qui precedent le saut courant jusqu'a son instant d'apparition estime
-- afficher dynamiquement l'heure video recalculee pour chaque saut selon l'offset du capteur concerne
+1. `Data - New`
+2. `Data - Sessions`
+3. `Data - Annotate`
+4. `Review - Quality`
+5. `Review - Detection`
+6. `Models - Train`
+7. `Models - Audit`, `Models - Importance`, `Models - Tune`
 
-L'onglet `Train` permet maintenant aussi de choisir explicitement l'architecture d'entrainement selon la tache:
+En pratique, le detail utile est le suivant :
 
-- `type` : `inceptiontime` ou `transformer`
-- `success` : `tcn` ou `lstm`
+1. Copier la nouvelle seance brute dans `data/new`.
+2. Ouvrir `Data - New`, choisir le dossier detecte dans `Folder`, puis verifier les CSV listes dans `IMU files`.
+3. Regarder la suggestion `Automatic session` et le chemin `Automatic annotation CSV`.
+4. Cliquer `Add session automatically` si la session n'existe pas encore.
+5. Cliquer `Process for annotation`.
+6. Le traitement cree un fichier `*_for_annotation.csv` dans `data/pending`, des segments IMU, et tente de pre-remplir les colonnes d'annotation avec les modeles actuellement selectionnes.
+7. Ouvrir `Data - Annotate`, charger ce fichier, revoir chaque saut, synchroniser la video et corriger les labels.
+8. Quand tout est propre, lancer `Finalize annotated file`.
+9. Utiliser `Review - Quality`, `Review - Dataset` et `Review - Detection` pour filtrer les exemples douteux avant re-entrainement.
+10. Re-entrainer dans `Models - Train`.
+
+#### `Data - Status`
+
+Cet onglet sert de tableau de bord.
+
+- Il aide a voir si de nouveaux CSV bruts attendent dans `data/new`.
+- Il montre ce qui est deja passe en `pending`, ce qui est range en `raw`, et combien de labels sont reellement entrainables.
+- Il est utile avant un training pour verifier qu'on travaille sur le bon volume de donnees.
+
+#### `Data - Sessions`
+
+Cet onglet est surtout un outil de maintenance.
+
+- Le flux normal cree les sessions automatiquement depuis `Data - New`.
+- Utiliser `Data - Sessions` surtout pour corriger une ancienne session, un mauvais chemin, ou une synchronisation manquante.
+- Les champs de session pilotent notamment le dossier associe et l'offset `sample_time_fine_synchro` utilise ailleurs dans le GUI.
+
+#### `Data - New`
+
+C'est le point de depart prefere pour une nouvelle seance.
+
+- `Folder` : liste les dossiers trouves dans `data/new`.
+- `IMU files` : affiche les CSV detectes dans le dossier choisi.
+- `Automatic annotation CSV` : montre le nom de sortie qui sera cree pour l'annotation.
+- `Automatic session` : propose un identifiant et un chemin de session d'apres la date/heure du fichier.
+- `Add session automatically` : ecrit cette session dans `config/sessions.json`.
+- `Process for annotation` : lance la generation des segments et du CSV d'annotation.
+- Le panneau de log en bas donne le detail des operations realisees.
+
+Quand utiliser cet onglet :
+
+- pour toute nouvelle seance jamais encore rangee
+- pour creer proprement la session sans avoir a modifier `config/sessions.json` a la main
+- pour preparer le materiel d'annotation sans passer par la CLI
+
+#### `Data - Process`
+
+Cet onglet sert a retraiter des CSV IMU deja ranges dans une session.
+
+- `Session` : choisit une session connue.
+- `Session CSV files` : liste les CSV bruts de cette session.
+- `Batch process selected` : traite uniquement la selection.
+- `Batch process all` : traite en masse tous les fichiers disponibles dans toutes les sessions.
+- `Initial model predictions` : permet de choisir quel modele `type` et quel modele `success` utiliser pour generer les propositions initiales.
+
+Cet onglet est utile si :
+
+- tu veux recalculer des sorties apres un changement de modele
+- tu veux retraiter un lot deja range dans `data/raw`
+- tu veux reprendre seulement certains CSV sans refaire tout `data/new`
+
+Ce n'est pas l'onglet recommande pour une session toute neuve si le flux `Data - New` suffit.
+
+#### `Data - Annotate`
+
+C'est l'onglet central pour construire un dataset propre.
+
+Sur la gauche :
+
+- `Refresh annotation files` recharge les `*_for_annotation.csv`
+- la liste des fichiers montre ceux qui restent a traiter
+- `Session Timeline` contient tous les candidats de saut de la seance, tries selon le temps video synchronise
+
+Sur la droite :
+
+- `Video Review` charge et relit une video de la seance
+- `Choose video...` ouvre une popup pour choisir un dossier video, chercher les meilleurs matchs temporels et charger la bonne video
+- le systeme essaie d'utiliser les metadonnees video, le nom du fichier et les timestamps disque pour faire le rapprochement
+- un offset de synchronisation par capteur peut etre memorise pour aligner IMU et video
+- la timeline video, le slider et les boutons permettent de se deplacer rapidement
+
+Les controles video disponibles sont :
+
+- `⏪` : reculer d'environ 1 seconde
+- `⏩` : avancer d'environ 1 seconde
+- `▶` / `⏸` : lecture / pause
+- `⌖` : aller directement au saut courant
+- `⏩J` : lecture acceleree jusqu'au saut courant
+- `⏹` : stop
+
+Raccourcis d'annotation visibles dans l'interface :
+
+- `t / f / z / s / l / a` : type de saut
+- `1 / 2 / 3 / 4` : nombre de tours
+- `0 / 1` : chute / reussi
+- `u` : saut non visible sur la video
+- `x` : signal bizarre ou bornes debut/fin incoherentes
+
+Conseils pratiques :
+
+- utiliser `u` quand la video ne permet pas de conclure
+- utiliser `x` quand le segment IMU parait mauvais, que les traits de debut/fin ne font pas de sens, ou qu'on ne veut pas reutiliser cet exemple pour l'entrainement
+- penser a `Finalize annotated file` seulement quand toute la seance est revue
+- la finalisation est l'etape qui fusionne reellement les labels dans `data/annotated/total/jumplist.csv`
+
+#### `Review - Quality`
+
+Cet onglet sert a reperer des exemples suspects avant d'entrainer.
+
+- `Run quality scan` inspecte le dataset annote
+- la liste `Suspicious jumps to review` propose les cas atypiques
+- les graphiques montrent les distributions et les outliers
+- le panneau de details aide a comprendre pourquoi un saut est mis en evidence
+
+Cas d'usage typiques :
+
+- verifier des valeurs de rotation, duree ou acceleration anormales
+- trouver des labels manifestement incoherents
+- decider quels essais repasser en annotation ou exclure
+
+#### `Review - Dataset`
+
+Cet onglet permet de revoir des sauts deja finalises dans `data/annotated/total/jumplist.csv`.
+
+- `Load trainable jumps` charge les exemples encore utilisables pour l'entrainement
+- la liste affiche les sauts entrainables
+- le panneau de droite montre les details et le signal du saut selectionne
+- `Exclude selected (x)` retire rapidement un exemple du futur training
+
+Le raccourci principal est :
+
+- `x` : marque la ligne selectionnee comme `weird_signal`, la rend non entrainable et affiche une confirmation visuelle en rouge
+
+Cet onglet est tres utile quand :
+
+- un essai ancien parait mauvais apres coup
+- tu veux nettoyer `jumplist.csv` sans reouvrir toute la session d'annotation
+- tu veux retirer quelques cas clairement aberrants avant un nouveau training
+
+#### `Review - Turns`
+
+Cet onglet audite l'estimation du nombre de tours.
+
+- `Run turn audit` compare les tours annotés avec la rotation mesuree par l'IMU
+- la liste `Suspicious estimates` remonte les cas ou l'estimation fixe et l'annotation divergent
+- le detail montre notamment les tours annotés, la rotation mesuree et l'estimation appliquee
+- les graphiques aident a voir si l'erreur vient du signal ou de la regle d'estimation
+
+Le systeme affiche la rotation cumulative en tours plutot qu'en degres, ce qui rend la lecture plus intuitive pour ce type d'audit.
+
+#### `Review - Inspect IMU`
+
+Cet onglet est l'outil visuel pour comprendre la detection de sauts sur un CSV brut.
+
+- `Input CSV` : charge un CSV IMU
+- `Session` : applique le contexte de session, notamment la synchronisation
+- `Session CSV files` : permet de double-cliquer sur un fichier d'une session pour l'ouvrir vite
+- `2nd derivative threshold` : seuil principal de detection
+- `Smoothing sigma` : lissage du gyroscope
+- `Combination gap (frames)` : ecart utilise pour identifier les combinaisons
+- `Load and detect` : recharge le CSV et relance la detection
+- `Refresh plots` : redessine les graphiques avec les parametres actuels
+
+Le panneau `Detected Jumps` liste les sauts trouves, et la zone de graphiques montre les signaux relies a la detection. Cet onglet est le meilleur endroit pour comprendre pourquoi un faux positif ou un faux negatif s'est produit.
+
+#### `Review - Detection`
+
+Cet onglet s'appuie sur les erreurs deja revues pendant l'annotation.
+
+- les lignes marquees `Not a jump` deviennent des faux positifs connus
+- les lignes ajoutees manuellement deviennent des faux negatifs connus
+- `Refresh reviewed errors` recharge cet ensemble d'exemples
+- `Run threshold sweep` teste plusieurs seuils et niveaux de lissage pour proposer un meilleur compromis
+
+Il faut idealement utiliser cet onglet apres plusieurs vraies revues d'annotation, sinon le jeu d'erreurs reste trop petit pour guider un reglage utile.
+
+#### `Models - Train`
+
+Cet onglet pilote l'entrainement principal.
+
+Parametres importants :
+
+- `Task` : `type` ou `success`
+- `Architecture` : `inceptiontime` ou `transformer` pour `type`, `tcn` ou `lstm` pour `success`
+- `Dataset` : dossier contenant `jumplist.csv` et `skaterData.csv`
+- `Epochs`
+- `Parameter profile` : parametres par defaut ou profil optimise issu de `Models - Tune`
+- `Use weight and height` : active ou neutralise les variables scalaires athlète
+- `Batch size`, `Learning rate`, `Dropout`, `Filters / units`, `Modules / blocks`
+- `Start from pretrained model` : repart d'un modele compatible au lieu de zero
+
+Sorties visibles :
+
+- courbes d'entrainement
+- log d'entrainement
+- matrice de confusion
+- resume dataset / modeles pre-entraînés / qualite
+
+Bon usage :
+
+- rafraichir d'abord les stats dataset
+- nettoyer les cas douteux avec `Review - Quality` et `Review - Dataset`
+- verifier ensuite le modele dans `Models - Audit`
+
+#### `Models - Importance`
+
+Cet onglet sert a comprendre quels signaux sont vraiment utilises par un modele deja entraine.
+
+- choisir `Task`
+- selectionner un modele sauvegarde ou l'alias du modele actif
+- regler `Repeats` et `Time windows`
+- lancer `Run signal importance`
+
+Le graphique de permutation aide a voir quelles composantes temporelles ou quelles fenetres influencent le plus la performance.
+
+#### `Models - Tune`
+
+Cet onglet lance une recherche exploratoire d'hyperparametres.
+
+- `Task`, `Architecture`, `Dataset`
+- `Trials`
+- `Epochs / trial`
+- option `Use weight and height`
+- `Run search`
+
+Le resultat montre :
+
+- un classement des meilleurs essais
+- une barre de progression
+- un log detaille de la recherche
+
+L'objectif n'est pas de remplacer l'entrainement courant a chaque fois, mais de comparer quelques candidats, puis de reporter le meilleur profil dans `Models - Train`.
+
+#### `Models - Windows`
+
+Cet onglet compare plusieurs fenetres temporelles et offsets de segment.
+
+- `Frames` : tailles de fenetres a comparer
+- `Epochs / window`
+- `Offset window frames`
+- `Offsets in segment`
+- `Run window benchmark`
+- `Run offset benchmark`
+
+Il est utile quand on soupconne que le segment coupe trop tot ou trop tard autour du saut, ou qu'une autre longueur de sequence donnerait un meilleur compromis.
+
+#### `Models - Audit`
+
+Cet onglet donne une synthese sur les modeles disponibles et leur compatibilite.
+
+- `Run model audit` produit un rapport texte
+- le rapport aide a voir quels modeles sont presents, actifs, compatibles avec le code actuel, ou potentiellement a archiver
+
+Avant de reutiliser un modele pour pre-remplir de nouvelles annotations, c'est un bon dernier controle.
+
+#### `Notes`
+
+Cet onglet contient un aide-memoire sur l'algo actuel, par exemple :
+
+- la segmentation repose surtout sur les derivees de `Gyr_X`
+- la rotation signee est conservee pour le diagnostic
+- l'onglet `Review - Inspect IMU` est l'outil de base pour comprendre les seuils et les erreurs de detection
 
 ## CLI
 
