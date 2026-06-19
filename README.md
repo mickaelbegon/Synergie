@@ -19,6 +19,28 @@ conda env create -f environment.yml
 conda activate synergie-data
 ```
 
+Si l'environnement existe deja et que tu veux le remettre a jour a partir du fichier :
+
+```sh
+conda env update -n synergie-data -f environment.yml --prune
+conda activate synergie-data
+```
+
+Verification rapide conseillee :
+
+```sh
+python -c "import tensorflow as tf; print(tf.__version__)"
+python -m unittest tests.test_operations
+```
+
+Sous Windows, si `conda activate` n'est pas reconnu dans PowerShell, ouvre d'abord un terminal Anaconda/Miniconda ou utilise les chemins complets :
+
+```powershell
+& "C:\Users\micka\miniconda3\Scripts\conda.exe" env create -f environment.yml
+& "C:\Users\micka\miniconda3\envs\synergie-data\python.exe" -c "import tensorflow as tf; print(tf.__version__)"
+& "C:\Users\micka\miniconda3\envs\synergie-data\python.exe" tools_gui.py
+```
+
 Les sessions de collecte ne sont plus codees dans `constants.py`.
 Elles sont maintenant stockees dans [config/sessions.json](C:\Users\micka\Documents\GIT\Synergie_Data\Synergie_Data\config\sessions.json) et peuvent etre ajoutees depuis l'onglet `Sessions` de `tools_gui.py`.
 
