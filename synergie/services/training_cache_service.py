@@ -6,7 +6,8 @@ from pathlib import Path
 
 import constants
 from synergie.config import ACCELERATION_ABERRANT_LIMIT_G
-from synergie.services.signal_cleaning_service import clean_acceleration_outliers
+from synergie.services.hdf5_archive_service import load_segment_dataframe
+from synergie.services.signal_cleaning_service import clean_imu_outliers
 
 
 def training_cache_path(dataset_path: str | Path) -> Path:
@@ -50,8 +51,8 @@ def load_or_build_training_cache(
     retained_paths = []
     skipped_paths = []
     for path_value in paths:
-        frame = pd.read_csv(path_value)[constants.fields_to_keep]
-        frame, _cleaning_report = clean_acceleration_outliers(frame, limit_g=ACCELERATION_ABERRANT_LIMIT_G)
+        frame = load_segment_dataframe(path_value)[constants.fields_to_keep]
+        frame, _cleaning_report = clean_imu_outliers(frame, acceleration_limit_g=ACCELERATION_ABERRANT_LIMIT_G)
         type_window = frame[type_window_start : type_window_start + type_window_frames].to_numpy(dtype="float32")
         success_window = frame[success_window_start : success_window_start + success_window_frames].to_numpy(dtype="float32")
         if len(type_window) != type_window_frames:
@@ -139,6 +140,14 @@ def _cache_fingerprint(
     )
     for path_value in paths:
         path = Path(path_value)
-        stat = path.stat()
-        digest.update(f"{path.as_posix()}:{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8"))
+        if path.exists():
+            stat = path.stat()
+            digest.update(f"{path.as_posix()}:{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8"))
+        else:
+            archive_path = Path("data/synergie_archive.h5")
+            if archive_path.exists():
+                stat = archive_path.stat()
+                digest.update(f"{path.as_posix()}:hdf5:{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8"))
+            else:
+                path.stat()
     return digest.hexdigest()

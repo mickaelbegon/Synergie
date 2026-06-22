@@ -45,3 +45,13 @@ class VideoServiceTests(unittest.TestCase):
 
         self.assertEqual(metadata["recorded_at_source"], "filename")
         self.assertEqual(metadata["recorded_at"], datetime(2025, 10, 13, 12, 7, 0))
+
+    def test_cached_video_path_keeps_local_workspace_drive_video_in_place(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video_path = Path(tmpdir) / "local.mov"
+            video_path.write_bytes(b"video")
+
+            result = video_service.cached_video_path(video_path)
+
+        self.assertFalse(result["from_cache"])
+        self.assertEqual(result["path"], video_path.resolve())

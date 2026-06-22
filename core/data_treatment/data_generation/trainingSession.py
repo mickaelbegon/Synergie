@@ -6,10 +6,12 @@ import constants
 from core.utils import plot
 from core.utils.jump import Jump
 from synergie.config import (
+    ACCELERATION_ABERRANT_LIMIT_G,
     DEFAULT_COMBINATION_GAP_FRAMES,
     DEFAULT_DETECTION_THRESHOLD,
     DEFAULT_SMOOTHING_SIGMA,
 )
+from synergie.services.signal_cleaning_service import clean_imu_outliers
 
 
 def gather_jumps(df: pd.DataFrame, combination_gap_frames: int = DEFAULT_COMBINATION_GAP_FRAMES) -> list[Jump]:
@@ -24,18 +26,19 @@ def gather_jumps(df: pd.DataFrame, combination_gap_frames: int = DEFAULT_COMBINA
     # Find indices where 'X_gyr_second_derivative_crossing' transitions from True to False
     end = np.where(np.diff(df['X_gyr_second_derivative_crossing'].astype(int)) == -1)[0]
     
-    if len(begin) > 0 and len(end) > 0:
-        for i in range(len(end)):
-            # remove the first end marks that happens before the first begin mark
-            if end[i] < begin[0]:
-                end = np.delete(end, i)
-                break
+    end_cursor = 0
+    previous_begin = None
+    for begin_index in begin:
+        while end_cursor < len(end) and end[end_cursor] <= begin_index:
+            end_cursor += 1
+        if end_cursor >= len(end):
+            break
 
-        for i in range(len(begin)):
-            combinate = False
-            if i > 0:
-                combinate = (begin[i] - begin[i-1]) < combination_gap_frames
-            jumps.append(Jump(begin[i], end[i], df, combinate))
+        end_index = end[end_cursor]
+        end_cursor += 1
+        combinate = previous_begin is not None and (begin_index - previous_begin) < combination_gap_frames
+        jumps.append(Jump(begin_index, end_index, df, combinate))
+        previous_begin = begin_index
 
     return jumps
 
@@ -69,6 +72,7 @@ class trainingSession:
         :return: the dataframe with preprocessed fields
         """
         df = df.astype({'PacketCounter': 'int64', 'SampleTimeFine': 'ulonglong', 'Euler_X': 'float64', 'Euler_Y': 'float64','Euler_Z': 'float64', 'Acc_X': 'float64', 'Acc_Y': 'float64', 'Acc_Z': 'float64', 'Gyr_X': 'float64', 'Gyr_Y': 'float64', 'Gyr_Z': 'float64'})
+        df, _cleaning_report = clean_imu_outliers(df, acceleration_limit_g=ACCELERATION_ABERRANT_LIMIT_G)
 
         if sampleTimefineSynchro != 0:
             # slice the list from sampleTimefineSynchro

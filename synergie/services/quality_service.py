@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from synergie.services.annotation_service import JUMP_TYPE_LABELS
+from synergie.services.hdf5_archive_service import load_segment_dataframe
 
 
 def analyze_jump_quality(
@@ -31,7 +32,7 @@ def analyze_jump_quality(
             continue
 
         segment_path = Path(str(row.get("path", "")))
-        if not segment_path.exists():
+        if not segment_path.exists() and not _segment_exists_in_hdf5(segment_path):
             records.append(_missing_segment_record(row_index, row, segment_path, jump_type, success))
             continue
 
@@ -73,9 +74,7 @@ def _missing_segment_record(row_index, row, segment_path: Path, jump_type: int, 
 
 
 def _segment_quality_record(row_index, row, segment_path: Path, jump_type: int, success: int, saturation_threshold: float) -> dict:
-    import pandas as pd
-
-    segment = pd.read_csv(segment_path)
+    segment = load_segment_dataframe(segment_path)
     duration_ms = float(segment["ms"].iloc[-1] - segment["ms"].iloc[0]) if len(segment) > 1 else 0.0
     max_abs_gyr_x = float(segment["Gyr_X"].abs().max()) if "Gyr_X" in segment else 0.0
     max_abs_acc_x = float(segment["Acc_X"].abs().max()) if "Acc_X" in segment else 0.0
@@ -178,3 +177,9 @@ def _safe_float(value, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _segment_exists_in_hdf5(segment_path: Path) -> bool:
+    from synergie.services.hdf5_archive_service import hdf5_segment_paths
+
+    return str(segment_path).replace("\\", "/") in hdf5_segment_paths()

@@ -15,12 +15,14 @@ from synergie.config import (
     DEFAULT_DETECTION_THRESHOLD,
     DEFAULT_SMOOTHING_SIGMA,
     GYRO_SATURATION_WARNING_THRESHOLD,
+    JUMP_WINDOW_FRAMES,
     SEGMENT_FRAMES_BEFORE_TAKEOFF,
     SUCCESS_WINDOW_START,
     TYPE_WINDOW_START,
     TYPE_WINDOW_FRAMES,
 )
-from synergie.services.signal_cleaning_service import clean_acceleration_outliers
+from synergie.services.signal_cleaning_service import clean_imu_outliers
+from synergie.services.hdf5_archive_service import hdf5_segment_paths, load_segment_dataframe
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -115,6 +117,8 @@ class SynergieToolsApp:
         self.add_jump_sigma_var = tk.IntVar(value=DEFAULT_SMOOTHING_SIGMA)
         self.add_jump_gap_var = tk.IntVar(value=DEFAULT_COMBINATION_GAP_FRAMES)
         self.add_jump_candidates_var = tk.StringVar(value=[])
+        self.add_jump_takeoff_video_var = tk.StringVar(value="")
+        self.add_jump_landing_video_var = tk.StringVar(value="")
         self.process_type_model_var = tk.StringVar()
         self.process_success_model_var = tk.StringVar()
         self.annotation_video_path_var = tk.StringVar()
@@ -186,6 +190,7 @@ class SynergieToolsApp:
         self.window_offsets_var = tk.StringVar(value="-60,-40,-20,0")
         self.detection_review_summary_var = tk.StringVar(value="Run the review scan to inspect false positives and false negatives.")
         self.detection_review_records_var = tk.StringVar(value=[])
+        self.inspect_sync_impacts_var = tk.StringVar(value=[])
         self.detection_tuning_summary_var = tk.StringVar(value="No threshold sweep run yet.")
 
         self.inspect_csv_path_var = tk.StringVar()
@@ -207,6 +212,7 @@ class SynergieToolsApp:
         self.inspect_dataframe = None
         self.inspect_session = None
         self.detected_jumps: list = []
+        self.detected_sync_impacts: list = []
         self._new_data_files_cache: list[dict] = []
         self._annotation_files_cache: list[Path] = []
         self._annotation_video_match_cache: list[dict] = []
@@ -262,6 +268,7 @@ class SynergieToolsApp:
         self.annotation_video_frame_count = 0
         self.annotation_video_duration_ms = 0.0
         self.annotation_video_current_ms = 0.0
+        self.annotation_video_cache_note = ""
         self._annotation_video_photo = None
         self._annotation_playback_after_id = None
         self.annotation_video_popup = None
@@ -629,6 +636,16 @@ class SynergieToolsApp:
         inspect_button.grid(row=0, column=0, sticky="w")
         self._add_tooltip(inspect_button, "Charge le CSV et recalcule les sauts avec les seuils visibles.")
         ttk.Button(actions, text="Refresh plots", command=self._redraw_plots).grid(row=0, column=1, sticky="w", padx=(8, 0))
+
+        ttk.Label(controls, text="Sync impacts").grid(row=10, column=0, sticky="nw", pady=(12, 0))
+        self.inspect_sync_impacts_listbox = tk.Listbox(
+            controls,
+            listvariable=self.inspect_sync_impacts_var,
+            height=4,
+            exportselection=False,
+        )
+        self.inspect_sync_impacts_listbox.grid(row=10, column=1, columnspan=2, sticky="ew", padx=8, pady=(12, 0))
+        self._add_tooltip(self.inspect_sync_impacts_listbox, "Impacts probables au debut du CSV pour valider la synchronisation video/IMU.")
 
         jump_frame = ttk.LabelFrame(parent, text="Detected Jumps", padding=12)
         jump_frame.grid(row=1, column=0, sticky="nsew", padx=(0, 12))
@@ -3915,6 +3932,10 @@ class SynergieToolsApp:
         buttons.grid(row=2, column=0, columnspan=3, sticky="w", padx=12, pady=(0, 8))
         ttk.Button(buttons, text="Detect candidates", command=self._detect_add_jump_candidates).grid(row=0, column=0, sticky="w")
         ttk.Button(buttons, text="Add selected jump", command=self._add_selected_jump_candidate).grid(row=0, column=1, sticky="w", padx=(8, 0))
+        ttk.Button(buttons, text="Use video takeoff", command=lambda: self._capture_add_jump_video_bound("takeoff")).grid(row=0, column=2, sticky="w", padx=(18, 0))
+        ttk.Label(buttons, textvariable=self.add_jump_takeoff_video_var, width=14).grid(row=0, column=3, sticky="w", padx=(4, 0))
+        ttk.Button(buttons, text="Use video landing", command=lambda: self._capture_add_jump_video_bound("landing")).grid(row=0, column=4, sticky="w", padx=(10, 0))
+        ttk.Label(buttons, textvariable=self.add_jump_landing_video_var, width=14).grid(row=0, column=5, sticky="w", padx=(4, 0))
 
         self.add_jump_candidates_listbox = tk.Listbox(popup, listvariable=self.add_jump_candidates_var, height=8, exportselection=False)
         self.add_jump_candidates_listbox.grid(row=3, column=0, columnspan=3, sticky="ew", padx=12, pady=(0, 8))
@@ -4045,6 +4066,53 @@ class SynergieToolsApp:
         self.add_jump_figure.tight_layout()
         self.add_jump_canvas.draw_idle()
 
+    def _capture_add_jump_video_bound(self, bound: str) -> None:
+        if self.annotation_video_capture is None:
+            messagebox.showwarning("Synergie Tools", "Load the session video first.")
+            return
+        formatted = self._format_video_ms(self.annotation_video_current_ms)
+        if bound == "takeoff":
+            self.add_jump_takeoff_video_var.set(formatted)
+        else:
+            self.add_jump_landing_video_var.set(formatted)
+        self.status_var.set(f"Captured manual jump {bound}: {formatted}")
+
+    def _video_bound_to_sensor_ms(self, video_text: str, sensor_id: str, impact_offset_ms: float) -> float | None:
+        text = str(video_text or "").strip()
+        if not text:
+            return None
+        try:
+            minutes_text, rest = text.split(":", 1)
+            seconds_text, millis_text = rest.split(".", 1)
+            video_ms = (int(minutes_text) * 60 + int(seconds_text)) * 1000 + int(millis_text[:3].ljust(3, "0"))
+        except ValueError:
+            return None
+        sync_offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, sensor_id)
+        return float(video_ms) - sync_offset_ms + float(impact_offset_ms)
+
+    def _manual_segment_for_bounds(self, candidate: dict, start_ms: float):
+        session_df = candidate["session"].df
+        start_index = int((session_df["ms"] - float(start_ms)).abs().idxmin())
+        segment_start = max(0, start_index - SEGMENT_FRAMES_BEFORE_TAKEOFF)
+        segment_end = min(len(session_df), segment_start + JUMP_WINDOW_FRAMES)
+        if segment_end - segment_start < JUMP_WINDOW_FRAMES:
+            segment_start = max(0, segment_end - JUMP_WINDOW_FRAMES)
+        segment = session_df.iloc[segment_start:segment_end].copy()
+        segment["Combination"] = int(candidate["jump"].combinate)
+        return segment, start_index
+
+    def _rotation_between_ms(self, frame, start_ms: float, end_ms: float) -> float:
+        if end_ms <= start_ms or not {"ms", "SampleTimeFine", "Gyr_X"}.issubset(frame.columns):
+            return 0.0
+        interval = frame[(frame["ms"] >= float(start_ms)) & (frame["ms"] <= float(end_ms))].copy()
+        interval = interval[interval["Gyr_X"].abs() <= 1e6]
+        if len(interval) < 2:
+            return 0.0
+        timestamps = interval["SampleTimeFine"].to_numpy(dtype="float64")
+        speeds = interval["Gyr_X"].to_numpy(dtype="float64")[:-1]
+        dt = (timestamps[1:] - timestamps[:-1]) / 1e6
+        return abs(float((speeds * dt).sum()) / 360.0)
+
     def _add_selected_jump_candidate(self) -> None:
         candidate = self._selected_add_jump_candidate()
         if candidate is None or self.annotation_dataframe is None or self.annotation_file_path is None:
@@ -4057,10 +4125,20 @@ class SynergieToolsApp:
         segment_dir = Path(str(template.get("path", self.annotation_file_path.parent))).parent
         segment_dir.mkdir(parents=True, exist_ok=True)
         segment_path = segment_dir / f"manual_sensor{sensor_id}_jump{len(self.annotation_dataframe) + 1:03d}.csv"
-        jump.df.to_csv(segment_path, index=False)
 
         impact_offset_ms = float(template.get("impact_offset_ms", 0.0) or 0.0)
-        synced_start_ms = round(float(jump.startTimestamp) - impact_offset_ms, 3)
+        manual_start_ms = self._video_bound_to_sensor_ms(self.add_jump_takeoff_video_var.get(), sensor_id, impact_offset_ms)
+        manual_end_ms = self._video_bound_to_sensor_ms(self.add_jump_landing_video_var.get(), sensor_id, impact_offset_ms)
+        start_ms = float(manual_start_ms) if manual_start_ms is not None else float(jump.startTimestamp)
+        end_ms = float(manual_end_ms) if manual_end_ms is not None else float(jump.endTimestamp)
+        if end_ms <= start_ms:
+            messagebox.showwarning("Synergie Tools", "Landing must be after takeoff.")
+            return
+        segment, _start_index = self._manual_segment_for_bounds(candidate, start_ms)
+        segment.to_csv(segment_path, index=False)
+
+        synced_start_ms = round(start_ms - impact_offset_ms, 3)
+        rotations = self._rotation_between_ms(candidate["session"].df, start_ms, end_ms)
         normalized_segment_path = str(segment_path).replace("\\", "/")
         new_row = dict(template)
         new_row.update(
@@ -4072,16 +4150,18 @@ class SynergieToolsApp:
                 "skater": template.get("skater", f"sensor_{sensor_id}"),
                 "athlete_id": template.get("athlete_id", f"sensor_{sensor_id}"),
                 "success": 2,
-                "rotations": round(float(jump.rotation), 1),
+                "rotations": round(float(rotations), 1),
                 "source_file": candidate["raw_path"].name,
                 "sensor_id": sensor_id,
                 "annotation_status": "pending",
                 "video_status": "visible",
-                "detection_status": "detected_jump",
-                "start_ms": round(float(jump.startTimestamp), 3),
-                "end_ms": round(float(jump.endTimestamp), 3),
+                "detection_status": "manual_missing_jump",
+                "start_ms": round(start_ms, 3),
+                "end_ms": round(end_ms, 3),
                 "synced_start_ms": synced_start_ms,
                 "added_by": "add_jump_popup",
+                "manual_takeoff_video_ms": self.add_jump_takeoff_video_var.get(),
+                "manual_landing_video_ms": self.add_jump_landing_video_var.get(),
                 "detection_threshold": float(self.add_jump_threshold_var.get()),
                 "smoothing_sigma": float(self.add_jump_sigma_var.get()),
                 "combination_gap_frames": int(self.add_jump_gap_var.get()),
@@ -4204,12 +4284,14 @@ class SynergieToolsApp:
         if not path.exists():
             messagebox.showerror("Synergie Tools", f"Video file not found:\n{path}")
             return
+        cache_result = operations.cached_video_path(path)
+        open_path = Path(cache_result["path"])
 
         self._stop_annotation_playback()
         self._release_annotation_video()
-        capture = cv2.VideoCapture(str(path))
+        capture = cv2.VideoCapture(str(open_path))
         if not capture.isOpened():
-            messagebox.showerror("Synergie Tools", f"Unable to open video:\n{path}")
+            messagebox.showerror("Synergie Tools", f"Unable to open video:\n{open_path}")
             return
 
         fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
@@ -4225,7 +4307,9 @@ class SynergieToolsApp:
         self.annotation_video_path_var.set(str(path))
         self.annotation_video_directory_var.set(str(path.parent))
         self.annotation_video_slider.configure(to=max(duration_ms, 1.0))
-        self.annotation_video_info_var.set(f"{path.name} | fps={fps:.2f}")
+        cache_text = " | cached locally" if cache_result["from_cache"] else ""
+        self.annotation_video_cache_note = cache_text
+        self.annotation_video_info_var.set(f"{path.name} | fps={fps:.2f}{cache_text}")
         if persist and self.annotation_file_path is not None:
             self.annotation_metadata = operations.set_annotation_video_path(self.annotation_file_path, path)
             self.annotation_metadata = operations.set_annotation_video_directory(self.annotation_file_path, path.parent)
@@ -4266,7 +4350,7 @@ class SynergieToolsApp:
         self.annotation_video_info_var.set(
             f"{Path(self.annotation_video_path_var.get()).name} | "
             f"{self.annotation_video_frame_count} frames | "
-            f"{duration_text}"
+            f"{duration_text}{self.annotation_video_cache_note}"
         )
 
     def _on_annotation_video_slider_released(self, _event=None) -> None:
@@ -4422,11 +4506,11 @@ class SynergieToolsApp:
         if self.annotation_ax is None:
             return
         path = Path(str(row["path"]))
-        if not path.exists():
+        if not path.exists() and str(path).replace("\\", "/") not in hdf5_segment_paths():
             self._draw_placeholder_annotation_plot()
             return
-        dataframe = pd.read_csv(path)
-        dataframe, _cleaning_report = clean_acceleration_outliers(dataframe, limit_g=ACCELERATION_ABERRANT_LIMIT_G)
+        dataframe = load_segment_dataframe(path)
+        dataframe, _cleaning_report = clean_imu_outliers(dataframe, acceleration_limit_g=ACCELERATION_ABERRANT_LIMIT_G)
         sensor_id = str(row.get("sensor_id", ""))
         self.annotation_ax.clear()
         if self.annotation_acc_ax is not None:
@@ -4866,12 +4950,24 @@ class SynergieToolsApp:
         self._run_in_thread(action, "Unable to inspect IMU data.")
 
     def _apply_inspection_results(self, dataframe, session) -> None:
+        from synergie.services.sync_impact_service import detect_sync_impacts
+
         self.inspect_dataframe = dataframe
         self.inspect_session = session
         self.detected_jumps = session.jumps
+        self.detected_sync_impacts = detect_sync_impacts(session.df)
+        self.inspect_sync_impacts_var.set(
+            [
+                f"{index + 1:02d} | {impact.ms:.0f} ms | strength {impact.strength:.2f} | {impact.confidence}"
+                for index, impact in enumerate(self.detected_sync_impacts)
+            ]
+        )
         self._refresh_jump_list()
         self._redraw_plots()
-        self.status_var.set(f"Inspection ready: {len(self.detected_jumps)} jumps detected")
+        self.status_var.set(
+            f"Inspection ready: {len(self.detected_jumps)} jumps detected | "
+            f"{len(self.detected_sync_impacts)} sync impact(s)"
+        )
 
     def _refresh_jump_list(self) -> None:
         self.jump_listbox.delete(0, tk.END)
@@ -4931,6 +5027,10 @@ class SynergieToolsApp:
             axis.axvline(bounds["detected"][0], color="crimson", linestyle=":", linewidth=1.2)
             axis.axvline(bounds["detected"][1], color="crimson", linestyle=":", linewidth=1.2)
 
+    def _draw_sync_impacts(self, axis, alpha_scale: float = 1.0) -> None:
+        for impact in self.detected_sync_impacts:
+            axis.axvline(impact.ms, color="darkorange", linestyle="-.", linewidth=1.0, alpha=0.75 * alpha_scale)
+
     def _redraw_plots(self) -> None:
         if self.inspect_session is None:
             self._draw_placeholder_plots()
@@ -4986,6 +5086,8 @@ class SynergieToolsApp:
                 selected_center_ms = center_ms
                 selected_center_y = center_y
 
+        self._draw_sync_impacts(overview_ax)
+
         if selected_center_ms is not None and selected_center_y is not None:
             overview_ax.plot(
                 selected_center_ms,
@@ -5004,6 +5106,7 @@ class SynergieToolsApp:
         overview_ax.plot([], [], color="royalblue", linewidth=6, alpha=0.35, label="Type window")
         overview_ax.plot([], [], color="seagreen", linewidth=6, alpha=0.35, label="Success window")
         overview_ax.plot([], [], color="crimson", linewidth=2, linestyle=":", label="Gyro saturation")
+        overview_ax.plot([], [], color="darkorange", linewidth=1.5, linestyle="-.", label="Sync impact")
         overview_ax.plot([], [], marker="o", markersize=6, color="black", markerfacecolor="white", linestyle="None", label="Detected jump center")
         if selected_center_ms is not None:
             overview_ax.plot([], [], marker="*", markersize=12, color="gold", markeredgecolor="black", linestyle="None", label="Selected jump")
@@ -5047,6 +5150,7 @@ class SynergieToolsApp:
         )
 
         self._draw_jump_windows(zoom_ax, session_df, jump, alpha_scale=1.5)
+        self._draw_sync_impacts(zoom_ax, alpha_scale=1.2)
         bounds = self._jump_window_bounds_ms(session_df, jump)
         zoom_ax.axvline(bounds["detected"][0], color="black", linestyle=":")
         zoom_ax.axvline(bounds["detected"][1], color="black", linestyle=":")
@@ -5058,6 +5162,7 @@ class SynergieToolsApp:
         zoom_ax.plot([], [], color="royalblue", linewidth=6, alpha=0.35, label="Type window")
         zoom_ax.plot([], [], color="seagreen", linewidth=6, alpha=0.35, label="Success window")
         zoom_ax.plot([], [], color="crimson", linewidth=2, linestyle=":", label="Gyro saturation")
+        zoom_ax.plot([], [], color="darkorange", linewidth=1.5, linestyle="-.", label="Sync impact")
         zoom_lines, zoom_labels = zoom_ax.get_legend_handles_labels()
         zoom_right_lines, zoom_right_labels = zoom_right_ax.get_legend_handles_labels()
         zoom_ax.legend(zoom_lines + zoom_right_lines, zoom_labels + zoom_right_labels, loc="upper right", fontsize=8)

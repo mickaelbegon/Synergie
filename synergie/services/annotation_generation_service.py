@@ -11,6 +11,7 @@ from synergie.services.new_data_service import (
 )
 from synergie.services.session_service import suggest_session_from_imu_file
 from synergie.services.workflow_state_service import record_pending_session
+from synergie.services.sync_impact_service import detect_sync_impacts
 
 
 def process_new_imu_file_for_annotation(
@@ -98,21 +99,8 @@ def process_new_imu_session_for_annotation(
 
 def estimate_sensor_impact_offset_ms(session_df) -> float:
     """Estimate the first strong impact timestamp for one sensor session."""
-    import numpy as np
-
-    if session_df is None or session_df.empty:
-        return 0.0
-    acc_norm = np.sqrt(
-        np.square(session_df["Acc_X"].to_numpy())
-        + np.square(session_df["Acc_Y"].to_numpy())
-        + np.square(session_df["Acc_Z"].to_numpy())
-    )
-    impact_signal = np.abs(np.diff(acc_norm, prepend=acc_norm[0]))
-    search_window = min(len(impact_signal), 600)
-    if search_window == 0:
-        return 0.0
-    impact_index = int(np.argmax(impact_signal[:search_window]))
-    return float(session_df.iloc[impact_index]["ms"])
+    impacts = detect_sync_impacts(session_df, max_candidates=1, search_ms=5000.0)
+    return impacts[0].ms if impacts else 0.0
 
 
 def _records_for_sensor(file_metadata: dict, session, sensor_segment_root: Path, impact_offset_ms: float) -> list[dict]:

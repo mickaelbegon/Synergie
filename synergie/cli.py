@@ -43,6 +43,33 @@ def build_parser() -> argparse.ArgumentParser:
     repredict_parser = subparsers.add_parser("repredict", help="Recalculer les predictions des enregistrements bruts.")
     repredict_parser.add_argument("--raw-root", default="data/raw")
 
+    backup_parser = subparsers.add_parser("export-backup-manifest", help="Exporter un manifest lisible des sessions et essais.")
+    backup_parser.add_argument("--output", default="data/backup_manifest.json")
+    backup_parser.add_argument("--new-root", default="data/new")
+    backup_parser.add_argument("--pending-root", default="data/pending")
+    backup_parser.add_argument("--annotated-root", default="data/annotated")
+    backup_parser.add_argument("--training-dataset", default="data/annotated/total")
+
+    hdf5_parser = subparsers.add_parser("export-hdf5-archive", help="Exporter une archive HDF5 compacte derivee du manifest.")
+    hdf5_parser.add_argument("--output", default="data/synergie_archive.h5")
+    hdf5_parser.add_argument("--new-root", default="data/new")
+    hdf5_parser.add_argument("--pending-root", default="data/pending")
+    hdf5_parser.add_argument("--annotated-root", default="data/annotated")
+    hdf5_parser.add_argument("--training-dataset", default="data/annotated/total")
+    hdf5_parser.add_argument("--no-segments", action="store_true", help="Indexer les essais sans copier les segments numeriques.")
+
+    cleanup_parser = subparsers.add_parser("plan-segment-cleanup", help="Lister les CSV de segments deja representes dans le HDF5.")
+    cleanup_parser.add_argument("--archive", default="data/synergie_archive.h5")
+    cleanup_parser.add_argument("--root", action="append", dest="roots", help="Limiter a un dossier; peut etre repete.")
+    cleanup_parser.add_argument("--limit", type=int, default=20)
+
+    archive_csv_parser = subparsers.add_parser("archive-segment-csvs", help="Archiver les CSV de segments deja couverts par le HDF5.")
+    archive_csv_parser.add_argument("--archive", default="data/synergie_archive.h5")
+    archive_csv_parser.add_argument("--destination", default="data/segment_csv_archive")
+    archive_csv_parser.add_argument("--root", action="append", dest="roots", help="Limiter a un dossier; peut etre repete.")
+    archive_csv_parser.add_argument("--limit", type=int, default=20)
+    archive_csv_parser.add_argument("--apply", action="store_true", help="Deplacer reellement les fichiers. Sans ce flag, dry-run seulement.")
+
     parser.add_argument("-t", "--legacy-train", choices=["type", "success"], help=argparse.SUPPRESS)
     parser.add_argument("-repredict", action="store_true", dest="legacy_repredict", help=argparse.SUPPRESS)
     return parser
@@ -148,6 +175,66 @@ def run_command(args: argparse.Namespace) -> int:
     if args.command == "repredict":
         processed = operations.repredict_raw_trainings(args.raw_root)
         print(f"{processed} training files processed.")
+        return 0
+
+    if args.command == "export-backup-manifest":
+        path = operations.write_backup_manifest(
+            args.output,
+            new_root=args.new_root,
+            pending_root=args.pending_root,
+            annotated_root=args.annotated_root,
+            training_dataset_root=args.training_dataset,
+        )
+        print(path)
+        return 0
+
+    if args.command == "export-hdf5-archive":
+        result = operations.export_hdf5_archive(
+            args.output,
+            new_root=args.new_root,
+            pending_root=args.pending_root,
+            annotated_root=args.annotated_root,
+            training_dataset_root=args.training_dataset,
+            include_segments=not args.no_segments,
+        )
+        print(result["archive_path"])
+        print(f"trials_indexed={result['trials_indexed']}")
+        print(f"segments_written={result['segments_written']}")
+        print(f"segments_missing={result['segments_missing']}")
+        return 0
+
+    if args.command == "plan-segment-cleanup":
+        result = operations.plan_segment_csv_cleanup(args.archive, roots=args.roots)
+        print(f"archive={result['archive_path']}")
+        print(f"candidate_count={result['candidate_count']}")
+        print(f"candidate_mb={result['candidate_bytes'] / 1024 / 1024:.2f}")
+        for candidate in result["candidates"][: max(0, args.limit)]:
+            print(f"{candidate['path']} ({candidate['size_bytes'] / 1024:.1f} KB)")
+        if result["candidate_count"] > args.limit:
+            print(f"... {result['candidate_count'] - args.limit} more")
+        return 0
+
+    if args.command == "archive-segment-csvs":
+        result = operations.archive_segment_csvs(
+            args.archive,
+            destination_root=args.destination,
+            roots=args.roots,
+            apply=args.apply,
+        )
+        mode = "APPLY" if result["applied"] else "DRY-RUN"
+        print(f"mode={mode}")
+        print(f"archive={result['archive_path']}")
+        print(f"destination={result['destination_root']}")
+        print(f"candidate_count={result['candidate_count']}")
+        print(f"candidate_mb={result['candidate_bytes'] / 1024 / 1024:.2f}")
+        print(f"moved_count={result['moved_count']}")
+        print(f"moved_mb={result['moved_bytes'] / 1024 / 1024:.2f}")
+        for candidate in result["candidates"][: max(0, args.limit)]:
+            print(f"{candidate['path']} ({candidate['size_bytes'] / 1024:.1f} KB)")
+        if result["candidate_count"] > args.limit:
+            print(f"... {result['candidate_count'] - args.limit} more")
+        if not result["applied"]:
+            print("No files moved. Re-run with --apply to archive these CSV files.")
         return 0
 
     raise ValueError(f"Unknown command: {args.command}")

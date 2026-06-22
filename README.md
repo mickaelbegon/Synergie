@@ -503,6 +503,52 @@ La logique applicative a ete progressivement extraite de `synergie/operations.py
 - `model_registry_service.py` : registre et audit des modeles disponibles
 - `video_service.py` : videos de seance et rapprochement temporel
 
+### Strategie espace disque
+
+Les CSV texte prennent beaucoup de place, surtout parce que les memes echantillons IMU peuvent etre recopies dans plusieurs segments. La strategie recommandee est de garder les sessions brutes comme source canonique, de stocker les annotations avec les indices/temps takeoff-landing, puis de generer des fenetres compactes en cache pour l'entrainement.
+
+Voir [docs/storage_strategy.md](C:\Users\micka\Documents\GIT\Synergie_Data\Synergie_Data\docs\storage_strategy.md) pour le plan de migration propose.
+
+### Manifest de sauvegarde
+
+Pour creer un fichier lisible qui regroupe les sessions, les essais en attente, les essais finalises et les metadonnees video/synchro :
+
+```bash
+python main.py export-backup-manifest --output data/backup_manifest.json
+```
+
+Le fichier JSON produit ne duplique pas les gros CSV/video. Il sert de carte de sauvegarde/audit avec les chemins, les statuts, les labels, les temps takeoff/landing et les metadonnees utiles pour comprendre ou reconstruire le dataset.
+
+Pour creer en plus une archive HDF5 compacte derivee du manifest :
+
+```bash
+python main.py export-hdf5-archive --output data/synergie_archive.h5
+```
+
+L'approche hybride recommandee est de garder `backup_manifest.json` comme carte lisible et `synergie_archive.h5` comme conteneur numerique rapide. Le HDF5 embarque le manifest et les segments IMU compresses en `float32`; il peut etre regenere depuis les CSV et ne devrait pas etre versionne dans Git.
+
+Pour verifier quels CSV de segments sont deja representes dans le HDF5 avant de les archiver ou supprimer manuellement :
+
+```bash
+python main.py plan-segment-cleanup --archive data/synergie_archive.h5
+```
+
+Cette commande ne supprime rien. Elle donne seulement le nombre de fichiers candidats et l'espace disque recuperable.
+
+Pour archiver les CSV couverts tout en gardant une possibilite de retour arriere, utiliser d'abord le dry-run :
+
+```bash
+python main.py archive-segment-csvs --archive data/synergie_archive.h5 --destination data/segment_csv_archive
+```
+
+Puis, seulement apres validation :
+
+```bash
+python main.py archive-segment-csvs --archive data/synergie_archive.h5 --destination data/segment_csv_archive --apply
+```
+
+Cette commande deplace les CSV dans `data/segment_csv_archive` en conservant leur chemin relatif. Les lecteurs principaux essaient d'abord le HDF5 puis reviennent au CSV si necessaire.
+
 Cette separation permet de garder `operations.py` comme une facade stable tout en rendant chaque domaine testable independamment.
 
 ## Modeles IA

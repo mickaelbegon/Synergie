@@ -1,4 +1,7 @@
 data/
+data/**/*.h5
+data/**/backup_manifest.json
+data/**/synergie_archive.h5
 **/__pycache__
 /s2m-skating-firebase-adminsdk-3ofmb-*.json
 /config/s2m-skating-firebase-adminsdk-3ofmb-*.json

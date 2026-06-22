@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
+import hashlib
 
 
 _TEXT_DATETIME_PATTERNS = (
@@ -24,6 +25,27 @@ def list_video_files(directory: str | Path, recursive: bool = False) -> list[Pat
     suffixes = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
     iterator = directory_path.rglob("*") if recursive else directory_path.iterdir()
     return sorted(path for path in iterator if path.is_file() and path.suffix.lower() in suffixes)
+
+
+def cached_video_path(video_path: str | Path, cache_root: str | Path = ".tmp/video_cache") -> dict:
+    """Return a local cached copy for videos opened from another drive or a network path."""
+    source = Path(video_path).resolve()
+    workspace_drive = Path.cwd().resolve().drive.lower()
+    source_drive = source.drive.lower()
+    should_cache = source_drive != workspace_drive or str(source).startswith("\\\\")
+    if not should_cache:
+        return {"path": source, "source_path": source, "from_cache": False, "copied": False}
+
+    stat = source.stat()
+    fingerprint = hashlib.sha1(f"{source}|{stat.st_size}|{int(stat.st_mtime)}".encode("utf-8")).hexdigest()[:16]
+    cache_dir = Path(cache_root)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cached = cache_dir / f"{source.stem}-{fingerprint}{source.suffix.lower()}"
+    copied = False
+    if not cached.exists() or cached.stat().st_size != stat.st_size:
+        shutil.copy2(source, cached)
+        copied = True
+    return {"path": cached.resolve(), "source_path": source, "from_cache": True, "copied": copied}
 
 
 def annotation_reference_datetime(annotation_csv_path: str | Path, annotation_rows=None) -> datetime | None:

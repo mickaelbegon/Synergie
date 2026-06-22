@@ -50,6 +50,8 @@ from synergie.services.detection_tuning_service import (
     save_optimized_detection_parameters,
 )
 from synergie.services.data_inventory_service import build_data_inventory
+from synergie.services.backup_manifest_service import build_backup_manifest, write_backup_manifest
+from synergie.services.hdf5_archive_service import archive_segment_csvs, export_hdf5_archive, plan_segment_csv_cleanup
 from synergie.services.quality_service import analyze_jump_quality
 from synergie.services.signal_importance_service import compute_signal_importance
 from synergie.services.rotation_audit_service import audit_turn_estimation, load_turn_audit_signal
@@ -100,6 +102,7 @@ from synergie.services.training_service import (
 )
 from synergie.services.video_service import (
     annotation_reference_datetime,
+    cached_video_path,
     list_video_files,
     parse_datetime_from_text as _parse_datetime_from_text,
     parse_datetime_value as _parse_datetime_value,

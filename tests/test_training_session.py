@@ -4,7 +4,7 @@ import unittest
 try:
     import numpy as np
     import pandas as pd
-    from core.data_treatment.data_generation.trainingSession import trainingSession
+    from core.data_treatment.data_generation.trainingSession import gather_jumps, trainingSession
 
     HAS_NUMERIC_STACK = True
 except Exception:
@@ -58,6 +58,34 @@ class TrainingSessionTests(unittest.TestCase):
         jump = session.jumps[0]
         self.assertAlmostEqual(jump.rotation, abs(jump.signed_rotation))
         self.assertIn(jump.rotation_direction, {"positive", "negative", "unknown"})
+
+    def test_gather_jumps_pairs_begin_with_next_valid_end(self):
+        frame = self._build_dataframe().iloc[:12].copy()
+        frame["ms"] = (frame["SampleTimeFine"] - frame["SampleTimeFine"].iloc[0]) / 1000
+        frame["Gyr_X_unfiltered"] = frame["Gyr_X"]
+        frame["X_gyr_second_derivative_crossing"] = [
+            True,
+            False,
+            False,
+            True,
+            True,
+            False,
+            False,
+            True,
+            True,
+            True,
+            False,
+            False,
+        ]
+
+        jumps = gather_jumps(frame, combination_gap_frames=2)
+
+        self.assertEqual(len(jumps), 2)
+        self.assertLess(jumps[0].start, jumps[0].end)
+        self.assertEqual(jumps[0].start, 2)
+        self.assertEqual(jumps[0].end, 4)
+        self.assertEqual(jumps[1].start, 6)
+        self.assertEqual(jumps[1].end, 9)
 
 
 if __name__ == "__main__":
