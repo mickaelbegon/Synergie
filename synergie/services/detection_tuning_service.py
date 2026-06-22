@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 
 from synergie.services.annotation_service import annotation_review_status_from_row
+from synergie.services.hdf5_archive_service import hdf5_segment_paths, load_segment_dataframe
 
 
 OPTIMIZED_DETECTION_PARAMETERS_FILE = Path("config") / "optimized_detection_parameters.json"
@@ -66,7 +67,7 @@ def optimize_detection_parameters(
         for threshold in thresholds:
             true_positive = true_negative = false_positive = false_negative = 0
             for segment in labeled_segments:
-                data = pd.read_csv(segment["path"])
+                data = load_segment_dataframe(segment["path"])
                 smoothed = sp.ndimage.gaussian_filter1d(data["Gyr_X"].to_numpy(), sigma=float(sigma))
                 second_derivative = np.diff(np.diff(smoothed, prepend=smoothed[0]), prepend=0.0)
                 predicted = bool(np.any(second_derivative <= float(threshold)))
@@ -149,7 +150,7 @@ def _load_reviewed_segments(root: str | Path) -> list[dict]:
             if status not in {"normal", "weird_signal", "jump_drill", "not_a_jump", "not_a_jump_or_drill", "manual_missing_jump"}:
                 continue
             segment_path = Path(str(row.get("path", "")))
-            if not segment_path.exists():
+            if not segment_path.exists() and str(segment_path).replace("\\", "/") not in hdf5_segment_paths():
                 continue
             labeled_segments.append(
                 {

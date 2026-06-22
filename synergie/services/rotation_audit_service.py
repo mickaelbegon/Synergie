@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from synergie.services.annotation_service import JUMP_TYPE_LABELS
+from synergie.config import DEFAULT_DETECTION_THRESHOLD, DEFAULT_SMOOTHING_SIGMA
+from synergie.services.hdf5_archive_service import load_segment_dataframe
 
 
 def audit_turn_estimation(
@@ -139,19 +141,32 @@ def _measured_rotation_from_segment(segment_path) -> float | None:
 
 
 def _load_segment_frame(segment_path):
-    import pandas as pd
-
     path = Path(str(segment_path))
-    if not path.exists():
+    if not str(segment_path or "").strip():
         return None
-    frame = pd.read_csv(path)
+    try:
+        frame = load_segment_dataframe(path)
+    except FileNotFoundError:
+        return None
     if not {"SampleTimeFine", "Gyr_X"}.issubset(frame.columns):
         return None
     if "X_gyr_second_derivative_crossing" not in frame:
-        from core.data_treatment.data_generation.trainingSession import trainingSession
-
-        frame = trainingSession(frame).df
+        frame = _add_rotation_detection_columns(frame)
     return frame
+
+
+def _add_rotation_detection_columns(frame):
+    import scipy as sp
+
+    prepared = frame.copy()
+    prepared["Gyr_X_smoothed"] = sp.ndimage.gaussian_filter1d(prepared["Gyr_X"], sigma=DEFAULT_SMOOTHING_SIGMA)
+    prepared["X_gyr_derivative"] = prepared["Gyr_X_smoothed"].diff()
+    prepared["X_gyr_second_derivative"] = prepared["X_gyr_derivative"].diff()
+    prepared["X_gyr_second_derivative_crossing"] = [
+        False if value > DEFAULT_DETECTION_THRESHOLD else True
+        for value in prepared["X_gyr_second_derivative"]
+    ]
+    return prepared
 
 
 def _rotation_interval_indices(frame) -> tuple[int, int] | None:

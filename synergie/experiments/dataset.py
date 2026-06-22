@@ -8,6 +8,7 @@ import pandas as pd
 
 import constants
 from synergie.config import SUCCESS_WINDOW_FRAMES, SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES, TYPE_WINDOW_START
+from synergie.services.hdf5_archive_service import load_segment_dataframe
 
 
 @dataclass
@@ -49,7 +50,7 @@ def load_classification_dataset(task: str, dataset_path: str) -> ClassificationD
         if row["success"] == 2 or row["type"] == 8:
             continue
 
-        jump_frame = pd.read_csv(_resolve_jump_path(dataset_root, row["path"]))
+        jump_frame = load_segment_dataframe(_resolve_jump_path(dataset_root, row["path"]))
         jump_frame = jump_frame[fields_to_keep]
 
         if task == "type":

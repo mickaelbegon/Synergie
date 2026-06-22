@@ -7,6 +7,7 @@ import pandas as pd
 
 import constants
 from synergie.config import JUMP_WINDOW_FRAMES, SUCCESS_WINDOW_FRAMES, SUCCESS_WINDOW_START, TYPE_WINDOW_FRAMES, TYPE_WINDOW_START
+from synergie.services.hdf5_archive_service import hdf5_segment_paths, load_segment_dataframe
 
 
 class PredictionService:
@@ -68,9 +69,9 @@ class PredictionService:
         valid_indices: list[int] = []
         for index, row in frame.iterrows():
             path = Path(str(row.get("path", "")))
-            if not path.exists():
+            if not path.exists() and str(path).replace("\\", "/") not in hdf5_segment_paths():
                 continue
-            segment = pd.read_csv(path)
+            segment = load_segment_dataframe(path)
             if len(segment) < JUMP_WINDOW_FRAMES:
                 continue
             segments.append(segment)

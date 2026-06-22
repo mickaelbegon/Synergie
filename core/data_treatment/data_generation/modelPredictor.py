@@ -4,6 +4,7 @@ import constants
 
 import numpy as np
 import pandas as pd
+from synergie.services.hdf5_archive_service import hdf5_segment_paths, load_segment_dataframe
 from synergie.services.prediction_service import PredictionService
 
 class ModelPredictor:
@@ -17,7 +18,7 @@ class ModelPredictor:
         data_jump = []
 
         for index,rows in df_jumps.iterrows():
-            df_onejump = pd.read_csv(os.path.join(dataset_path, rows["path"]))
+            df_onejump = _load_jump_frame(dataset_path, rows["path"])
             data_jump.append(df_onejump)
 
         predict_type, predict_success = self.predict(data_jump)
@@ -50,7 +51,7 @@ class ModelPredictor:
             precision.append((typePredict[typeCheck==i]==i).sum()/count)
         precision.append(total)
         return precision
-    
+
     def checksuccess(self, checkPath : str):
         df_check = pd.read_csv(os.path.join(checkPath, "jumplist.csv"))
         typeCheck = np.array(df_check["success"])
@@ -70,3 +71,10 @@ class ModelPredictor:
             precision.append((typePredict[typeCheck==i]==i).sum()/count)
         precision.append(total)
         return precision
+
+
+def _load_jump_frame(dataset_path: str, row_path) -> pd.DataFrame:
+    path_text = str(row_path)
+    if path_text.replace("\\", "/") in hdf5_segment_paths() or os.path.exists(path_text):
+        return load_segment_dataframe(path_text)
+    return load_segment_dataframe(os.path.join(dataset_path, path_text))

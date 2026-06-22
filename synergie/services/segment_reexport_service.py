@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from synergie.config import SEGMENT_FRAMES_AFTER_TAKEOFF, SEGMENT_FRAMES_BEFORE_TAKEOFF
+from synergie.services.hdf5_archive_service import load_segment_dataframe
 
 
 def ensure_pre_takeoff_context(dataset_path: str | Path, required_before_frames: int, *, progress_callback=None) -> dict:
@@ -86,7 +87,7 @@ def reexport_segment_with_context(
     from core.data_treatment.data_generation.trainingSession import trainingSession
 
     path = Path(segment_path)
-    segment = pd.read_csv(path)
+    segment = load_segment_dataframe(path)
     existing_before = len(segment) - SEGMENT_FRAMES_AFTER_TAKEOFF
     if existing_before >= frames_before_takeoff:
         return False
@@ -124,7 +125,7 @@ def reexport_segment_with_post_context(
     from core.data_treatment.data_generation.trainingSession import trainingSession
 
     path = Path(segment_path)
-    segment = pd.read_csv(path)
+    segment = load_segment_dataframe(path)
     # Historical segments were expanded on the left while keeping 180 frames after takeoff.
     existing_before = len(segment) - SEGMENT_FRAMES_AFTER_TAKEOFF
     existing_after = len(segment) - existing_before
