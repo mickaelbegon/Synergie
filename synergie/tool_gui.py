@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
+import tkinter.font as tkfont
 from importlib import util as importlib_util
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -84,7 +85,8 @@ class SynergieToolsApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Synergie Tools")
-        self.root.geometry("1280x860")
+        self._configure_responsive_fonts()
+        self.root.geometry(self._initial_geometry())
 
         self.status_var = tk.StringVar(value="Ready")
         self.csv_path_var = tk.StringVar()
@@ -106,6 +108,7 @@ class SynergieToolsApp:
         self.annotation_global_progress_var = tk.StringVar(value="All files pending annotations: 0")
         self.annotation_detection_diagnostic_var = tk.StringVar(value="Select a jump to see why the detector flagged it.")
         self.annotation_detection_warning_var = tk.StringVar(value="")
+        self.annotation_shortcuts_header_var = tk.StringVar(value="")
         self.annotation_show_legend_var = tk.BooleanVar(value=True)
         self.annotation_type_var = tk.StringVar(value="toe_loop")
         self.annotation_turn_var = tk.StringVar(value="")
@@ -292,69 +295,86 @@ class SynergieToolsApp:
         self._sync_slider_labels()
         self._refresh_session_file_lists()
 
+    def _configure_responsive_fonts(self) -> None:
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        self.small_screen = screen_width < 1400 or screen_height < 850
+        self.ui_font_size = 8 if self.small_screen else 9
+        self.header_font_size = 13 if self.small_screen else 16
+        self.section_font_size = 11 if self.small_screen else 13
+        self.diagnostic_font_size = 7 if self.small_screen else 8
+
+        for font_name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont", "TkCaptionFont", "TkSmallCaptionFont"):
+            try:
+                tkfont.nametofont(font_name).configure(size=self.ui_font_size)
+            except tk.TclError:
+                continue
+
+    def _initial_geometry(self) -> str:
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        width = min(1280, max(1024, screen_width - 80))
+        height = min(860, max(720, screen_height - 100))
+        return f"{width}x{height}"
+
     def _build_layout(self) -> None:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=1)
 
-        header = ttk.Frame(self.root, padding=12)
+        header = ttk.Frame(self.root, padding=(6, 3, 6, 2))
         header.grid(row=0, column=0, sticky="ew")
-        header.columnconfigure(0, weight=1)
+        header.columnconfigure(0, weight=0)
         header.columnconfigure(1, weight=1)
-        header.columnconfigure(2, weight=1)
-        ttk.Label(
+        self.annotation_shortcuts_header_label = ttk.Label(
             header,
-            text="Synergie Tools",
-            font=("Segoe UI", 16, "bold"),
-        ).grid(row=0, column=0, sticky="w")
-        ttk.Label(
-            header,
-            text="Pipeline: Data -> Review -> Models, avec les outils regroupes en grandes categories.",
-        ).grid(row=1, column=0, sticky="w")
-        ttk.Label(
-            header,
-            text=(
-                "Shortcuts: t/f/z/s/a = jump type | 1-4 = turns\n"
-                "c/r/n = chute/reussi/inconnu | u = unseen | x = weird signal\n"
-                "l = show/hide legend | Ctrl+S = save"
-            ),
-            justify=tk.CENTER,
+            textvariable=self.annotation_shortcuts_header_var,
+            justify=tk.LEFT,
             foreground="#666666",
-        ).grid(row=0, column=1, rowspan=2, sticky="n", padx=(24, 24))
-        ttk.Label(
+            font=("Segoe UI", self.diagnostic_font_size),
+        )
+        self.annotation_shortcuts_header_label.grid(row=0, column=0, rowspan=2, sticky="nw", padx=(0, 24))
+        self.annotation_detection_diagnostic_label = ttk.Label(
             header,
             textvariable=self.annotation_detection_diagnostic_var,
             justify=tk.LEFT,
-            wraplength=520,
-            font=("Segoe UI", 8),
-        ).grid(row=0, column=2, sticky="ne")
-        ttk.Label(
+            wraplength=920 if not self.small_screen else 720,
+            font=("Segoe UI", self.diagnostic_font_size),
+        )
+        self.annotation_detection_diagnostic_label.grid(row=0, column=1, sticky="new")
+        self.annotation_detection_warning_label = ttk.Label(
             header,
             textvariable=self.annotation_detection_warning_var,
             justify=tk.LEFT,
-            wraplength=520,
+            wraplength=920 if not self.small_screen else 720,
             foreground="firebrick",
-            font=("Segoe UI", 8),
-        ).grid(row=1, column=2, sticky="ne")
+            font=("Segoe UI", self.diagnostic_font_size),
+        )
+        self.annotation_detection_warning_label.grid(row=1, column=1, sticky="new")
 
         notebook = ttk.Notebook(self.root)
-        notebook.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        notebook.grid(row=1, column=0, sticky="nsew", padx=4, pady=(0, 4))
         self.notebook = notebook
 
-        workflow_tab = ttk.Frame(notebook, padding=12)
+        workflow_tab = ttk.Frame(notebook, padding=6)
         data_category_tab = ttk.Frame(notebook)
         review_category_tab = ttk.Frame(notebook)
         models_category_tab = ttk.Frame(notebook)
-        notes_tab = ttk.Frame(notebook, padding=12)
+        notes_tab = ttk.Frame(notebook, padding=6)
         notebook.add(workflow_tab, text="Start")
         notebook.add(data_category_tab, text="Data")
         notebook.add(review_category_tab, text="Review")
         notebook.add(models_category_tab, text="Models")
         notebook.add(notes_tab, text="Notes")
+        notebook.bind("<<NotebookTabChanged>>", lambda _event: self._update_annotation_shortcuts_header())
+        notebook.bind("<ButtonPress-1>", self._on_main_notebook_click, add="+")
 
         self._compact_page_vars: dict[str, tk.StringVar] = {}
+        self._compact_page_frames: dict[str, dict[str, ttk.Frame]] = {}
+        self._category_page_menus: dict[str, tk.Menu] = {}
         data_pages = self._build_compact_page_group(data_category_tab, "Data", ["Status", "Sessions", "New", "Process", "Annotate"])
         review_pages = self._build_compact_page_group(review_category_tab, "Review", ["Quality", "Dataset", "Turns", "Inspect IMU", "Detection"])
         models_pages = self._build_compact_page_group(models_category_tab, "Models", ["Train", "Importance", "Tune", "Windows", "Audit"])
+        self._build_category_tab_menus()
 
         inventory_tab = data_pages["Status"]
         sessions_tab = data_pages["Sessions"]
@@ -410,7 +430,7 @@ class SynergieToolsApp:
         self._build_rotation_audit_tab(rotation_audit_tab)
         self._build_notes_tab(notes_tab)
 
-        footer = ttk.Frame(self.root, padding=(12, 0, 12, 12))
+        footer = ttk.Frame(self.root, padding=(6, 0, 6, 6))
         footer.grid(row=2, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
         ttk.Label(footer, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
@@ -421,42 +441,59 @@ class SynergieToolsApp:
         return widget
 
     def _build_compact_page_group(self, parent: ttk.Frame, category: str, page_names: list[str]) -> dict[str, ttk.Frame]:
-        """Build compact sub-page navigation without a second row of tabs."""
+        """Build a stacked page group; main category tabs open page menus."""
         parent.columnconfigure(0, weight=1)
-        parent.rowconfigure(1, weight=1)
-
-        selector = ttk.Frame(parent, padding=(8, 4, 8, 0))
-        selector.grid(row=0, column=0, sticky="ew")
-        selector.columnconfigure(1, weight=1)
-        ttk.Label(selector, text=f"{category} view:").grid(row=0, column=0, sticky="w", padx=(0, 6))
-        page_var = tk.StringVar(value=page_names[0])
-        page_select = ttk.Combobox(
-            selector,
-            textvariable=page_var,
-            values=page_names,
-            state="readonly",
-            width=max(len(name) for name in page_names) + 2,
-        )
-        page_select.grid(row=0, column=1, sticky="w")
+        parent.rowconfigure(0, weight=1)
 
         content = ttk.Frame(parent)
-        content.grid(row=1, column=0, sticky="nsew")
+        content.grid(row=0, column=0, sticky="nsew")
         content.columnconfigure(0, weight=1)
         content.rowconfigure(0, weight=1)
 
+        page_var = tk.StringVar(value=page_names[0])
         frames: dict[str, ttk.Frame] = {}
         for page_name in page_names:
-            frame = ttk.Frame(content, padding=12)
+            frame = ttk.Frame(content, padding=6)
             frame.grid(row=0, column=0, sticky="nsew")
             frames[page_name] = frame
 
-        def show_selected_page(_event=None) -> None:
-            frames[page_var.get()].tkraise()
-
-        page_select.bind("<<ComboboxSelected>>", show_selected_page)
         self._compact_page_vars[category] = page_var
-        show_selected_page()
+        self._compact_page_frames[category] = frames
+        self._show_compact_page(category, page_names[0])
         return frames
+
+    def _show_compact_page(self, category: str, page_name: str) -> None:
+        page_var = self._compact_page_vars.get(category)
+        frames = self._compact_page_frames.get(category, {})
+        frame = frames.get(page_name)
+        if page_var is None or frame is None:
+            return
+        page_var.set(page_name)
+        frame.tkraise()
+        self._update_annotation_shortcuts_header()
+
+    def _build_category_tab_menus(self) -> None:
+        for category, frames in self._compact_page_frames.items():
+            menu = tk.Menu(self.root, tearoff=False)
+            for page_name in frames:
+                menu.add_command(label=page_name, command=lambda c=category, p=page_name: self._show_compact_page(c, p))
+            self._category_page_menus[category] = menu
+
+    def _on_main_notebook_click(self, event) -> str | None:
+        try:
+            index = self.notebook.index(f"@{event.x},{event.y}")
+        except tk.TclError:
+            return None
+        category = str(self.notebook.tab(index, "text"))
+        menu = getattr(self, "_category_page_menus", {}).get(category)
+        if menu is None:
+            return None
+        self.notebook.select(index)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+        return "break"
 
     def _build_workflow_tab(self, parent: ttk.Frame) -> None:
         """Build the first-tab guide for the end-to-end data workflow."""
@@ -466,7 +503,7 @@ class SynergieToolsApp:
         ttk.Label(
             parent,
             text="Workflow conseille pour ajouter de nouvelles donnees et re-entrainer les modeles",
-            font=("Segoe UI", 13, "bold"),
+            font=("Segoe UI", self.section_font_size, "bold"),
         ).grid(row=0, column=0, sticky="w", pady=(0, 10))
 
         workflow_text = scrolledtext.ScrolledText(parent, wrap=tk.WORD, height=24)
@@ -594,7 +631,7 @@ class SynergieToolsApp:
         for column in columns:
             self.data_inventory_tree.heading(column, text=headings[column])
             self.data_inventory_tree.column(column, width=widths[column], anchor="center" if column != "session" else "w")
-        self.data_inventory_tree.tag_configure("total", font=("Segoe UI", 9, "bold"))
+        self.data_inventory_tree.tag_configure("total", font=("Segoe UI", self.ui_font_size, "bold"))
         self.data_inventory_tree.grid(row=2, column=0, sticky="nsew")
         ttk.Button(parent, text="Import legacy annotated session...", command=self._import_legacy_annotated_session).grid(
             row=3,
@@ -776,19 +813,19 @@ class SynergieToolsApp:
         parent.rowconfigure(0, weight=1)
 
         left_panel = ttk.Frame(parent)
-        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
         left_panel.columnconfigure(0, weight=1)
         left_panel.rowconfigure(1, weight=0)
         left_panel.rowconfigure(2, weight=1)
 
-        ttk.Button(left_panel, text="Refresh annotation files", command=self._refresh_annotation_files).grid(row=0, column=0, sticky="w", pady=(0, 8))
-        self.annotation_files_listbox = tk.Listbox(left_panel, listvariable=self.annotation_files_var, exportselection=False, height=5, width=34)
+        ttk.Button(left_panel, text="Refresh annotation files", command=self._refresh_annotation_files).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        self.annotation_files_listbox = tk.Listbox(left_panel, listvariable=self.annotation_files_var, exportselection=False, height=5, width=32)
         self.annotation_files_listbox.grid(row=1, column=0, sticky="ew")
         self._add_tooltip(self.annotation_files_listbox, "Fichiers a annoter. Le compteur montre les sauts encore non traites.")
         self.annotation_files_listbox.bind("<<ListboxSelect>>", self._on_annotation_file_selected)
 
-        jumps_panel = ttk.LabelFrame(left_panel, text="Session Timeline", padding=8)
-        jumps_panel.grid(row=2, column=0, sticky="nsew", pady=(12, 0))
+        jumps_panel = ttk.LabelFrame(left_panel, text="Session Timeline", padding=4)
+        jumps_panel.grid(row=2, column=0, sticky="nsew", pady=(6, 0))
         jumps_panel.columnconfigure(0, weight=1)
         jumps_panel.rowconfigure(3, weight=1)
         ttk.Label(jumps_panel, textvariable=self.annotation_summary_var, justify=tk.LEFT).grid(row=0, column=0, sticky="w", pady=(0, 8))
@@ -802,12 +839,12 @@ class SynergieToolsApp:
         right_panel = ttk.Panedwindow(parent, orient=tk.HORIZONTAL)
         right_panel.grid(row=0, column=1, sticky="nsew")
 
-        video_frame = ttk.LabelFrame(right_panel, text="Video Review", padding=8)
+        video_frame = ttk.LabelFrame(right_panel, text="Video Review", padding=4)
         video_frame.columnconfigure(1, weight=1)
         video_frame.rowconfigure(2, weight=1)
 
         ttk.Label(video_frame, text="Session video").grid(row=0, column=0, sticky="w")
-        ttk.Label(video_frame, textvariable=self.annotation_video_path_var, justify=tk.LEFT, wraplength=300).grid(row=0, column=1, sticky="w", padx=8)
+        ttk.Label(video_frame, textvariable=self.annotation_video_path_var, justify=tk.LEFT, wraplength=300).grid(row=0, column=1, sticky="w", padx=4)
         choose_video_button = ttk.Button(video_frame, text="Choose video...", command=self._open_annotation_video_popup)
         choose_video_button.grid(row=0, column=2, sticky="e")
         self._add_tooltip(choose_video_button, "Cherche les videos proches de l'heure de la seance et permet de choisir la bonne.")
@@ -817,7 +854,7 @@ class SynergieToolsApp:
             column=0,
             columnspan=3,
             sticky="w",
-            pady=(6, 8),
+            pady=(4, 4),
         )
 
         self.annotation_video_label = ttk.Label(
@@ -830,7 +867,7 @@ class SynergieToolsApp:
         self._add_tooltip(self.annotation_video_label, "Video de la seance utilisee pour verifier les labels.")
 
         video_timeline = ttk.Frame(video_frame)
-        video_timeline.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        video_timeline.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(4, 0))
         video_timeline.columnconfigure(0, weight=1)
         self.annotation_video_slider = tk.Scale(
             video_timeline,
@@ -844,10 +881,10 @@ class SynergieToolsApp:
         self.annotation_video_slider.grid(row=0, column=0, sticky="ew")
         self._add_tooltip(self.annotation_video_slider, "Position courante dans la video.")
         self.annotation_video_slider.bind("<ButtonRelease-1>", self._on_annotation_video_slider_released)
-        ttk.Label(video_timeline, textvariable=self.annotation_video_time_var, width=12).grid(row=0, column=1, sticky="e", padx=(8, 0))
+        ttk.Label(video_timeline, textvariable=self.annotation_video_time_var, width=12).grid(row=0, column=1, sticky="e", padx=(4, 0))
 
         video_controls = ttk.Frame(video_frame)
-        video_controls.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        video_controls.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(4, 0))
         ttk.Button(video_controls, text="⏪", width=3, command=lambda: self._seek_annotation_video_relative(-1000)).grid(row=0, column=0, sticky="w")
         ttk.Button(video_controls, text="⏩", width=3, command=lambda: self._seek_annotation_video_relative(1000)).grid(row=0, column=1, sticky="w", padx=(6, 0))
         ttk.Button(video_controls, textvariable=self.annotation_play_button_var, width=3, command=self._play_annotation_video).grid(row=0, column=2, sticky="w", padx=(12, 0))
@@ -856,7 +893,7 @@ class SynergieToolsApp:
         ttk.Button(video_controls, text="⏹", width=3, command=self._stop_annotation_playback).grid(row=0, column=5, sticky="w", padx=(6, 0))
 
         add_jump_button = ttk.Button(video_frame, text="ADD JUMP", command=self._open_add_jump_popup)
-        add_jump_button.grid(row=5, column=2, sticky="e", pady=(8, 4))
+        add_jump_button.grid(row=5, column=2, sticky="e", pady=(4, 2))
         self._add_tooltip(add_jump_button, "Ajoute un saut manque en testant des seuils sur le capteur choisi.")
 
         ttk.Label(video_frame, textvariable=self.annotation_sensor_sync_var, justify=tk.LEFT, wraplength=360).grid(
@@ -864,7 +901,7 @@ class SynergieToolsApp:
             column=0,
             columnspan=2,
             sticky="w",
-            pady=(8, 4),
+            pady=(4, 2),
         )
         sync_buttons = ttk.Frame(video_frame)
         sync_buttons.grid(row=6, column=0, columnspan=3, sticky="w")
@@ -875,12 +912,12 @@ class SynergieToolsApp:
         plot_column.columnconfigure(0, weight=1)
         plot_column.rowconfigure(0, weight=1)
 
-        controls = ttk.LabelFrame(plot_column, text="Annotation", padding=8)
-        controls.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+        controls = ttk.LabelFrame(plot_column, text="Annotation", padding=4)
+        controls.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         for column_index in range(3):
             controls.columnconfigure(column_index, weight=1)
 
-        plot_frame = ttk.LabelFrame(plot_column, text="Jump Signals", padding=8)
+        plot_frame = ttk.LabelFrame(plot_column, text="Jump Signals", padding=4)
         plot_frame.grid(row=0, column=0, sticky="nsew")
         plot_frame.columnconfigure(0, weight=1)
         plot_frame.rowconfigure(0, weight=1)
@@ -888,7 +925,7 @@ class SynergieToolsApp:
         self.annotation_plot_container.grid(row=0, column=0, sticky="nsew")
         self._build_annotation_plot_canvas()
         right_panel.add(video_frame, weight=3)
-        right_panel.add(plot_column, weight=2)
+        right_panel.add(plot_column, weight=4)
 
         ttk.Label(controls, text="Athlete ID").grid(row=0, column=0, sticky="w")
         ttk.Label(controls, textvariable=self.annotation_athlete_var).grid(row=0, column=1, columnspan=2, sticky="w", pady=(0, 8))
@@ -3799,6 +3836,33 @@ class SynergieToolsApp:
         selected = set(self._current_tab_texts())
         return all(label in selected for label in labels)
 
+    def _update_annotation_shortcuts_header(self) -> None:
+        if self._annotate_tab_active():
+            self.annotation_shortcuts_header_var.set(
+                "Shortcuts: t/f/z/s/a = jump type | 1-4 = turns\n"
+                "c/r/n = chute/reussi/inconnu | u = unseen | x = weird signal\n"
+                "l = show/hide legend | Ctrl+S = save"
+            )
+            if hasattr(self, "annotation_shortcuts_header_label"):
+                self.annotation_shortcuts_header_label.grid()
+            if hasattr(self, "annotation_detection_diagnostic_label"):
+                self.annotation_detection_diagnostic_label.grid()
+            if hasattr(self, "annotation_detection_warning_label"):
+                if self.annotation_detection_warning_var.get():
+                    self.annotation_detection_warning_label.grid()
+                else:
+                    self.annotation_detection_warning_label.grid_remove()
+        else:
+            self.annotation_shortcuts_header_var.set("")
+            for name in (
+                "annotation_shortcuts_header_label",
+                "annotation_detection_diagnostic_label",
+                "annotation_detection_warning_label",
+            ):
+                label = getattr(self, name, None)
+                if label is not None:
+                    label.grid_remove()
+
     def _annotate_tab_active(self) -> bool:
         return self._current_tab_matches("Data", "Annotate")
 
@@ -3872,6 +3936,7 @@ class SynergieToolsApp:
             self.annotation_detection_diagnostic_var.set("Select a jump to see why the detector flagged it.")
         if hasattr(self, "annotation_detection_warning_var"):
             self.annotation_detection_warning_var.set("")
+        self._update_annotation_shortcuts_header()
         self.annotation_ax.clear()
         if self.annotation_acc_ax is not None:
             self.annotation_acc_ax.remove()
@@ -4636,6 +4701,7 @@ class SynergieToolsApp:
         diagnostic, warning = self._draw_annotation_detection_threshold_context(dataframe, row)
         self.annotation_detection_diagnostic_var.set(diagnostic)
         self.annotation_detection_warning_var.set(warning)
+        self._update_annotation_shortcuts_header()
         self.annotation_ax.set_xlabel("")
         self.annotation_ax.set_ylabel("Gyroscope")
         self.annotation_ax.yaxis.label.set_color("#1f77b4")
