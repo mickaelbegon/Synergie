@@ -1,6 +1,9 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+
+import pandas as pd
 
 from synergie.services.detection_tuning_service import (
     analyze_detection_review_labels,
@@ -8,6 +11,7 @@ from synergie.services.detection_tuning_service import (
     optimize_detection_parameters,
     save_optimized_detection_parameters,
 )
+from synergie.services.hdf5_archive_service import export_hdf5_archive
 
 
 class DetectionTuningServiceTests(unittest.TestCase):
@@ -50,6 +54,41 @@ class DetectionTuningServiceTests(unittest.TestCase):
             self.assertEqual(result["reviewed_segments"], 2)
             self.assertEqual(len(result["results"]), 1)
             self.assertIsNotNone(result["best"])
+
+    def test_optimizes_detection_parameters_from_hdf5_after_segment_csv_move(self):
+        original_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            os.chdir(root)
+            try:
+                pending_root = root / "data" / "pending"
+                segment = root / "data" / "annotated" / "20250911" / "0856" / "jump.csv"
+                pending_root.mkdir(parents=True)
+                segment.parent.mkdir(parents=True)
+                relative_segment = "data/annotated/20250911/0856/jump.csv"
+                pd.DataFrame({"Gyr_X": [0.0, 0.0, 100.0, -100.0, 0.0]}).to_csv(segment, index=False)
+                (pending_root / "session_for_annotation.csv").write_text(
+                    "path,video_status,detection_status\n"
+                    f"{relative_segment},visible,detected_jump\n",
+                    encoding="utf-8",
+                )
+                export_hdf5_archive(
+                    "data/synergie_archive.h5",
+                    manifest={
+                        "format": "synergie-backup-manifest-v1",
+                        "pending_annotation_files": [{"path": "data/pending/session_for_annotation.csv", "trials": [{"path": relative_segment}]}],
+                        "training_dataset": {"trials": []},
+                    },
+                )
+                segment.unlink()
+
+                result = optimize_detection_parameters(pending_root, thresholds=[-0.01], smoothing_sigmas=[1])
+            finally:
+                os.chdir(original_cwd)
+
+        self.assertEqual(result["reviewed_segments"], 1)
+        self.assertEqual(len(result["results"]), 1)
+        self.assertIsNotNone(result["best"])
 
     def test_saves_and_loads_optimized_parameters(self):
         with tempfile.TemporaryDirectory() as tmpdir:

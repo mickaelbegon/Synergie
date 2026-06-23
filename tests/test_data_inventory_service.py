@@ -1,7 +1,9 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
+import h5py
 import pandas as pd
 
 from synergie.services.data_inventory_service import build_data_inventory
@@ -41,6 +43,7 @@ class DataInventoryServiceTests(unittest.TestCase):
                 pending_root=pending_root,
                 annotated_root=annotated_root,
                 training_dataset_root=dataset_root,
+                hdf5_archive_path=None,
             )
 
             by_session = {row["session"]: row for row in rows}
@@ -50,3 +53,27 @@ class DataInventoryServiceTests(unittest.TestCase):
             self.assertEqual(by_session["20250911/0856"]["stored_segments"], 1)
             self.assertEqual(by_session["20250911/0856"]["total_rows"], 1)
             self.assertEqual(by_session["20250911/0856"]["trainable_total_rows"], 0)
+
+    def test_counts_archived_hdf5_segments_when_csv_was_moved(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            annotated_root = root / "annotated"
+            dataset_root = annotated_root / "total"
+            dataset_root.mkdir(parents=True)
+            archive = root / "archive.h5"
+            archived_path = "data/annotated/20250911/0856/archived_segment.csv"
+            pd.DataFrame({"path": [archived_path]}).to_csv(dataset_root / "jumplist.csv", index=False)
+            with h5py.File(archive, "w") as handle:
+                handle.attrs["segment_path_index_json"] = json.dumps({archived_path: "/trials/trial_000000"})
+
+            rows = build_data_inventory(
+                new_root=root / "new",
+                pending_root=root / "pending",
+                annotated_root=annotated_root,
+                training_dataset_root=dataset_root,
+                hdf5_archive_path=archive,
+            )
+
+            by_session = {row["session"]: row for row in rows}
+            self.assertEqual(by_session["20250911/0856"]["stored_segments"], 1)
+            self.assertEqual(by_session["20250911/0856"]["total_rows"], 1)

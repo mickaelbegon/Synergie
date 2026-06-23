@@ -21,7 +21,7 @@ from synergie.config import (
     TYPE_WINDOW_START,
     TYPE_WINDOW_FRAMES,
 )
-from synergie.services.signal_cleaning_service import clean_imu_outliers
+from synergie.services.signal_cleaning_service import clean_imu_outliers, recompute_gyro_x_derivatives
 from synergie.services.hdf5_archive_service import hdf5_segment_paths, load_segment_dataframe
 
 if TYPE_CHECKING:
@@ -68,6 +68,7 @@ class Tooltip:
 
 
 class SynergieToolsApp:
+    DETECTION_DERIVATIVE_PLOT_SCALE = 100.0
     TRAIN_ARCHITECTURES = {
         "type": ["inceptiontime", "transformer"],
         "success": ["tcn", "lstm"],
@@ -77,7 +78,6 @@ class SynergieToolsApp:
         "f": "flip",
         "z": "lutz",
         "s": "salchow",
-        "l": "loop",
         "a": "axel",
     }
 
@@ -104,6 +104,9 @@ class SynergieToolsApp:
         self.annotation_summary_var = tk.StringVar(value="No annotation file selected.")
         self.annotation_progress_var = tk.StringVar(value="Pending annotations: 0")
         self.annotation_global_progress_var = tk.StringVar(value="All files pending annotations: 0")
+        self.annotation_detection_diagnostic_var = tk.StringVar(value="Select a jump to see why the detector flagged it.")
+        self.annotation_detection_warning_var = tk.StringVar(value="")
+        self.annotation_show_legend_var = tk.BooleanVar(value=True)
         self.annotation_type_var = tk.StringVar(value="toe_loop")
         self.annotation_turn_var = tk.StringVar(value="")
         self.annotation_success_var = tk.StringVar(value="2")
@@ -296,6 +299,8 @@ class SynergieToolsApp:
         header = ttk.Frame(self.root, padding=12)
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
+        header.columnconfigure(1, weight=1)
+        header.columnconfigure(2, weight=1)
         ttk.Label(
             header,
             text="Synergie Tools",
@@ -303,47 +308,98 @@ class SynergieToolsApp:
         ).grid(row=0, column=0, sticky="w")
         ttk.Label(
             header,
-            text="Pipeline: New data -> Process -> Annotate -> Quality review -> Train, puis outils d'inspection et d'analyse des modeles.",
+            text="Pipeline: Data -> Review -> Models, avec les outils regroupes en grandes categories.",
         ).grid(row=1, column=0, sticky="w")
+        ttk.Label(
+            header,
+            text=(
+                "Shortcuts: t/f/z/s/a = jump type | 1-4 = turns\n"
+                "c/r/n = chute/reussi/inconnu | u = unseen | x = weird signal\n"
+                "l = show/hide legend | Ctrl+S = save"
+            ),
+            justify=tk.CENTER,
+            foreground="#666666",
+        ).grid(row=0, column=1, rowspan=2, sticky="n", padx=(24, 24))
+        ttk.Label(
+            header,
+            textvariable=self.annotation_detection_diagnostic_var,
+            justify=tk.LEFT,
+            wraplength=520,
+            font=("Segoe UI", 8),
+        ).grid(row=0, column=2, sticky="ne")
+        ttk.Label(
+            header,
+            textvariable=self.annotation_detection_warning_var,
+            justify=tk.LEFT,
+            wraplength=520,
+            foreground="firebrick",
+            font=("Segoe UI", 8),
+        ).grid(row=1, column=2, sticky="ne")
 
         notebook = ttk.Notebook(self.root)
         notebook.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
         self.notebook = notebook
 
         workflow_tab = ttk.Frame(notebook, padding=12)
-        sessions_tab = ttk.Frame(notebook, padding=12)
-        process_tab = ttk.Frame(notebook, padding=12)
-        new_data_tab = ttk.Frame(notebook, padding=12)
-        annotate_tab = ttk.Frame(notebook, padding=12)
-        inspect_tab = ttk.Frame(notebook, padding=12)
-        train_tab = ttk.Frame(notebook, padding=12)
-        model_audit_tab = ttk.Frame(notebook, padding=12)
-        signal_tab = ttk.Frame(notebook, padding=12)
-        tuner_tab = ttk.Frame(notebook, padding=12)
-        window_tab = ttk.Frame(notebook, padding=12)
-        detection_tuning_tab = ttk.Frame(notebook, padding=12)
-        quality_tab = ttk.Frame(notebook, padding=12)
-        dataset_review_tab = ttk.Frame(notebook, padding=12)
-        rotation_audit_tab = ttk.Frame(notebook, padding=12)
-        inventory_tab = ttk.Frame(notebook, padding=12)
+        data_category_tab = ttk.Frame(notebook)
+        review_category_tab = ttk.Frame(notebook)
+        models_category_tab = ttk.Frame(notebook)
         notes_tab = ttk.Frame(notebook, padding=12)
-        notebook.add(workflow_tab, text="Start - Workflow")
-        notebook.add(inventory_tab, text="Data - Status")
-        notebook.add(sessions_tab, text="Data - Sessions")
-        notebook.add(new_data_tab, text="Data - New")
-        notebook.add(process_tab, text="Data - Process")
-        notebook.add(annotate_tab, text="Data - Annotate")
-        notebook.add(quality_tab, text="Review - Quality")
-        notebook.add(dataset_review_tab, text="Review - Dataset")
-        notebook.add(rotation_audit_tab, text="Review - Turns")
-        notebook.add(inspect_tab, text="Review - Inspect IMU")
-        notebook.add(detection_tuning_tab, text="Review - Detection")
-        notebook.add(train_tab, text="Models - Train")
-        notebook.add(signal_tab, text="Models - Importance")
-        notebook.add(tuner_tab, text="Models - Tune")
-        notebook.add(window_tab, text="Models - Windows")
-        notebook.add(model_audit_tab, text="Models - Audit")
+        notebook.add(workflow_tab, text="Start")
+        notebook.add(data_category_tab, text="Data")
+        notebook.add(review_category_tab, text="Review")
+        notebook.add(models_category_tab, text="Models")
         notebook.add(notes_tab, text="Notes")
+
+        data_category_tab.columnconfigure(0, weight=1)
+        data_category_tab.rowconfigure(0, weight=1)
+        review_category_tab.columnconfigure(0, weight=1)
+        review_category_tab.rowconfigure(0, weight=1)
+        models_category_tab.columnconfigure(0, weight=1)
+        models_category_tab.rowconfigure(0, weight=1)
+
+        data_notebook = ttk.Notebook(data_category_tab)
+        review_notebook = ttk.Notebook(review_category_tab)
+        models_notebook = ttk.Notebook(models_category_tab)
+        data_notebook.grid(row=0, column=0, sticky="nsew")
+        review_notebook.grid(row=0, column=0, sticky="nsew")
+        models_notebook.grid(row=0, column=0, sticky="nsew")
+        self.data_notebook = data_notebook
+        self.review_notebook = review_notebook
+        self.models_notebook = models_notebook
+
+        inventory_tab = ttk.Frame(data_notebook, padding=12)
+        sessions_tab = ttk.Frame(data_notebook, padding=12)
+        new_data_tab = ttk.Frame(data_notebook, padding=12)
+        process_tab = ttk.Frame(data_notebook, padding=12)
+        annotate_tab = ttk.Frame(data_notebook, padding=12)
+        data_notebook.add(inventory_tab, text="Status")
+        data_notebook.add(sessions_tab, text="Sessions")
+        data_notebook.add(new_data_tab, text="New")
+        data_notebook.add(process_tab, text="Process")
+        data_notebook.add(annotate_tab, text="Annotate")
+
+        quality_tab = ttk.Frame(review_notebook, padding=12)
+        dataset_review_tab = ttk.Frame(review_notebook, padding=12)
+        rotation_audit_tab = ttk.Frame(review_notebook, padding=12)
+        inspect_tab = ttk.Frame(review_notebook, padding=12)
+        detection_tuning_tab = ttk.Frame(review_notebook, padding=12)
+        review_notebook.add(quality_tab, text="Quality")
+        review_notebook.add(dataset_review_tab, text="Dataset")
+        review_notebook.add(rotation_audit_tab, text="Turns")
+        review_notebook.add(inspect_tab, text="Inspect IMU")
+        review_notebook.add(detection_tuning_tab, text="Detection")
+
+        train_tab = ttk.Frame(models_notebook, padding=12)
+        signal_tab = ttk.Frame(models_notebook, padding=12)
+        tuner_tab = ttk.Frame(models_notebook, padding=12)
+        window_tab = ttk.Frame(models_notebook, padding=12)
+        model_audit_tab = ttk.Frame(models_notebook, padding=12)
+        models_notebook.add(train_tab, text="Train")
+        models_notebook.add(signal_tab, text="Importance")
+        models_notebook.add(tuner_tab, text="Tune")
+        models_notebook.add(window_tab, text="Windows")
+        models_notebook.add(model_audit_tab, text="Audit")
 
         sessions_tab.columnconfigure(0, weight=1)
         sessions_tab.columnconfigure(1, weight=0)
@@ -806,15 +862,15 @@ class SynergieToolsApp:
 
         plot_column = ttk.Frame(right_panel)
         plot_column.columnconfigure(0, weight=1)
-        plot_column.rowconfigure(1, weight=1)
+        plot_column.rowconfigure(0, weight=1)
 
         controls = ttk.LabelFrame(plot_column, text="Annotation", padding=8)
-        controls.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        controls.grid(row=1, column=0, sticky="ew", pady=(12, 0))
         for column_index in range(3):
             controls.columnconfigure(column_index, weight=1)
 
         plot_frame = ttk.LabelFrame(plot_column, text="Jump Signals", padding=8)
-        plot_frame.grid(row=1, column=0, sticky="nsew")
+        plot_frame.grid(row=0, column=0, sticky="nsew")
         plot_frame.columnconfigure(0, weight=1)
         plot_frame.rowconfigure(0, weight=1)
         self.annotation_plot_container = ttk.Frame(plot_frame)
@@ -837,7 +893,7 @@ class SynergieToolsApp:
             "flip": ("Flip", 0),
             "lutz": ("Lutz", 2),
             "salchow": ("Salchow", 0),
-            "loop": ("Loop", 0),
+            "loop": ("Loop", -1),
             "axel": ("Axel", 0),
         }
         toe_frame = ttk.LabelFrame(type_frame, text="Piques", padding=6)
@@ -923,19 +979,11 @@ class SynergieToolsApp:
             foreground="firebrick",
         ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(0, 8))
 
-        ttk.Label(
-            controls,
-            text="Shortcuts: t/f/z/s/l/a = jump type | 1-4 = turns | c/r/n = chute/reussi/inconnu | u = unseen | x = weird signal | Ctrl+S = save",
-            justify=tk.LEFT,
-            wraplength=360,
-            foreground="#666666",
-        ).grid(row=5, column=0, columnspan=3, sticky="w", pady=(0, 8))
-
         combination_check = ttk.Checkbutton(controls, text="Combination jump", variable=self.annotation_combination_var)
-        combination_check.grid(row=6, column=0, sticky="w", pady=(0, 8))
+        combination_check.grid(row=5, column=0, sticky="w", pady=(0, 8))
         self._add_tooltip(combination_check, "Deux sauts du meme capteur espaces de moins de 1,5 s sont pre-marques comme combinaison.")
         annotation_actions = ttk.Frame(controls)
-        annotation_actions.grid(row=7, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        annotation_actions.grid(row=6, column=0, columnspan=3, sticky="w", pady=(8, 0))
         save_annotation_button = ttk.Button(annotation_actions, text="Save current annotation", command=self._save_current_annotation)
         save_annotation_button.grid(row=0, column=0, sticky="w")
         self._add_tooltip(save_annotation_button, "Enregistre le label du saut actuellement selectionne.")
@@ -3721,16 +3769,37 @@ class SynergieToolsApp:
             self._save_current_annotation(show_status=False)
 
     def _current_tab_text(self) -> str:
+        texts = self._current_tab_texts()
+        return texts[-1] if texts else ""
+
+    def _current_tab_texts(self) -> list[str]:
+        texts: list[str] = []
         try:
-            return str(self.notebook.tab(self.notebook.select(), "text"))
+            main_text = str(self.notebook.tab(self.notebook.select(), "text"))
         except Exception:
-            return ""
+            return texts
+        texts.append(main_text)
+        child_notebook = {
+            "Data": getattr(self, "data_notebook", None),
+            "Review": getattr(self, "review_notebook", None),
+            "Models": getattr(self, "models_notebook", None),
+        }.get(main_text)
+        if child_notebook is not None:
+            try:
+                texts.append(str(child_notebook.tab(child_notebook.select(), "text")))
+            except Exception:
+                pass
+        return texts
+
+    def _current_tab_matches(self, *labels: str) -> bool:
+        selected = set(self._current_tab_texts())
+        return all(label in selected for label in labels)
 
     def _annotate_tab_active(self) -> bool:
-        return self._current_tab_text() == "Data - Annotate"
+        return self._current_tab_matches("Data", "Annotate")
 
     def _dataset_review_tab_active(self) -> bool:
-        return self._current_tab_text() == "Review - Dataset"
+        return self._current_tab_matches("Review", "Dataset")
 
     def _on_global_keypress(self, event) -> None:
         widget = event.widget
@@ -3753,6 +3822,14 @@ class SynergieToolsApp:
 
         if key == "s" and (event.state & 0x4):
             self._save_current_annotation()
+            return
+
+        if key == "l":
+            self.annotation_show_legend_var.set(not self.annotation_show_legend_var.get())
+            row = self._selected_annotation_row()
+            if row is not None:
+                self._draw_annotation_segment(row)
+            self.status_var.set("Annotation legend shown" if self.annotation_show_legend_var.get() else "Annotation legend hidden")
             return
 
         if key in self.ANNOTATION_SHORTCUTS:
@@ -3787,11 +3864,16 @@ class SynergieToolsApp:
     def _draw_placeholder_annotation_plot(self) -> None:
         if self.annotation_ax is None:
             return
+        if hasattr(self, "annotation_detection_diagnostic_var"):
+            self.annotation_detection_diagnostic_var.set("Select a jump to see why the detector flagged it.")
+        if hasattr(self, "annotation_detection_warning_var"):
+            self.annotation_detection_warning_var.set("")
         self.annotation_ax.clear()
         if self.annotation_acc_ax is not None:
             self.annotation_acc_ax.remove()
             self.annotation_acc_ax = None
-        self.annotation_ax.set_xlabel("ms")
+        self.annotation_ax.set_xlabel("")
+        self.annotation_ax.tick_params(axis="x", labelbottom=False)
         self.annotation_ax.set_ylabel("Gyroscope")
         self.annotation_ax.text(0.5, 0.5, "Select an annotation candidate", ha="center", va="center", transform=self.annotation_ax.transAxes)
         self.annotation_figure.tight_layout()
@@ -4511,6 +4593,11 @@ class SynergieToolsApp:
             return
         dataframe = load_segment_dataframe(path)
         dataframe, _cleaning_report = clean_imu_outliers(dataframe, acceleration_limit_g=ACCELERATION_ABERRANT_LIMIT_G)
+        dataframe = recompute_gyro_x_derivatives(
+            dataframe,
+            smoothing_sigma=DEFAULT_SMOOTHING_SIGMA,
+            threshold=DEFAULT_DETECTION_THRESHOLD,
+        )
         sensor_id = str(row.get("sensor_id", ""))
         self.annotation_ax.clear()
         if self.annotation_acc_ax is not None:
@@ -4518,27 +4605,159 @@ class SynergieToolsApp:
             self.annotation_acc_ax = None
         self.annotation_acc_ax = self.annotation_ax.twinx()
         gyro_column = "Gyr_X_smoothed" if "Gyr_X_smoothed" in dataframe else "Gyr_X"
-        self.annotation_ax.plot(dataframe["ms"], dataframe["Gyr_X"], linewidth=0.8, alpha=0.35, color="#1f77b4")
-        self.annotation_ax.plot(dataframe["ms"], dataframe[gyro_column], linewidth=1.2, color="#1f77b4")
-        self.annotation_acc_ax.plot(dataframe["ms"], dataframe["Acc_X"], linewidth=0.9, alpha=0.8, color="#ff7f0e")
+        self.annotation_ax.plot(dataframe["ms"], dataframe["Gyr_X"], linewidth=0.8, alpha=0.35, color="#1f77b4", label="Gyr_X raw")
+        self.annotation_ax.plot(dataframe["ms"], dataframe[gyro_column], linewidth=1.2, color="#1f77b4", label="Gyr_X smoothed")
+        self.annotation_acc_ax.plot(dataframe["ms"], dataframe["Acc_X"], linewidth=0.9, alpha=0.8, color="#ff7f0e", label="Acc_X")
         if "X_gyr_second_derivative" in dataframe:
+            derivative_scale = self.DETECTION_DERIVATIVE_PLOT_SCALE
             self.annotation_acc_ax.plot(
                 dataframe["ms"],
-                dataframe["X_gyr_second_derivative"],
+                dataframe["X_gyr_second_derivative"] * derivative_scale,
                 linewidth=0.9,
                 alpha=0.8,
                 color="crimson",
+                label=f"Gyr_X_ddot x{derivative_scale:g}",
             )
-            self.annotation_acc_ax.axhline(DEFAULT_DETECTION_THRESHOLD, color="crimson", linestyle="--", linewidth=0.9)
+            self.annotation_acc_ax.axhline(
+                DEFAULT_DETECTION_THRESHOLD * derivative_scale,
+                color="crimson",
+                linestyle="--",
+                linewidth=0.9,
+                label="Detection threshold",
+            )
         if row.get("start_ms", "") != "":
             self.annotation_ax.axvline(float(row["start_ms"]), color="black", linestyle="--", linewidth=1.0, label="Takeoff")
         if row.get("end_ms", "") != "":
             self.annotation_ax.axvline(float(row["end_ms"]), color="black", linestyle=":", linewidth=1.0, label="Landing")
-        self.annotation_ax.set_xlabel("ms")
+        diagnostic, warning = self._draw_annotation_detection_threshold_context(dataframe, row)
+        self.annotation_detection_diagnostic_var.set(diagnostic)
+        self.annotation_detection_warning_var.set(warning)
+        self.annotation_ax.set_xlabel("")
         self.annotation_ax.set_ylabel("Gyroscope")
-        self.annotation_acc_ax.set_ylabel("Acceleration")
+        self.annotation_ax.yaxis.label.set_color("#1f77b4")
+        self.annotation_ax.tick_params(axis="y", colors="#1f77b4")
+        self.annotation_acc_ax.set_ylabel(f"Acc_X / Gyr_X_ddot x{self.DETECTION_DERIVATIVE_PLOT_SCALE:g}")
+        self.annotation_acc_ax.yaxis.label.set_color("#ff7f0e")
+        self.annotation_acc_ax.tick_params(axis="y", colors="#ff7f0e")
+        lines, labels = self.annotation_ax.get_legend_handles_labels()
+        acc_lines, acc_labels = self.annotation_acc_ax.get_legend_handles_labels()
+        if self.annotation_show_legend_var.get():
+            self.annotation_ax.legend(lines + acc_lines, labels + acc_labels, loc="upper right", fontsize=7)
         self.annotation_figure.tight_layout()
         self.annotation_canvas.draw_idle()
+
+    def _draw_annotation_detection_threshold_context(self, dataframe, row) -> tuple[str, str]:
+        if self.annotation_acc_ax is None or "X_gyr_second_derivative" not in dataframe or "ms" not in dataframe:
+            return "No derivative signal available to explain this detection.", ""
+        import numpy as np
+
+        threshold = float(DEFAULT_DETECTION_THRESHOLD)
+        ms = dataframe["ms"].to_numpy(dtype="float64")
+        derivative = dataframe["X_gyr_second_derivative"].to_numpy(dtype="float64")
+        below_threshold = np.isfinite(derivative) & (derivative <= threshold)
+        intervals = self._threshold_intervals(ms, below_threshold)
+        for start_ms, end_ms in intervals:
+            self.annotation_acc_ax.axvspan(start_ms, end_ms, color="crimson", alpha=0.08, linewidth=0)
+
+        if len(ms) == 0 or not np.isfinite(derivative).any():
+            return "Derivative signal is empty or invalid.", ""
+        jump_start = _safe_float(row.get("start_ms"), default=float(ms[np.nanargmin(derivative)]))
+        selected_interval = self._nearest_interval(intervals, jump_start)
+        min_index = int(np.nanargmin(derivative))
+        min_ms = float(ms[min_index])
+        min_value = float(derivative[min_index])
+        self.annotation_acc_ax.scatter(
+            [min_ms],
+            [min_value * self.DETECTION_DERIVATIVE_PLOT_SCALE],
+            color="crimson",
+            s=18,
+            zorder=5,
+        )
+
+        if selected_interval is None:
+            peak_text, _peak_warning = self._angular_velocity_peak_context(dataframe, min_ms)
+            return (
+                f"Detection threshold: Gyr_X_ddot <= {threshold:.3f}. "
+                f"No under-threshold interval remains after outlier cleaning; minimum is {min_value:.3f} at {min_ms:.0f} ms. "
+                f"{peak_text}",
+                (
+                "This looks like an old/noisy false positive: mark it 'No jump or drill' or 'Weird signal / bad bounds', "
+                "or regenerate annotations after cleaning."
+                ),
+            )
+
+        start_ms, end_ms = selected_interval
+        interval_mask = (ms >= start_ms) & (ms <= end_ms)
+        interval_min = float(np.nanmin(derivative[interval_mask])) if interval_mask.any() else min_value
+        margin = threshold - interval_min
+        duration_ms = max(0.0, end_ms - start_ms)
+        interval_center_ms = (start_ms + end_ms) / 2.0
+        peak_text, peak_warning = self._angular_velocity_peak_context(dataframe, interval_center_ms)
+        return (
+            f"Why detected: Gyr_X_ddot crossed below threshold {threshold:.3f}. "
+            f"Selected under-threshold zone: {start_ms:.0f}-{end_ms:.0f} ms ({duration_ms:.0f} ms). "
+            f"Minimum {interval_min:.3f}, margin below threshold {margin:.3f}. "
+            f"{peak_text} "
+            f"Red shaded zones show all threshold crossings; red curve is displayed x{self.DETECTION_DERIVATIVE_PLOT_SCALE:g} on the right axis.",
+            peak_warning,
+        )
+
+    def _angular_velocity_peak_context(self, dataframe, reference_ms: float) -> tuple[str, str]:
+        if "ms" not in dataframe:
+            return "", ""
+        gyro_column = "Gyr_X_smoothed" if "Gyr_X_smoothed" in dataframe else "Gyr_X" if "Gyr_X" in dataframe else None
+        if gyro_column is None:
+            return "", ""
+        import numpy as np
+
+        ms = dataframe["ms"].to_numpy(dtype="float64")
+        gyro = dataframe[gyro_column].to_numpy(dtype="float64")
+        valid = np.isfinite(ms) & np.isfinite(gyro)
+        if not valid.any():
+            return "", ""
+        valid_indices = np.where(valid)[0]
+        peak_index = int(valid_indices[np.nanargmax(np.abs(gyro[valid]))])
+        peak_ms = float(ms[peak_index])
+        peak_value = float(gyro[peak_index])
+        lag_ms = float(reference_ms - peak_ms)
+        direction = "positive" if peak_value >= 0 else "negative"
+        relation = "after" if lag_ms > 0 else "before"
+        text = (
+            f"Angular-speed peak uses |Gyr_X| because rotation sign can flip: "
+            f"peak at {peak_ms:.0f} ms ({peak_value:.0f} deg/s, {direction}); "
+            f"threshold reference is {abs(lag_ms):.0f} ms {relation} that peak."
+        )
+        warning = ""
+        if abs(lag_ms) > 250:
+            warning = (
+                f"Biomech check: threshold timing is {abs(lag_ms):.0f} ms from the |Gyr_X| peak. "
+                "This may be a false positive or poor takeoff/landing bound."
+            )
+        return text, warning
+
+    @staticmethod
+    def _threshold_intervals(ms, active_mask) -> list[tuple[float, float]]:
+        intervals: list[tuple[float, float]] = []
+        start = None
+        for index, is_active in enumerate(active_mask):
+            if is_active and start is None:
+                start = index
+            elif not is_active and start is not None:
+                end = max(start, index - 1)
+                intervals.append((float(ms[start]), float(ms[end])))
+                start = None
+        if start is not None:
+            intervals.append((float(ms[start]), float(ms[len(active_mask) - 1])))
+        return intervals
+
+    @staticmethod
+    def _nearest_interval(intervals: list[tuple[float, float]], reference_ms: float) -> tuple[float, float] | None:
+        if not intervals:
+            return None
+        containing = [interval for interval in intervals if interval[0] <= reference_ms <= interval[1]]
+        if containing:
+            return min(containing, key=lambda interval: interval[1] - interval[0])
+        return min(intervals, key=lambda interval: min(abs(reference_ms - interval[0]), abs(reference_ms - interval[1])))
 
     def _save_current_annotation(self, *, show_status: bool = True) -> None:
         index = self._selected_annotation_index()
@@ -5192,6 +5411,13 @@ class SynergieToolsApp:
 
 def _string_or_empty(value) -> str:
     return "" if value is None else str(value)
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def launch() -> None:

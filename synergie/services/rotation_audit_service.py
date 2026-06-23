@@ -5,6 +5,8 @@ from pathlib import Path
 from synergie.services.annotation_service import JUMP_TYPE_LABELS
 from synergie.config import DEFAULT_DETECTION_THRESHOLD, DEFAULT_SMOOTHING_SIGMA
 from synergie.services.hdf5_archive_service import load_segment_dataframe
+from synergie.services.signal_cleaning_service import clean_imu_outliers, recompute_gyro_x_derivatives
+from synergie.config import ACCELERATION_ABERRANT_LIMIT_G
 
 
 def audit_turn_estimation(
@@ -150,9 +152,25 @@ def _load_segment_frame(segment_path):
         return None
     if not {"SampleTimeFine", "Gyr_X"}.issubset(frame.columns):
         return None
-    if "X_gyr_second_derivative_crossing" not in frame:
-        frame = _add_rotation_detection_columns(frame)
+    frame, _cleaning_report = clean_imu_outliers(frame, acceleration_limit_g=ACCELERATION_ABERRANT_LIMIT_G)
+    if "X_gyr_second_derivative_crossing" not in frame or (
+        "X_gyr_second_derivative" in frame and _has_aberrant_second_derivative(frame)
+    ):
+        frame = recompute_gyro_x_derivatives(
+            frame,
+            smoothing_sigma=DEFAULT_SMOOTHING_SIGMA,
+            threshold=DEFAULT_DETECTION_THRESHOLD,
+        )
     return frame
+
+
+def _has_aberrant_second_derivative(frame) -> bool:
+    if "X_gyr_second_derivative" not in frame:
+        return True
+    try:
+        return bool(frame["X_gyr_second_derivative"].abs().max() > 1_000_000)
+    except Exception:
+        return True
 
 
 def _add_rotation_detection_columns(frame):

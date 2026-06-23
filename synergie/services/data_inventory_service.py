@@ -13,9 +13,11 @@ def build_data_inventory(
     pending_root: str | Path = "data/pending",
     annotated_root: str | Path = "data/annotated",
     training_dataset_root: str | Path = "data/annotated/total",
+    hdf5_archive_path: str | Path | None = "data/synergie_archive.h5",
 ) -> list[dict]:
     """Summarize where each discovered data unit currently lives."""
     rows: dict[str, dict] = defaultdict(_empty_row)
+    local_segment_paths: set[str] = set()
 
     for session in list_new_imu_sessions(root=new_root):
         row = rows[session["session_key"]]
@@ -46,9 +48,11 @@ def build_data_inventory(
                 key = f"{first_level.name}/{second_level.name}"
                 row = rows[key]
                 row["session"] = key
-                row["stored_segments"] = sum(
-                    1 for path in second_level.rglob("*.csv") if path.is_file() and not path.name.lower().startswith("jumplist")
-                )
+                segment_paths = [
+                    path for path in second_level.rglob("*.csv") if path.is_file() and not path.name.lower().startswith("jumplist")
+                ]
+                local_segment_paths.update(path.as_posix() for path in segment_paths)
+                row["stored_segments"] = len(segment_paths)
                 row["trainable_labels"] = _count_trainable_local_labels(second_level)
 
     jumplist_path = Path(training_dataset_root) / "jumplist.csv"
@@ -74,6 +78,23 @@ def build_data_inventory(
                 row = rows[path_value]
                 row["session"] = path_value
                 row["trainable_total_rows"] = int(count)
+
+    if hdf5_archive_path is not None:
+        try:
+            from synergie.services.hdf5_archive_service import hdf5_segment_paths
+
+            for path_value in hdf5_segment_paths(hdf5_archive_path):
+                normalized = path_value.replace("\\", "/")
+                if normalized in local_segment_paths or Path(normalized).exists():
+                    continue
+                key = _annotated_parent_key(normalized)
+                if not key:
+                    continue
+                row = rows[key]
+                row["session"] = key
+                row["stored_segments"] += 1
+        except (OSError, ValueError, KeyError):
+            pass
 
     result = list(rows.values())
     result.sort(key=lambda item: item["session"])

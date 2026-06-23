@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from synergie.services.signal_cleaning_service import clean_acceleration_outliers, clean_imu_outliers
+from synergie.services.signal_cleaning_service import clean_acceleration_outliers, clean_imu_outliers, recompute_gyro_x_derivatives
 
 
 class SignalCleaningServiceTests(unittest.TestCase):
@@ -37,6 +37,19 @@ class SignalCleaningServiceTests(unittest.TestCase):
         self.assertEqual(report["gyroscope"]["columns"]["Gyr_X"], 1)
         self.assertEqual(cleaned.loc[1, "Acc_X"], 2.0)
         self.assertEqual(cleaned.loc[1, "Gyr_X"], 20.0)
+
+    def test_recompute_gyro_derivatives_replaces_stale_extreme_values(self):
+        frame = pd.DataFrame(
+            {
+                "Gyr_X": [0.0, 10.0, 20.0, 10.0, 0.0],
+                "X_gyr_second_derivative": [0.0, 1e29, -1e29, 0.0, 0.0],
+            }
+        )
+
+        prepared = recompute_gyro_x_derivatives(frame, smoothing_sigma=1.0, threshold=-0.1)
+
+        self.assertLess(prepared["X_gyr_second_derivative"].abs().max(), 1e29)
+        self.assertIn("X_gyr_second_derivative_crossing", prepared)
 
 
 if __name__ == "__main__":

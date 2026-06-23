@@ -4,6 +4,8 @@ from pathlib import Path
 
 from synergie.services.annotation_service import JUMP_TYPE_LABELS
 from synergie.services.hdf5_archive_service import load_segment_dataframe
+from synergie.services.signal_cleaning_service import clean_imu_outliers, recompute_gyro_x_derivatives
+from synergie.config import ACCELERATION_ABERRANT_LIMIT_G, DEFAULT_DETECTION_THRESHOLD, DEFAULT_SMOOTHING_SIGMA
 
 
 def analyze_jump_quality(
@@ -75,6 +77,12 @@ def _missing_segment_record(row_index, row, segment_path: Path, jump_type: int, 
 
 def _segment_quality_record(row_index, row, segment_path: Path, jump_type: int, success: int, saturation_threshold: float) -> dict:
     segment = load_segment_dataframe(segment_path)
+    segment, _cleaning_report = clean_imu_outliers(segment, acceleration_limit_g=ACCELERATION_ABERRANT_LIMIT_G)
+    segment = recompute_gyro_x_derivatives(
+        segment,
+        smoothing_sigma=DEFAULT_SMOOTHING_SIGMA,
+        threshold=DEFAULT_DETECTION_THRESHOLD,
+    )
     duration_ms = float(segment["ms"].iloc[-1] - segment["ms"].iloc[0]) if len(segment) > 1 else 0.0
     max_abs_gyr_x = float(segment["Gyr_X"].abs().max()) if "Gyr_X" in segment else 0.0
     max_abs_acc_x = float(segment["Acc_X"].abs().max()) if "Acc_X" in segment else 0.0

@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,6 +7,7 @@ from unittest.mock import patch
 import pandas as pd
 
 import constants
+from synergie.services.hdf5_archive_service import export_hdf5_archive
 from synergie.services.training_cache_service import load_or_build_training_cache, training_cache_path
 
 
@@ -93,3 +95,43 @@ class TrainingCacheServiceTests(unittest.TestCase):
         expected_path = str(dataset / "segment.csv").replace("\\", "/")
         self.assertEqual(result["paths"], [])
         self.assertEqual(result["metadata"]["skipped_paths"], [expected_path])
+
+    def test_builds_numeric_cache_from_hdf5_after_segment_csv_move(self):
+        original_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            os.chdir(root)
+            try:
+                dataset = root / "data" / "annotated" / "total"
+                segment = root / "data" / "annotated" / "20250911" / "0856" / "jump.csv"
+                dataset.mkdir(parents=True)
+                segment.parent.mkdir(parents=True)
+                relative_segment = "data/annotated/20250911/0856/jump.csv"
+                pd.DataFrame({column: range(300) for column in constants.fields_to_keep}).to_csv(segment, index=False)
+                pd.DataFrame([{"path": relative_segment, "type": 0, "success": 1, "skater": "alice"}]).to_csv(
+                    dataset / "jumplist.csv",
+                    index=False,
+                )
+                export_hdf5_archive(
+                    "data/synergie_archive.h5",
+                    manifest={
+                        "format": "synergie-backup-manifest-v1",
+                        "pending_annotation_files": [],
+                        "training_dataset": {"trials": [{"path": relative_segment}]},
+                    },
+                )
+                segment.unlink()
+
+                result = load_or_build_training_cache(
+                    dataset,
+                    type_window_start=0,
+                    type_window_frames=240,
+                    success_window_start=160,
+                    success_window_frames=140,
+                )
+            finally:
+                os.chdir(original_cwd)
+
+        self.assertFalse(result["from_cache"])
+        self.assertEqual(result["paths"], [relative_segment])
+        self.assertEqual(tuple(result["type_windows"].shape), (1, 240, len(constants.fields_to_keep)))

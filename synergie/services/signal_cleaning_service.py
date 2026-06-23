@@ -37,3 +37,21 @@ def clean_imu_outliers(frame, acceleration_limit_g: float = 32.0, gyroscope_limi
     report.update(_replace_outliers(cleaned, GYROSCOPE_COLUMNS, gyroscope_limit_dps, "gyroscope"))
     report["replaced"] = report["acceleration"]["replaced"] + report["gyroscope"]["replaced"]
     return cleaned, report
+
+
+def recompute_gyro_x_derivatives(frame, *, smoothing_sigma: float = 30.0, threshold: float | None = None):
+    """Rebuild smoothed gyro and derivative columns from the cleaned Gyr_X signal."""
+    import scipy as sp
+
+    prepared = frame.copy()
+    if "Gyr_X" not in prepared:
+        return prepared
+    prepared["Gyr_X_smoothed"] = sp.ndimage.gaussian_filter1d(prepared["Gyr_X"], sigma=float(smoothing_sigma))
+    prepared["X_gyr_derivative"] = prepared["Gyr_X_smoothed"].diff().fillna(0.0)
+    prepared["X_gyr_second_derivative"] = prepared["X_gyr_derivative"].diff().fillna(0.0)
+    if threshold is not None:
+        prepared["X_gyr_second_derivative_crossing"] = [
+            False if value > float(threshold) else True
+            for value in prepared["X_gyr_second_derivative"]
+        ]
+    return prepared

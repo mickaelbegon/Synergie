@@ -1,7 +1,11 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
 
+import pandas as pd
+
+from synergie.services.hdf5_archive_service import export_hdf5_archive
 from synergie.services.rotation_audit_service import audit_turn_estimation, load_turn_audit_signal
 
 
@@ -77,3 +81,42 @@ class RotationAuditServiceTests(unittest.TestCase):
         self.assertIsNotNone(signal)
         self.assertEqual(signal["takeoff_index"], 0)
         self.assertEqual(signal["landing_index"], 2)
+
+    def test_loads_turn_signal_from_hdf5_after_segment_csv_move(self):
+        original_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            os.chdir(root)
+            try:
+                segment = root / "data" / "annotated" / "20250911" / "0856" / "jump.csv"
+                segment.parent.mkdir(parents=True)
+                relative_segment = "data/annotated/20250911/0856/jump.csv"
+                frame_count = 300
+                gyr_x = [0.0] * frame_count
+                for index in range(80, 160):
+                    gyr_x[index] = 1000.0
+                pd.DataFrame(
+                    {
+                        "SampleTimeFine": [index * 100000 for index in range(frame_count)],
+                        "ms": [float(index * 100) for index in range(frame_count)],
+                        "Gyr_X": gyr_x,
+                        "Acc_X": [1.0] * frame_count,
+                    }
+                ).to_csv(segment, index=False)
+                export_hdf5_archive(
+                    "data/synergie_archive.h5",
+                    manifest={
+                        "format": "synergie-backup-manifest-v1",
+                        "pending_annotation_files": [],
+                        "training_dataset": {"trials": [{"path": relative_segment}]},
+                    },
+                )
+                segment.unlink()
+
+                signal = load_turn_audit_signal(relative_segment)
+            finally:
+                os.chdir(original_cwd)
+
+        self.assertIsNotNone(signal)
+        self.assertEqual(signal["takeoff_index"], 90)
+        self.assertEqual(signal["landing_index"], 150)
