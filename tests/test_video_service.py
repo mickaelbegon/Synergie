@@ -99,3 +99,37 @@ class VideoServiceTests(unittest.TestCase):
 
             self.assertEqual(result["removed_files"], 0)
             self.assertEqual(result["freed_bytes"], 0)
+
+    def test_cached_video_path_falls_back_to_source_when_copy_fails(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source = root / "external.mov"
+            source.write_bytes(b"video")
+            cache_root = root / "cache"
+            with mock.patch("synergie.services.video_service.should_cache_video", return_value=True):
+                with mock.patch("synergie.services.video_service.shutil.copy2", side_effect=OSError("Device not configured")):
+                    result = video_service.cached_video_path(source, cache_root=cache_root)
+
+            self.assertFalse(result["from_cache"])
+            self.assertTrue(result["cache_failed"])
+            self.assertEqual(result["path"], source.resolve())
+
+    def test_cached_video_path_uses_existing_valid_cache_without_copying(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source = root / "external.mov"
+            source.write_bytes(b"video")
+            stat = source.stat()
+            fingerprint = video_service.hashlib.sha1(f"{source.resolve()}|{stat.st_size}|{int(stat.st_mtime)}".encode("utf-8")).hexdigest()[:16]
+            cache_root = root / "cache"
+            cache_root.mkdir()
+            cached = cache_root / f"external-{fingerprint}.mov"
+            cached.write_bytes(b"video")
+
+            with mock.patch("synergie.services.video_service.should_cache_video", return_value=True):
+                with mock.patch("synergie.services.video_service.shutil.copy2") as copy_mock:
+                    result = video_service.cached_video_path(source, cache_root=cache_root)
+
+            self.assertTrue(result["from_cache"])
+            self.assertEqual(result["path"], cached.resolve())
+            copy_mock.assert_not_called()

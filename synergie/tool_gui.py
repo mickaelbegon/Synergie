@@ -491,6 +491,7 @@ class SynergieToolsApp:
         menu = getattr(self, "_category_page_menus", {}).get(category)
         if menu is None:
             return None
+        self._stop_annotation_playback()
         self.notebook.select(index)
         try:
             menu.tk_popup(event.x_root, event.y_root)
@@ -4493,6 +4494,8 @@ class SynergieToolsApp:
         self.annotation_video_directory_var.set(str(path.parent))
         self.annotation_video_slider.configure(to=max(duration_ms, 1.0))
         cache_text = " | cached locally" if cache_result["from_cache"] else ""
+        if cache_result.get("cache_failed"):
+            cache_text = " | cache unavailable; reading source"
         self.annotation_video_cache_note = cache_text
         self.annotation_video_info_var.set(f"{path.name} | fps={fps:.2f}{cache_text}")
         self._refresh_annotation_video_cache_button()
@@ -4502,26 +4505,36 @@ class SynergieToolsApp:
         self._display_annotation_video_frame(0.0)
         self._refresh_annotation_video_context()
 
-    def _display_annotation_video_frame(self, milliseconds: float) -> None:
+    def _display_annotation_video_frame(self, milliseconds: float | None = None, seek: bool = True) -> bool:
         if self.annotation_video_capture is None:
             self._draw_placeholder_annotation_video()
-            return
+            return False
 
         import cv2
         from PIL import Image, ImageTk
 
-        target_ms = max(0.0, min(float(milliseconds), self.annotation_video_duration_ms or float(milliseconds)))
-        if self.annotation_video_fps > 0:
-            frame_index = int(round((target_ms / 1000.0) * self.annotation_video_fps))
-            max_frame_index = max(self.annotation_video_frame_count - 1, 0)
-            frame_index = min(frame_index, max_frame_index)
-            self.annotation_video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+        if milliseconds is None:
+            target_ms = self.annotation_video_current_ms
         else:
-            self.annotation_video_capture.set(cv2.CAP_PROP_POS_MSEC, target_ms)
+            target_ms = max(0.0, min(float(milliseconds), self.annotation_video_duration_ms or float(milliseconds)))
+        if seek:
+            if self.annotation_video_fps > 0:
+                frame_index = int(round((target_ms / 1000.0) * self.annotation_video_fps))
+                max_frame_index = max(self.annotation_video_frame_count - 1, 0)
+                frame_index = min(frame_index, max_frame_index)
+                self.annotation_video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+            else:
+                self.annotation_video_capture.set(cv2.CAP_PROP_POS_MSEC, target_ms)
 
         ok, frame = self.annotation_video_capture.read()
         if not ok:
-            return
+            return False
+        if not seek:
+            position_ms = float(self.annotation_video_capture.get(cv2.CAP_PROP_POS_MSEC) or 0.0)
+            if position_ms > 0:
+                target_ms = position_ms
+            else:
+                target_ms = min(target_ms, self.annotation_video_duration_ms or target_ms)
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         image = Image.fromarray(frame)
@@ -4538,6 +4551,7 @@ class SynergieToolsApp:
             f"{self.annotation_video_frame_count} frames | "
             f"{duration_text}{self.annotation_video_cache_note}"
         )
+        return True
 
     def _on_annotation_video_slider_released(self, _event=None) -> None:
         if self.annotation_video_capture is None:
@@ -4599,7 +4613,10 @@ class SynergieToolsApp:
                 self._annotation_playback_after_id = None
                 self._set_annotation_play_button_state(False)
                 return
-            self._display_annotation_video_frame(next_ms)
+            if not self._display_annotation_video_frame(next_ms, seek=False):
+                self._annotation_playback_after_id = None
+                self._set_annotation_play_button_state(False)
+                return
             self._annotation_playback_after_id = self.root.after(delay_ms, advance)
 
         self._annotation_playback_after_id = self.root.after(delay_ms, advance)
@@ -4632,7 +4649,10 @@ class SynergieToolsApp:
                 self._annotation_playback_after_id = None
                 self._set_annotation_play_button_state(False)
                 return
-            self._display_annotation_video_frame(next_ms)
+            if not self._display_annotation_video_frame(next_ms, seek=False):
+                self._annotation_playback_after_id = None
+                self._set_annotation_play_button_state(False)
+                return
             self._annotation_playback_after_id = self.root.after(delay_ms, advance)
 
         self._annotation_playback_after_id = self.root.after(delay_ms, advance)

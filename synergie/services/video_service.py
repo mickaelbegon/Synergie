@@ -41,8 +41,13 @@ def cached_video_path(video_path: str | Path, cache_root: str | Path = ".tmp/vid
     cached = cache_dir / f"{source.stem}-{fingerprint}{source.suffix.lower()}"
     copied = False
     if not cached.exists() or cached.stat().st_size != stat.st_size:
-        shutil.copy2(source, cached)
-        copied = True
+        try:
+            shutil.copy2(source, cached)
+            copied = True
+        except OSError as exc:
+            if cached.exists() and cached.stat().st_size == stat.st_size:
+                return {"path": cached.resolve(), "source_path": source, "from_cache": True, "copied": False, "copy_error": str(exc)}
+            return {"path": source, "source_path": source, "from_cache": False, "copied": False, "cache_failed": True, "copy_error": str(exc)}
     return {"path": cached.resolve(), "source_path": source, "from_cache": True, "copied": copied}
 
 
