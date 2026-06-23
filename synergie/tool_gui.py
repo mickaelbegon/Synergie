@@ -135,6 +135,7 @@ class SynergieToolsApp:
         self.annotation_video_time_var = tk.StringVar(value="00:00.000")
         self.annotation_video_slider_var = tk.DoubleVar(value=0.0)
         self.annotation_play_button_var = tk.StringVar(value="▶")
+        self.annotation_video_cache_button_var = tk.StringVar(value="Clear cache (0 B)")
         self.new_session_id_var = tk.StringVar()
         self.new_session_path_var = tk.StringVar()
         self.new_session_synchro_var = tk.StringVar()
@@ -332,12 +333,13 @@ class SynergieToolsApp:
             foreground="#666666",
             font=("Segoe UI", self.diagnostic_font_size),
         )
-        self.annotation_shortcuts_header_label.grid(row=0, column=0, rowspan=2, sticky="nw", padx=(0, 24))
+        self.annotation_shortcuts_header_label.grid(row=0, column=0, rowspan=2, sticky="nw", padx=(0, 12))
         self.annotation_detection_diagnostic_label = ttk.Label(
             header,
             textvariable=self.annotation_detection_diagnostic_var,
             justify=tk.LEFT,
-            wraplength=920 if not self.small_screen else 720,
+            anchor=tk.W,
+            width=1,
             font=("Segoe UI", self.diagnostic_font_size),
         )
         self.annotation_detection_diagnostic_label.grid(row=0, column=1, sticky="new")
@@ -345,7 +347,8 @@ class SynergieToolsApp:
             header,
             textvariable=self.annotation_detection_warning_var,
             justify=tk.LEFT,
-            wraplength=920 if not self.small_screen else 720,
+            anchor=tk.W,
+            width=1,
             foreground="firebrick",
             font=("Segoe UI", self.diagnostic_font_size),
         )
@@ -845,9 +848,19 @@ class SynergieToolsApp:
 
         ttk.Label(video_frame, text="Session video").grid(row=0, column=0, sticky="w")
         ttk.Label(video_frame, textvariable=self.annotation_video_path_var, justify=tk.LEFT, wraplength=300).grid(row=0, column=1, sticky="w", padx=4)
-        choose_video_button = ttk.Button(video_frame, text="Choose video...", command=self._open_annotation_video_popup)
-        choose_video_button.grid(row=0, column=2, sticky="e")
+        video_action_buttons = ttk.Frame(video_frame)
+        video_action_buttons.grid(row=0, column=2, sticky="e")
+        choose_video_button = ttk.Button(video_action_buttons, text="Choose video...", command=self._open_annotation_video_popup)
+        choose_video_button.grid(row=0, column=0, sticky="e")
         self._add_tooltip(choose_video_button, "Cherche les videos proches de l'heure de la seance et permet de choisir la bonne.")
+        clear_cache_button = ttk.Button(
+            video_action_buttons,
+            textvariable=self.annotation_video_cache_button_var,
+            command=self._clear_annotation_video_cache,
+        )
+        clear_cache_button.grid(row=0, column=1, sticky="e", padx=(4, 0))
+        self._add_tooltip(clear_cache_button, "Supprime les copies locales temporaires des videos ouvertes depuis un autre disque.")
+        self._refresh_annotation_video_cache_button()
 
         ttk.Label(video_frame, textvariable=self.annotation_video_info_var, justify=tk.LEFT, wraplength=360).grid(
             row=1,
@@ -3848,10 +3861,7 @@ class SynergieToolsApp:
             if hasattr(self, "annotation_detection_diagnostic_label"):
                 self.annotation_detection_diagnostic_label.grid()
             if hasattr(self, "annotation_detection_warning_label"):
-                if self.annotation_detection_warning_var.get():
-                    self.annotation_detection_warning_label.grid()
-                else:
-                    self.annotation_detection_warning_label.grid_remove()
+                self.annotation_detection_warning_label.grid()
         else:
             self.annotation_shortcuts_header_var.set("")
             for name in (
@@ -3957,6 +3967,30 @@ class SynergieToolsApp:
         minutes, remaining_ms = divmod(total_ms, 60000)
         seconds, millis = divmod(remaining_ms, 1000)
         return f"{minutes:02d}:{seconds:02d}.{millis:03d}"
+
+    def _format_file_size(self, size_bytes: int) -> str:
+        value = float(max(0, int(size_bytes)))
+        for unit in ("B", "KB", "MB", "GB"):
+            if value < 1024.0 or unit == "GB":
+                return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} B"
+            value /= 1024.0
+        return f"{value:.1f} GB"
+
+    def _refresh_annotation_video_cache_button(self) -> None:
+        size_bytes = operations.video_cache_size_bytes()
+        self.annotation_video_cache_button_var.set(f"Clear cache ({self._format_file_size(size_bytes)})")
+
+    def _clear_annotation_video_cache(self) -> None:
+        self._stop_annotation_playback()
+        if self.annotation_video_cache_note:
+            self._release_annotation_video()
+            self.annotation_video_cache_note = ""
+            self._draw_placeholder_annotation_video("Video cache cleared. Reload the video to continue reviewing.")
+        result = operations.clear_video_cache()
+        self._refresh_annotation_video_cache_button()
+        self.status_var.set(
+            f"Video cache cleared: {result['removed_files']} file(s), {self._format_file_size(result['freed_bytes'])} freed."
+        )
 
     def _selected_annotation_row(self):
         index = self._selected_annotation_index()
@@ -4461,6 +4495,7 @@ class SynergieToolsApp:
         cache_text = " | cached locally" if cache_result["from_cache"] else ""
         self.annotation_video_cache_note = cache_text
         self.annotation_video_info_var.set(f"{path.name} | fps={fps:.2f}{cache_text}")
+        self._refresh_annotation_video_cache_button()
         if persist and self.annotation_file_path is not None:
             self.annotation_metadata = operations.set_annotation_video_path(self.annotation_file_path, path)
             self.annotation_metadata = operations.set_annotation_video_directory(self.annotation_file_path, path.parent)

@@ -55,3 +55,29 @@ class VideoServiceTests(unittest.TestCase):
 
         self.assertFalse(result["from_cache"])
         self.assertEqual(result["path"], video_path.resolve())
+
+    def test_video_cache_size_and_clear_cache(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_root = Path(tmpdir) / "video_cache"
+            cache_root.mkdir()
+            (cache_root / "a.mov").write_bytes(b"12345")
+            nested = cache_root / "nested"
+            nested.mkdir()
+            (nested / "b.mp4").write_bytes(b"123")
+
+            self.assertEqual(video_service.video_cache_size_bytes(cache_root), 8)
+
+            result = video_service.clear_video_cache(cache_root)
+
+            self.assertEqual(result["removed_files"], 2)
+            self.assertEqual(result["freed_bytes"], 8)
+            self.assertEqual(video_service.video_cache_size_bytes(cache_root), 0)
+
+    def test_clear_video_cache_handles_missing_directory(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_root = Path(tmpdir) / "missing"
+
+            result = video_service.clear_video_cache(cache_root)
+
+            self.assertEqual(result["removed_files"], 0)
+            self.assertEqual(result["freed_bytes"], 0)

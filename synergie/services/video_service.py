@@ -48,6 +48,32 @@ def cached_video_path(video_path: str | Path, cache_root: str | Path = ".tmp/vid
     return {"path": cached.resolve(), "source_path": source, "from_cache": True, "copied": copied}
 
 
+def video_cache_size_bytes(cache_root: str | Path = ".tmp/video_cache") -> int:
+    """Return the total size of cached local video copies."""
+    cache_dir = Path(cache_root)
+    if not cache_dir.exists() or not cache_dir.is_dir():
+        return 0
+    return sum(path.stat().st_size for path in cache_dir.rglob("*") if path.is_file())
+
+
+def clear_video_cache(cache_root: str | Path = ".tmp/video_cache") -> dict:
+    """Delete cached video files and return how much space was freed."""
+    cache_dir = Path(cache_root)
+    before_bytes = video_cache_size_bytes(cache_dir)
+    removed_files = 0
+    if cache_dir.exists() and cache_dir.is_dir():
+        for path in sorted(cache_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+                removed_files += 1
+            elif path.is_dir():
+                try:
+                    path.rmdir()
+                except OSError:
+                    pass
+    return {"removed_files": removed_files, "freed_bytes": before_bytes}
+
+
 def annotation_reference_datetime(annotation_csv_path: str | Path, annotation_rows=None) -> datetime | None:
     """Infer the recording datetime that should be matched to session videos."""
     if annotation_rows is not None:

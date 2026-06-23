@@ -103,11 +103,13 @@ from synergie.services.training_service import (
 from synergie.services.video_service import (
     annotation_reference_datetime,
     cached_video_path,
+    clear_video_cache,
     list_video_files,
     parse_datetime_from_text as _parse_datetime_from_text,
     parse_datetime_value as _parse_datetime_value,
     read_video_creation_time_with_ffprobe as _read_video_creation_time_with_ffprobe,
     select_best_video_datetime as _select_best_video_datetime,
+    video_cache_size_bytes,
 )
 from synergie.services.window_benchmark_service import benchmark_temporal_offsets, benchmark_temporal_windows
 from synergie.services.segment_reexport_service import ensure_pre_takeoff_context, reexport_segment_with_context
