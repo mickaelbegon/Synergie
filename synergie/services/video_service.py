@@ -30,9 +30,7 @@ def list_video_files(directory: str | Path, recursive: bool = False) -> list[Pat
 def cached_video_path(video_path: str | Path, cache_root: str | Path = ".tmp/video_cache") -> dict:
     """Return a local cached copy for videos opened from another drive or a network path."""
     source = Path(video_path).resolve()
-    workspace_drive = Path.cwd().resolve().drive.lower()
-    source_drive = source.drive.lower()
-    should_cache = source_drive != workspace_drive or str(source).startswith("\\\\")
+    should_cache = should_cache_video(source, Path.cwd().resolve())
     if not should_cache:
         return {"path": source, "source_path": source, "from_cache": False, "copied": False}
 
@@ -46,6 +44,35 @@ def cached_video_path(video_path: str | Path, cache_root: str | Path = ".tmp/vid
         shutil.copy2(source, cached)
         copied = True
     return {"path": cached.resolve(), "source_path": source, "from_cache": True, "copied": copied}
+
+
+def should_cache_video(source_path, workspace_path) -> bool:
+    """Return whether a video should be copied locally before playback."""
+    source_text = str(source_path)
+    if source_text.startswith("\\\\"):
+        return True
+
+    source_drive = source_path.drive.lower()
+    workspace_drive = workspace_path.drive.lower()
+    if source_drive or workspace_drive:
+        return source_drive != workspace_drive
+
+    source_mount = _external_mount_key(source_path)
+    workspace_mount = _external_mount_key(workspace_path)
+    if source_mount is not None:
+        return source_mount != workspace_mount
+    return False
+
+
+def _external_mount_key(path) -> tuple[str, ...] | None:
+    parts = tuple(str(part).lower() for part in path.parts)
+    if len(parts) >= 3 and parts[0] == "/" and parts[1] == "volumes":
+        return ("volumes", parts[2])
+    if len(parts) >= 4 and parts[0] == "/" and parts[1] == "media":
+        return ("media", parts[2], parts[3])
+    if len(parts) >= 3 and parts[0] == "/" and parts[1] == "mnt":
+        return ("mnt", parts[2])
+    return None
 
 
 def video_cache_size_bytes(cache_root: str | Path = ".tmp/video_cache") -> int:

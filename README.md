@@ -121,6 +121,39 @@ Cette application sert surtout a la prise de donnees. Pour le traitement detaill
 
 L'outil est organise en onglets. Le flux normal va de `Data - New` vers `Data - Annotate`, puis vers les onglets de revue et enfin les onglets modeles.
 
+#### Pour une premiere utilisation sans experience
+
+Cette section donne le chemin le plus simple pour utiliser l'interface sans connaitre le code.
+
+1. Ouvrir l'environnement Conda.
+2. Lancer `tools_gui.py`.
+3. Commencer par l'onglet `Start` pour relire le flux general.
+4. Aller dans `Data`.
+5. Cliquer sur le nom d'onglet `Data` pour ouvrir le menu des sous-ecrans, puis choisir `New`, `Annotate`, `Status`, etc.
+6. Quand l'interface affiche un message dans la barre du bas, le lire avant de continuer : c'est souvent la meilleure indication de ce qui vient d'etre fait.
+
+Commandes typiques :
+
+```powershell
+conda activate synergie-data
+python tools_gui.py
+```
+
+Sous Windows, si l'environnement Conda est deja configure dans ce depot :
+
+```powershell
+& "C:\Users\micka\Documents\GIT\Synergie_Data\Synergie_Data\launch_tools_gui.bat"
+```
+
+Principe general :
+
+- `Data` sert a preparer et annoter les donnees.
+- `Review` sert a verifier les donnees et detecter les erreurs.
+- `Models` sert a entrainer, comparer et comprendre les modeles.
+- `Notes` sert d'aide-memoire.
+
+Dans `Data`, `Review` et `Models`, les sous-ecrans sont dans un petit menu : cliquer sur le nom de l'onglet principal pour choisir le sous-ecran. L'objectif est de garder plus de place pour les videos, les graphes et les listes.
+
 #### Vue d'ensemble des onglets
 
 - `Start - Workflow` : rappel textuel du pipeline conseille de bout en bout
@@ -163,6 +196,27 @@ En pratique, le detail utile est le suivant :
 8. Quand tout est propre, lancer `Finalize annotated file`.
 9. Utiliser `Review - Quality`, `Review - Dataset` et `Review - Detection` pour filtrer les exemples douteux avant re-entrainement.
 10. Re-entrainer dans `Models - Train`.
+
+Version tres concrete pour une nouvelle seance :
+
+1. Copier le dossier de la seance dans `data/new`.
+2. Ouvrir `tools_gui.py`.
+3. Aller dans `Data`, puis choisir `New`.
+4. Dans `Folder`, selectionner le dossier de la nouvelle seance.
+5. Verifier que les CSV IMU apparaissent dans `IMU files`.
+6. Cliquer `Add session automatically` si la session n'existe pas encore.
+7. Cliquer `Process for annotation`.
+8. Attendre que le log confirme la creation du fichier `*_for_annotation.csv`.
+9. Aller dans `Data`, puis choisir `Annotate`.
+10. Cliquer `Refresh annotation files`.
+11. Selectionner le fichier de la seance.
+12. Charger la video de la seance avec `Choose video...`.
+13. Revoir chaque candidat de saut dans `Session Timeline`.
+14. Corriger les informations de saut, succes, statut de revue et nombre de tours.
+15. Sauvegarder regulierement avec `Save current annotation`, `Ctrl+S`, ou `Auto save`.
+16. Quand toute la seance est terminee, cliquer `Finalize annotated file`.
+17. Aller dans `Review - Quality` et `Review - Dataset` pour verifier les cas suspects.
+18. Aller dans `Models - Train` seulement quand les annotations sont suffisamment propres.
 
 #### `Data - Status`
 
@@ -220,6 +274,21 @@ Ce n'est pas l'onglet recommande pour une session toute neuve si le flux `Data -
 
 C'est l'onglet central pour construire un dataset propre.
 
+Objectif de cet onglet :
+
+- prendre une liste de candidats de saut detectes automatiquement
+- regarder la video et le signal IMU
+- confirmer le vrai type de saut
+- corriger le nombre de tours et le succes
+- marquer les signaux douteux pour qu'ils ne polluent pas l'entrainement
+- ajouter les sauts manques si les capteurs ne les ont pas detectes
+
+Avant de commencer :
+
+- Avoir un fichier `*_for_annotation.csv` dans `data/pending`.
+- Avoir la video de la seance accessible, idealement sur le disque local ou un disque externe branche.
+- Savoir que la finalisation ne doit etre faite qu'a la fin de la revue de toute la seance.
+
 Sur la gauche :
 
 - `Refresh annotation files` recharge les `*_for_annotation.csv`
@@ -230,10 +299,38 @@ Sur la droite :
 
 - `Video Review` charge et relit une video de la seance
 - `Choose video...` ouvre une popup pour choisir un dossier video, chercher les meilleurs matchs temporels et charger la bonne video
+- `Clear cache (...)` vide les copies temporaires de videos creees pour accelerer la lecture depuis un disque externe
 - `ADD JUMP` ouvre une popup pour chercher un saut manque sur un capteur avec des seuils de detection ajustables
 - le systeme essaie d'utiliser les metadonnees video, le nom du fichier et les timestamps disque pour faire le rapprochement
 - un offset de synchronisation par capteur peut etre memorise pour aligner IMU et video
 - la timeline video, le slider et les boutons permettent de se deplacer rapidement
+
+Procedure conseillee pour annoter un saut :
+
+1. Selectionner un fichier dans la liste `Refresh annotation files`.
+2. Selectionner le premier saut dans `Session Timeline`.
+3. Charger ou verifier la video dans `Video Review`.
+4. Cliquer le bouton pour aller au saut courant si la video n'est pas deja au bon endroit.
+5. Regarder le mouvement dans la video.
+6. Regarder le graphe `Jump Signals`.
+7. Choisir le type de saut : piques, de carre, ou educatif.
+8. Choisir le nombre de tours.
+9. Choisir `Fall`, `Success` ou `Unknown`.
+10. Choisir un `Review status`.
+11. Cliquer `Save current annotation`, ou activer `Auto save`.
+12. Passer au saut suivant.
+
+Comment lire `Jump Signals` :
+
+- La courbe bleue represente la vitesse angulaire principale du capteur.
+- La courbe orange represente l'acceleration `Acc_X`.
+- La courbe rouge represente `Gyr_X_ddot`, une derivee utilisee par la detection. Elle est affichee avec un facteur d'echelle pour etre visible.
+- Les zones rouges transparentes montrent les moments ou le signal franchit le seuil de detection.
+- Les traits verticaux indiquent les bornes du saut, notamment le takeoff et le landing quand ils sont disponibles.
+- Le texte en haut explique pourquoi l'algorithme a considere ce segment comme un saut.
+- Si le texte rouge dit que le timing est biomecaniquement suspect, il faut regarder la video et probablement marquer le cas comme `Weird signal / bad bounds` ou `No jump or drill`.
+
+Important : un signal peut etre detecte comme un saut meme si la video montre autre chose. L'algorithme regarde des seuils de mouvement, pas l'intention du patineur. C'est exactement pour cela que la revue humaine existe.
 
 Les controles video disponibles sont :
 
@@ -246,12 +343,51 @@ Les controles video disponibles sont :
 
 Raccourcis d'annotation visibles dans l'interface :
 
-- `t / f / z / s / l / a` : type de saut
+- `t / f / z / s / a` : type de saut
 - `1 / 2 / 3 / 4` : nombre de tours
 - `c / r / n` : chute / reussi / inconnu
 - `u` : saut non visible sur la video
 - `x` : signal bizarre ou bornes debut/fin incoherentes
+- `l` : afficher ou masquer la legende du graphe
 - `Ctrl+S` : sauvegarder l'annotation courante
+
+Statuts de revue recommandes :
+
+- `Seen jump` : le saut est visible et les bornes semblent coherentes.
+- `Unseen on video` : la video ne montre pas le saut, ou la synchronisation ne permet pas de conclure.
+- `Weird signal / bad bounds` : le signal est bizarre, les bornes takeoff/landing ne font pas de sens, ou le graphe ne ressemble pas a un saut utilisable.
+- `Jump drill` : c'est un educatif de saut, pas un saut complet normal.
+- `No jump or drill` : ce n'est pas un saut et ce n'est pas un educatif.
+
+Choisir le type de saut :
+
+- `Toe loop`, `Flip`, `Lutz` sont des sauts piques.
+- `Salchow`, `Loop`, `Axel` sont des sauts de carre.
+- Le nombre de tours se choisit dans la colonne `Turns`.
+- Si le type ou le nombre de tours est incertain, corriger ce qui est visible et garder `Unknown` pour le succes si necessaire.
+
+Sauvegarde :
+
+- `Save current annotation` sauvegarde seulement le saut courant.
+- `Ctrl+S` fait la meme chose rapidement au clavier.
+- `Auto save` sauvegarde automatiquement apres chaque changement.
+- `Finalize annotated file` doit etre utilise seulement quand toute la liste est revue. Cette action ajoute les annotations finalisees au dataset d'entrainement.
+
+Synchronisation video :
+
+- Le systeme essaie de trouver automatiquement une video proche de l'heure de la seance.
+- Si la bonne video n'est pas chargee, cliquer `Choose video...`, choisir le dossier video, puis charger le meilleur match.
+- Si le saut n'arrive pas au bon moment dans la video, placer la video au bon frame et cliquer `Sync current IMU at this frame`.
+- La synchronisation peut etre differente selon le capteur, donc verifier le capteur affiche pour le saut courant.
+- `Clear current IMU sync` supprime la synchronisation sauvegardee pour le capteur courant.
+
+Cache video local :
+
+- Si une video est lue depuis un autre disque, par exemple `D:` sous Windows ou `/Volumes/...` sur Mac, le GUI peut la copier temporairement dans `.tmp/video_cache`.
+- Cette copie rend la lecture plus fluide et evite de relire constamment le disque externe.
+- Le bouton `Clear cache (...)` montre la taille actuelle du cache.
+- Cliquer `Clear cache (...)` libere l'espace disque utilise par ces copies temporaires.
+- Vider le cache ne supprime pas la video originale.
 
 Ajouter un saut manque :
 
@@ -263,6 +399,18 @@ Ajouter un saut manque :
 - cliquer `Add selected jump`
 
 La ligne ajoutee garde les reglages utilises dans les colonnes `detection_threshold`, `smoothing_sigma` et `combination_gap_frames`.
+
+Quand ajouter un saut manuellement :
+
+- La video montre clairement un saut, mais aucun candidat correspondant n'existe dans `Session Timeline`.
+- Le saut est visible sur un autre capteur que celui actuellement selectionne.
+- Les seuils automatiques ont manque un saut parce que le signal est plus faible, plus lent ou plus bruite que les autres.
+
+Quand ne pas ajouter un saut :
+
+- La video montre seulement une preparation, une transition ou un educatif sans saut complet.
+- Le signal est tellement bruite qu'il n'est pas possible de definir un takeoff et un landing raisonnables.
+- Le saut est deja present dans la liste avec un autre capteur et il suffit de corriger son label.
 
 Conseils pratiques :
 

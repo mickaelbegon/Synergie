@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import SimpleNamespace
 from unittest import mock
 
@@ -55,6 +55,24 @@ class VideoServiceTests(unittest.TestCase):
 
         self.assertFalse(result["from_cache"])
         self.assertEqual(result["path"], video_path.resolve())
+
+    def test_should_cache_mac_external_volume_from_local_workspace(self):
+        source = PurePosixPath("/Volumes/ExternalDrive/20250929.MOV")
+        workspace = PurePosixPath("/Users/micka/Documents/GIT/Synergie_Data")
+
+        self.assertTrue(video_service.should_cache_video(source, workspace))
+
+    def test_should_not_cache_mac_video_on_same_external_volume_as_workspace(self):
+        source = PurePosixPath("/Volumes/ExternalDrive/videos/20250929.MOV")
+        workspace = PurePosixPath("/Volumes/ExternalDrive/Synergie_Data")
+
+        self.assertFalse(video_service.should_cache_video(source, workspace))
+
+    def test_should_cache_different_windows_drive(self):
+        source = PureWindowsPath("D:/videos/20250929.MOV")
+        workspace = PureWindowsPath("C:/Users/micka/Documents/GIT/Synergie_Data")
+
+        self.assertTrue(video_service.should_cache_video(source, workspace))
 
     def test_video_cache_size_and_clear_cache(self):
         with tempfile.TemporaryDirectory() as tmpdir:
