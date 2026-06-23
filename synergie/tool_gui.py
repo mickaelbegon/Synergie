@@ -351,55 +351,28 @@ class SynergieToolsApp:
         notebook.add(models_category_tab, text="Models")
         notebook.add(notes_tab, text="Notes")
 
-        data_category_tab.columnconfigure(0, weight=1)
-        data_category_tab.rowconfigure(0, weight=1)
-        review_category_tab.columnconfigure(0, weight=1)
-        review_category_tab.rowconfigure(0, weight=1)
-        models_category_tab.columnconfigure(0, weight=1)
-        models_category_tab.rowconfigure(0, weight=1)
+        self._compact_page_vars: dict[str, tk.StringVar] = {}
+        data_pages = self._build_compact_page_group(data_category_tab, "Data", ["Status", "Sessions", "New", "Process", "Annotate"])
+        review_pages = self._build_compact_page_group(review_category_tab, "Review", ["Quality", "Dataset", "Turns", "Inspect IMU", "Detection"])
+        models_pages = self._build_compact_page_group(models_category_tab, "Models", ["Train", "Importance", "Tune", "Windows", "Audit"])
 
-        data_notebook = ttk.Notebook(data_category_tab)
-        review_notebook = ttk.Notebook(review_category_tab)
-        models_notebook = ttk.Notebook(models_category_tab)
-        data_notebook.grid(row=0, column=0, sticky="nsew")
-        review_notebook.grid(row=0, column=0, sticky="nsew")
-        models_notebook.grid(row=0, column=0, sticky="nsew")
-        self.data_notebook = data_notebook
-        self.review_notebook = review_notebook
-        self.models_notebook = models_notebook
+        inventory_tab = data_pages["Status"]
+        sessions_tab = data_pages["Sessions"]
+        new_data_tab = data_pages["New"]
+        process_tab = data_pages["Process"]
+        annotate_tab = data_pages["Annotate"]
 
-        inventory_tab = ttk.Frame(data_notebook, padding=12)
-        sessions_tab = ttk.Frame(data_notebook, padding=12)
-        new_data_tab = ttk.Frame(data_notebook, padding=12)
-        process_tab = ttk.Frame(data_notebook, padding=12)
-        annotate_tab = ttk.Frame(data_notebook, padding=12)
-        data_notebook.add(inventory_tab, text="Status")
-        data_notebook.add(sessions_tab, text="Sessions")
-        data_notebook.add(new_data_tab, text="New")
-        data_notebook.add(process_tab, text="Process")
-        data_notebook.add(annotate_tab, text="Annotate")
+        quality_tab = review_pages["Quality"]
+        dataset_review_tab = review_pages["Dataset"]
+        rotation_audit_tab = review_pages["Turns"]
+        inspect_tab = review_pages["Inspect IMU"]
+        detection_tuning_tab = review_pages["Detection"]
 
-        quality_tab = ttk.Frame(review_notebook, padding=12)
-        dataset_review_tab = ttk.Frame(review_notebook, padding=12)
-        rotation_audit_tab = ttk.Frame(review_notebook, padding=12)
-        inspect_tab = ttk.Frame(review_notebook, padding=12)
-        detection_tuning_tab = ttk.Frame(review_notebook, padding=12)
-        review_notebook.add(quality_tab, text="Quality")
-        review_notebook.add(dataset_review_tab, text="Dataset")
-        review_notebook.add(rotation_audit_tab, text="Turns")
-        review_notebook.add(inspect_tab, text="Inspect IMU")
-        review_notebook.add(detection_tuning_tab, text="Detection")
-
-        train_tab = ttk.Frame(models_notebook, padding=12)
-        signal_tab = ttk.Frame(models_notebook, padding=12)
-        tuner_tab = ttk.Frame(models_notebook, padding=12)
-        window_tab = ttk.Frame(models_notebook, padding=12)
-        model_audit_tab = ttk.Frame(models_notebook, padding=12)
-        models_notebook.add(train_tab, text="Train")
-        models_notebook.add(signal_tab, text="Importance")
-        models_notebook.add(tuner_tab, text="Tune")
-        models_notebook.add(window_tab, text="Windows")
-        models_notebook.add(model_audit_tab, text="Audit")
+        train_tab = models_pages["Train"]
+        signal_tab = models_pages["Importance"]
+        tuner_tab = models_pages["Tune"]
+        window_tab = models_pages["Windows"]
+        model_audit_tab = models_pages["Audit"]
 
         sessions_tab.columnconfigure(0, weight=1)
         sessions_tab.columnconfigure(1, weight=0)
@@ -446,6 +419,44 @@ class SynergieToolsApp:
     def _add_tooltip(self, widget, text: str):
         self._tooltips.append(Tooltip(widget, text))
         return widget
+
+    def _build_compact_page_group(self, parent: ttk.Frame, category: str, page_names: list[str]) -> dict[str, ttk.Frame]:
+        """Build compact sub-page navigation without a second row of tabs."""
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(1, weight=1)
+
+        selector = ttk.Frame(parent, padding=(8, 4, 8, 0))
+        selector.grid(row=0, column=0, sticky="ew")
+        selector.columnconfigure(1, weight=1)
+        ttk.Label(selector, text=f"{category} view:").grid(row=0, column=0, sticky="w", padx=(0, 6))
+        page_var = tk.StringVar(value=page_names[0])
+        page_select = ttk.Combobox(
+            selector,
+            textvariable=page_var,
+            values=page_names,
+            state="readonly",
+            width=max(len(name) for name in page_names) + 2,
+        )
+        page_select.grid(row=0, column=1, sticky="w")
+
+        content = ttk.Frame(parent)
+        content.grid(row=1, column=0, sticky="nsew")
+        content.columnconfigure(0, weight=1)
+        content.rowconfigure(0, weight=1)
+
+        frames: dict[str, ttk.Frame] = {}
+        for page_name in page_names:
+            frame = ttk.Frame(content, padding=12)
+            frame.grid(row=0, column=0, sticky="nsew")
+            frames[page_name] = frame
+
+        def show_selected_page(_event=None) -> None:
+            frames[page_var.get()].tkraise()
+
+        page_select.bind("<<ComboboxSelected>>", show_selected_page)
+        self._compact_page_vars[category] = page_var
+        show_selected_page()
+        return frames
 
     def _build_workflow_tab(self, parent: ttk.Frame) -> None:
         """Build the first-tab guide for the end-to-end data workflow."""
@@ -3779,16 +3790,9 @@ class SynergieToolsApp:
         except Exception:
             return texts
         texts.append(main_text)
-        child_notebook = {
-            "Data": getattr(self, "data_notebook", None),
-            "Review": getattr(self, "review_notebook", None),
-            "Models": getattr(self, "models_notebook", None),
-        }.get(main_text)
-        if child_notebook is not None:
-            try:
-                texts.append(str(child_notebook.tab(child_notebook.select(), "text")))
-            except Exception:
-                pass
+        page_var = getattr(self, "_compact_page_vars", {}).get(main_text)
+        if page_var is not None:
+            texts.append(str(page_var.get()))
         return texts
 
     def _current_tab_matches(self, *labels: str) -> bool:
