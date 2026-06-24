@@ -278,6 +278,8 @@ class SynergieToolsApp:
         self.annotation_video_current_ms = 0.0
         self.annotation_video_cache_note = ""
         self._annotation_video_photo = None
+        self._annotation_video_frame_image = None
+        self._annotation_video_resize_after_id = None
         self._annotation_playback_after_id = None
         self.annotation_video_popup = None
         self.annotation_video_popup_info_label = None
@@ -896,6 +898,7 @@ class SynergieToolsApp:
         )
         self.annotation_video_label.grid(row=2, column=0, columnspan=3, sticky="nsew")
         self._add_tooltip(self.annotation_video_label, "Video de la seance utilisee pour verifier les labels.")
+        self.annotation_video_label.bind("<Configure>", self._on_annotation_video_label_resized)
 
         video_timeline = ttk.Frame(video_frame)
         video_timeline.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(4, 0))
@@ -4000,7 +4003,31 @@ class SynergieToolsApp:
 
     def _draw_placeholder_annotation_video(self, message: str = "Load a session video to review jumps.") -> None:
         self._annotation_video_photo = None
+        self._annotation_video_frame_image = None
         self.annotation_video_label.configure(image="", text=message)
+
+    def _on_annotation_video_label_resized(self, _event=None) -> None:
+        if self._annotation_video_frame_image is None:
+            return
+        if self._annotation_playback_after_id is not None:
+            return
+        if self._annotation_video_resize_after_id is not None:
+            self.root.after_cancel(self._annotation_video_resize_after_id)
+        self._annotation_video_resize_after_id = self.root.after(80, self._redraw_annotation_video_frame)
+
+    def _redraw_annotation_video_frame(self) -> None:
+        self._annotation_video_resize_after_id = None
+        if self._annotation_video_frame_image is None:
+            return
+        from PIL import ImageTk
+
+        image = self._annotation_video_frame_image.copy()
+        max_width = max(420, self.annotation_video_label.winfo_width() - 12)
+        max_height = max(260, self.annotation_video_label.winfo_height() - 12)
+        image.thumbnail((max_width, max_height))
+        photo = ImageTk.PhotoImage(image)
+        self._annotation_video_photo = photo
+        self.annotation_video_label.configure(image=photo, text="")
 
     def _show_annotation_video_progress_popup(self, message: str) -> None:
         self._close_annotation_video_progress_popup()
@@ -4530,9 +4557,13 @@ class SynergieToolsApp:
         self._load_annotation_video(self._annotation_video_match_cache[selection[0]]["path"], persist=True)
 
     def _release_annotation_video(self) -> None:
+        if self._annotation_video_resize_after_id is not None:
+            self.root.after_cancel(self._annotation_video_resize_after_id)
+            self._annotation_video_resize_after_id = None
         if self.annotation_video_capture is not None:
             self.annotation_video_capture.release()
             self.annotation_video_capture = None
+        self._annotation_video_frame_image = None
         self.annotation_video_fps = 0.0
         self.annotation_video_frame_count = 0
         self.annotation_video_duration_ms = 0.0
@@ -4638,7 +4669,7 @@ class SynergieToolsApp:
             return False
 
         import cv2
-        from PIL import Image, ImageTk
+        from PIL import Image
 
         if milliseconds is None:
             target_ms = self.annotation_video_current_ms
@@ -4664,13 +4695,8 @@ class SynergieToolsApp:
                 target_ms = min(target_ms, self.annotation_video_duration_ms or target_ms)
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        image = Image.fromarray(frame)
-        max_width = max(420, self.annotation_video_label.winfo_width() - 12)
-        max_height = max(260, self.annotation_video_label.winfo_height() - 12)
-        image.thumbnail((max_width, max_height))
-        photo = ImageTk.PhotoImage(image)
-        self._annotation_video_photo = photo
-        self.annotation_video_label.configure(image=photo, text="")
+        self._annotation_video_frame_image = Image.fromarray(frame)
+        self._redraw_annotation_video_frame()
         self.annotation_video_current_ms = target_ms
         self.annotation_video_slider_var.set(target_ms)
         self.annotation_video_time_var.set(self._format_video_ms(target_ms))
@@ -4743,8 +4769,9 @@ class SynergieToolsApp:
         base_frame_ms = 1000.0 / self.annotation_video_fps if self.annotation_video_fps > 0 else 40.0
         speed = self._annotation_playback_speed_multiplier()
         step_ms = max(base_frame_ms * speed, 20.0)
-        delay_ms = max(int(round(base_frame_ms)), 20)
+        delay_ms = max(int(round(base_frame_ms / speed)), 8)
         target_ms = max(self.annotation_video_duration_ms, self.annotation_video_current_ms)
+        self.status_var.set(f"Video playback started at {self.annotation_playback_speed_var.get()}")
 
         def advance() -> None:
             if self.annotation_video_capture is None:
@@ -4778,8 +4805,10 @@ class SynergieToolsApp:
         self._set_annotation_play_button_state(True)
         start_ms = max(target_ms - 5000.0, 0.0)
         base_frame_ms = 1000.0 / self.annotation_video_fps if self.annotation_video_fps > 0 else 40.0
-        step_ms = max(base_frame_ms * 5.0, 100.0)
-        delay_ms = max(int(round(base_frame_ms)), 20)
+        speed = self._annotation_playback_speed_multiplier()
+        step_ms = max(base_frame_ms * 5.0 * speed, 100.0)
+        delay_ms = max(int(round(base_frame_ms / speed)), 8)
+        self.status_var.set(f"Fast jump playback started at {self.annotation_playback_speed_var.get()}")
         self._display_annotation_video_frame(start_ms)
 
         def advance() -> None:
