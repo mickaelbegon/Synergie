@@ -136,6 +136,7 @@ class SynergieToolsApp:
         self.annotation_video_slider_var = tk.DoubleVar(value=0.0)
         self.annotation_play_button_var = tk.StringVar(value="▶")
         self.annotation_video_cache_button_var = tk.StringVar(value="Clear cache (0 B)")
+        self.annotation_playback_speed_var = tk.StringVar(value="1x")
         self.new_session_id_var = tk.StringVar()
         self.new_session_path_var = tk.StringVar()
         self.new_session_synchro_var = tk.StringVar()
@@ -281,6 +282,9 @@ class SynergieToolsApp:
         self.annotation_video_popup = None
         self.annotation_video_popup_info_label = None
         self.annotation_video_matches_listbox = None
+        self.annotation_video_progress_popup = None
+        self.annotation_video_progress_bar = None
+        self._annotation_video_load_token = 0
         self.add_jump_popup = None
         self.add_jump_candidates_listbox = None
         self.add_jump_figure = None
@@ -333,26 +337,31 @@ class SynergieToolsApp:
             foreground="#666666",
             font=("Segoe UI", self.diagnostic_font_size),
         )
-        self.annotation_shortcuts_header_label.grid(row=0, column=0, rowspan=2, sticky="nw", padx=(0, 12))
-        self.annotation_detection_diagnostic_label = ttk.Label(
+        self.annotation_shortcuts_header_label.grid(row=0, column=0, rowspan=3, sticky="nw", padx=(0, 12))
+        self.annotation_detection_diagnostic_label = tk.Message(
             header,
             textvariable=self.annotation_detection_diagnostic_var,
             justify=tk.LEFT,
-            anchor=tk.W,
-            width=1,
+            width=1180 if not self.small_screen else 900,
+            relief=tk.FLAT,
+            borderwidth=0,
+            background=self.root.cget("background"),
             font=("Segoe UI", self.diagnostic_font_size),
         )
-        self.annotation_detection_diagnostic_label.grid(row=0, column=1, sticky="new")
-        self.annotation_detection_warning_label = ttk.Label(
+        self.annotation_detection_diagnostic_label.grid(row=0, column=1, rowspan=2, sticky="new")
+        self.annotation_detection_warning_label = tk.Message(
             header,
             textvariable=self.annotation_detection_warning_var,
             justify=tk.LEFT,
-            anchor=tk.W,
-            width=1,
+            width=1180 if not self.small_screen else 900,
+            relief=tk.FLAT,
+            borderwidth=0,
+            background=self.root.cget("background"),
             foreground="firebrick",
             font=("Segoe UI", self.diagnostic_font_size),
         )
-        self.annotation_detection_warning_label.grid(row=1, column=1, sticky="new")
+        self.annotation_detection_warning_label.grid(row=2, column=1, sticky="new")
+        header.bind("<Configure>", self._resize_annotation_header_messages)
 
         notebook = ttk.Notebook(self.root)
         notebook.grid(row=1, column=0, sticky="nsew", padx=4, pady=(0, 4))
@@ -498,6 +507,14 @@ class SynergieToolsApp:
         finally:
             menu.grab_release()
         return "break"
+
+    def _resize_annotation_header_messages(self, event) -> None:
+        if not hasattr(self, "annotation_detection_diagnostic_label"):
+            return
+        shortcut_width = self.annotation_shortcuts_header_label.winfo_reqwidth() if hasattr(self, "annotation_shortcuts_header_label") else 0
+        message_width = max(480, int(event.width) - shortcut_width - 32)
+        self.annotation_detection_diagnostic_label.configure(width=message_width)
+        self.annotation_detection_warning_label.configure(width=message_width)
 
     def _build_workflow_tab(self, parent: ttk.Frame) -> None:
         """Build the first-tab guide for the end-to-end data workflow."""
@@ -900,11 +917,21 @@ class SynergieToolsApp:
         video_controls = ttk.Frame(video_frame)
         video_controls.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(4, 0))
         ttk.Button(video_controls, text="⏪", width=3, command=lambda: self._seek_annotation_video_relative(-1000)).grid(row=0, column=0, sticky="w")
-        ttk.Button(video_controls, text="⏩", width=3, command=lambda: self._seek_annotation_video_relative(1000)).grid(row=0, column=1, sticky="w", padx=(6, 0))
-        ttk.Button(video_controls, textvariable=self.annotation_play_button_var, width=3, command=self._play_annotation_video).grid(row=0, column=2, sticky="w", padx=(12, 0))
-        ttk.Button(video_controls, text="⌖", width=3, command=self._seek_annotation_video_to_current_jump).grid(row=0, column=3, sticky="w", padx=(6, 0))
-        ttk.Button(video_controls, text="⏩J", width=4, command=self._play_annotation_to_current_jump).grid(row=0, column=4, sticky="w", padx=(6, 0))
-        ttk.Button(video_controls, text="⏹", width=3, command=self._stop_annotation_playback).grid(row=0, column=5, sticky="w", padx=(6, 0))
+        ttk.Button(video_controls, text="◀", width=3, command=lambda: self._seek_annotation_video_frames(-1)).grid(row=0, column=1, sticky="w", padx=(6, 0))
+        ttk.Button(video_controls, textvariable=self.annotation_play_button_var, width=3, command=self._play_annotation_video).grid(row=0, column=2, sticky="w", padx=(6, 0))
+        ttk.Button(video_controls, text="▶", width=3, command=lambda: self._seek_annotation_video_frames(1)).grid(row=0, column=3, sticky="w", padx=(6, 0))
+        ttk.Button(video_controls, text="⏩", width=3, command=lambda: self._seek_annotation_video_relative(1000)).grid(row=0, column=4, sticky="w", padx=(6, 0))
+        ttk.Label(video_controls, text="Speed").grid(row=0, column=5, sticky="w", padx=(12, 4))
+        ttk.Combobox(
+            video_controls,
+            textvariable=self.annotation_playback_speed_var,
+            values=("1x", "1.5x", "2x", "3x"),
+            state="readonly",
+            width=5,
+        ).grid(row=0, column=6, sticky="w")
+        ttk.Button(video_controls, text="⌖", width=3, command=self._seek_annotation_video_to_current_jump).grid(row=0, column=7, sticky="w", padx=(12, 0))
+        ttk.Button(video_controls, text="⏩J", width=4, command=self._play_annotation_to_current_jump).grid(row=0, column=8, sticky="w", padx=(6, 0))
+        ttk.Button(video_controls, text="⏹", width=3, command=self._stop_annotation_playback).grid(row=0, column=9, sticky="w", padx=(6, 0))
 
         add_jump_button = ttk.Button(video_frame, text="ADD JUMP", command=self._open_add_jump_popup)
         add_jump_button.grid(row=5, column=2, sticky="e", pady=(4, 2))
@@ -3855,7 +3882,7 @@ class SynergieToolsApp:
             self.annotation_shortcuts_header_var.set(
                 "Shortcuts: t/f/z/s/a = jump type | 1-4 = turns\n"
                 "c/r/n = chute/reussi/inconnu | u = unseen | x = weird signal\n"
-                "l = show/hide legend | Ctrl+S = save"
+                "Space = play/pause | ←/→ = frame | l = legend | Ctrl+S = save"
             )
             if hasattr(self, "annotation_shortcuts_header_label"):
                 self.annotation_shortcuts_header_label.grid()
@@ -3897,6 +3924,18 @@ class SynergieToolsApp:
         if not self._annotate_tab_active():
             return
         if self.annotation_dataframe is None or self._selected_annotation_index() is None:
+            return
+
+        if key == "space":
+            self._play_annotation_video()
+            return
+
+        if key == "left":
+            self._seek_annotation_video_frames(-1)
+            return
+
+        if key == "right":
+            self._seek_annotation_video_frames(1)
             return
 
         if key == "s" and (event.state & 0x4):
@@ -3962,6 +4001,50 @@ class SynergieToolsApp:
     def _draw_placeholder_annotation_video(self, message: str = "Load a session video to review jumps.") -> None:
         self._annotation_video_photo = None
         self.annotation_video_label.configure(image="", text=message)
+
+    def _show_annotation_video_progress_popup(self, message: str) -> None:
+        self._close_annotation_video_progress_popup()
+        popup = tk.Toplevel(self.root)
+        popup.title("Preparing video")
+        popup.transient(self.root)
+        popup.resizable(False, False)
+        popup.protocol("WM_DELETE_WINDOW", lambda: None)
+        popup.columnconfigure(0, weight=1)
+        ttk.Label(popup, text=message, justify=tk.LEFT, wraplength=420).grid(row=0, column=0, sticky="ew", padx=16, pady=(14, 8))
+        progress = ttk.Progressbar(popup, mode="indeterminate", length=360)
+        progress.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 14))
+        progress.start(12)
+        self.annotation_video_progress_popup = popup
+        self.annotation_video_progress_bar = progress
+        self.root.update_idletasks()
+        popup.update_idletasks()
+        x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - popup.winfo_width()) // 2)
+        y = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - popup.winfo_height()) // 3)
+        popup.geometry(f"+{x}+{y}")
+
+    def _close_annotation_video_progress_popup(self) -> None:
+        if self.annotation_video_progress_bar is not None:
+            try:
+                self.annotation_video_progress_bar.stop()
+            except tk.TclError:
+                pass
+        if self.annotation_video_progress_popup is not None and self.annotation_video_progress_popup.winfo_exists():
+            self.annotation_video_progress_popup.destroy()
+        self.annotation_video_progress_popup = None
+        self.annotation_video_progress_bar = None
+
+    def _annotation_video_preparation_message(self, cache_status: dict, proxy_status: dict) -> str:
+        cache_needed = bool(cache_status.get("copy_needed"))
+        proxy_needed = bool(proxy_status.get("proxy_needed"))
+        if cache_needed and proxy_needed:
+            return (
+                f"Preparing video for smooth playback.\n"
+                f"1/2 Caching local copy ({self._format_file_size(cache_status['size_bytes'])}).\n"
+                "2/2 Optimizing playback proxy with ffmpeg."
+            )
+        if proxy_needed:
+            return "Optimizing video for smoother playback with ffmpeg.\nThis happens only once per video."
+        return f"Caching video locally ({self._format_file_size(cache_status['size_bytes'])}).\nPlease wait..."
 
     def _format_video_ms(self, milliseconds: float) -> str:
         total_ms = max(0, int(round(float(milliseconds))))
@@ -4464,28 +4547,53 @@ class SynergieToolsApp:
             )
             return
 
-        import cv2
-
         path = Path(video_path)
         if not path.exists():
             messagebox.showerror("Synergie Tools", f"Video file not found:\n{path}")
             return
-        cache_status = operations.video_cache_status(path)
-        if cache_status["copy_needed"]:
-            size_text = self._format_file_size(cache_status["size_bytes"])
-            message = f"Caching video locally ({size_text}). Please wait..."
+        self._annotation_video_load_token += 1
+        load_token = self._annotation_video_load_token
+        try:
+            cache_status = operations.video_cache_status(path)
+            proxy_status = operations.video_proxy_status(path)
+        except OSError as exc:
+            messagebox.showerror("Synergie Tools", f"Unable to inspect video:\n{path}\n\n{exc}")
+            return
+        needs_preparation = bool(cache_status.get("copy_needed") or proxy_status.get("proxy_needed"))
+        if needs_preparation:
+            message = self._annotation_video_preparation_message(cache_status, proxy_status)
             self.annotation_video_info_var.set(message)
             self.status_var.set(message)
             self._draw_placeholder_annotation_video(message)
-            self.root.update_idletasks()
-        proxy_status = operations.video_proxy_status(path)
-        if proxy_status["proxy_needed"]:
-            message = "Optimizing video for smoother playback. Please wait..."
-            self.annotation_video_info_var.set(message)
-            self.status_var.set(message)
-            self._draw_placeholder_annotation_video(message)
-            self.root.update_idletasks()
+            self._show_annotation_video_progress_popup(message)
+
+            def prepare_video() -> None:
+                try:
+                    result = operations.optimized_playback_video_path(path)
+                except Exception as exc:
+                    self.root.after(0, lambda error=exc: self._fail_annotation_video_load(path, error, load_token))
+                    return
+                self.root.after(0, lambda: self._finish_annotation_video_load(path, result, persist, load_token))
+
+            threading.Thread(target=prepare_video, daemon=True).start()
+            return
+
         playback_result = operations.optimized_playback_video_path(path)
+        self._finish_annotation_video_load(path, playback_result, persist, load_token)
+
+    def _fail_annotation_video_load(self, path: Path, exc: Exception, load_token: int) -> None:
+        if load_token != self._annotation_video_load_token:
+            return
+        self._close_annotation_video_progress_popup()
+        self.status_var.set("Video preparation failed")
+        messagebox.showerror("Synergie Tools", f"Unable to prepare video:\n{path}\n\n{exc}")
+
+    def _finish_annotation_video_load(self, path: Path, playback_result: dict, persist: bool, load_token: int) -> None:
+        if load_token != self._annotation_video_load_token:
+            return
+        self._close_annotation_video_progress_popup()
+        import cv2
+
         open_path = Path(playback_result["path"])
 
         self._stop_annotation_playback()
@@ -4557,7 +4665,9 @@ class SynergieToolsApp:
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         image = Image.fromarray(frame)
-        image.thumbnail((420, 260))
+        max_width = max(420, self.annotation_video_label.winfo_width() - 12)
+        max_height = max(260, self.annotation_video_label.winfo_height() - 12)
+        image.thumbnail((max_width, max_height))
         photo = ImageTk.PhotoImage(image)
         self._annotation_video_photo = photo
         self.annotation_video_label.configure(image=photo, text="")
@@ -4583,6 +4693,20 @@ class SynergieToolsApp:
             return
         self._stop_annotation_playback()
         self._display_annotation_video_frame(self.annotation_video_current_ms + delta_ms)
+
+    def _seek_annotation_video_frames(self, frame_delta: int) -> None:
+        if self.annotation_video_capture is None:
+            return
+        self._stop_annotation_playback()
+        frame_ms = 1000.0 / self.annotation_video_fps if self.annotation_video_fps > 0 else 40.0
+        self._display_annotation_video_frame(self.annotation_video_current_ms + frame_delta * frame_ms)
+
+    def _annotation_playback_speed_multiplier(self) -> float:
+        value = self.annotation_playback_speed_var.get().strip().lower().replace("x", "")
+        try:
+            return max(1.0, float(value))
+        except ValueError:
+            return 1.0
 
     def _current_jump_video_time_ms(self) -> float | None:
         row = self._selected_annotation_row()
@@ -4617,7 +4741,8 @@ class SynergieToolsApp:
         self._stop_annotation_playback()
         self._set_annotation_play_button_state(True)
         base_frame_ms = 1000.0 / self.annotation_video_fps if self.annotation_video_fps > 0 else 40.0
-        step_ms = max(base_frame_ms, 20.0)
+        speed = self._annotation_playback_speed_multiplier()
+        step_ms = max(base_frame_ms * speed, 20.0)
         delay_ms = max(int(round(base_frame_ms)), 20)
         target_ms = max(self.annotation_video_duration_ms, self.annotation_video_current_ms)
 

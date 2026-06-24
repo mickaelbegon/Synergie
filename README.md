@@ -336,8 +336,11 @@ Important : un signal peut etre detecte comme un saut meme si la video montre au
 Les controles video disponibles sont :
 
 - `⏪` : reculer d'environ 1 seconde
+- `◀` : reculer d'une frame
 - `⏩` : avancer d'environ 1 seconde
+- `▶` a droite du bouton lecture : avancer d'une frame
 - `▶` / `⏸` : lecture / pause
+- `Speed` : vitesse de lecture `1x`, `1.5x`, `2x` ou `3x`
 - `⌖` : aller directement au saut courant
 - `⏩J` : lecture acceleree jusqu'au saut courant
 - `⏹` : stop
@@ -350,6 +353,8 @@ Raccourcis d'annotation visibles dans l'interface :
 - `u` : saut non visible sur la video
 - `x` : signal bizarre ou bornes debut/fin incoherentes
 - `l` : afficher ou masquer la legende du graphe
+- `Espace` : lecture / pause video
+- `Fleche gauche / droite` : reculer / avancer d'une frame
 - `Ctrl+S` : sauvegarder l'annotation courante
 
 Statuts de revue recommandes :
