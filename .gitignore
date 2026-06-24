@@ -1,4 +1,7 @@
 data/
+*.tar
+*.tar.*
+*.keras
 data/**/*.h5
 data/**/backup_manifest.json
 data/**/synergie_archive.h5

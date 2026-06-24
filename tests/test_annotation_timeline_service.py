@@ -47,6 +47,22 @@ class AnnotationTimelineServiceTests(unittest.TestCase):
         self.assertEqual(items[0]["kind"], "sync_impact")
         self.assertIn("block_impact", items[0]["label"])
 
+    def test_build_annotation_timeline_flags_impacts_mapping_before_video_start(self):
+        frame = pd.DataFrame([{"sensor_id": "2", "impact_offset_ms": 8.0, "start_ms": 797676.0}])
+        metadata = {"block_sync_offset_ms": -1616.0, "block_sync_source": {"method": "block_impact", "sensor_id": "1"}}
+
+        items = build_annotation_timeline_items(
+            frame,
+            metadata,
+            row_video_time_ms=lambda row, _sensor_id: max(float(row["start_ms"]) - 1616.0, 0.0),
+            imu_to_video_ms=lambda imu_ms, _sensor_id: max(float(imu_ms) - 1616.0, 0.0),
+            format_ms=lambda value: f"{value:.0f}ms",
+        )
+
+        self.assertEqual(items[0]["kind"], "sync_impact")
+        self.assertIn("SYNC | 0ms", items[0]["label"])
+        self.assertIn("maps before video start (-1608 ms)", items[0]["label"])
+
     def test_build_annotation_timeline_adds_prediction_label(self):
         frame = pd.DataFrame(
             [

@@ -14,6 +14,7 @@ from synergie.services.inspect_signal_service import (
     inspect_jump_window_bounds_ms,
     inspect_jump_zoom_view,
     inspect_selected_jump_title,
+    inspect_selected_jump_status,
     inspect_signal_series_specs,
     inspect_text,
     inspect_zoom_range_title,
@@ -63,6 +64,11 @@ class InspectSignalServiceTests(unittest.TestCase):
         self.assertEqual(inspect_text("overview_title"), "Signals used to localise jumps")
         self.assertEqual(inspect_selected_jump_title(3), "Zoom on selected jump #3")
         self.assertEqual(inspect_selected_jump_title(3, has_gyro_saturation=True), "Zoom on selected jump #3 | Gyro saturated")
+        jump = SimpleNamespace(startTimestamp=1234.4, length=0.567)
+        self.assertEqual(
+            inspect_selected_jump_status(jump, selected_index=1, total_jumps=4),
+            "Selected jump 2/4 | start=1234 ms | len=0.57 s",
+        )
         self.assertEqual(inspect_zoom_range_title(100.4, 250.6), "Zoom on selected range: 100-251 ms")
 
     def test_inspect_jump_center_markers_prepare_overview_points(self):

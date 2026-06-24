@@ -5851,8 +5851,11 @@ class SynergieToolsApp:
         if selected_index is not None and selected_index < len(self.detected_jumps):
             jump = self.detected_jumps[selected_index]
             self.status_var.set(
-                f"Selected jump {selected_index + 1}/{len(self.detected_jumps)} | "
-                f"start={jump.startTimestamp:.0f} ms | len={jump.length:.2f} s"
+                operations.inspect_selected_jump_status(
+                    jump,
+                    selected_index=selected_index,
+                    total_jumps=len(self.detected_jumps),
+                )
             )
         self._redraw_plots()
 

@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from synergie.services.annotation_service import JUMP_TYPE_LABELS, get_annotation_block_sync_source, get_annotation_sensor_sync_source
+from synergie.services.annotation_service import (
+    JUMP_TYPE_LABELS,
+    get_annotation_block_sync_offset,
+    get_annotation_block_sync_source,
+    get_annotation_sensor_sync_source,
+)
 
 
 def build_annotation_timeline_items(
@@ -23,12 +28,14 @@ def build_annotation_timeline_items(
             sensor_key = str(sensor_id)
             impact_ms = float(rows["impact_offset_ms"].dropna().iloc[0]) if not rows["impact_offset_ms"].dropna().empty else 0.0
             impact_video_ms = imu_to_video_ms(impact_ms, sensor_key)
+            raw_impact_video_ms = _raw_impact_video_ms(metadata, impact_ms, impact_video_ms)
             items.append(
                 {
                     "kind": "sync_impact",
                     "sensor_id": sensor_key,
                     "impact_ms": impact_ms,
                     "video_ms": impact_video_ms,
+                    "raw_video_ms": raw_impact_video_ms,
                     "sort_ms": impact_video_ms,
                 }
             )
@@ -62,7 +69,26 @@ def _sync_label(item: dict, metadata: dict, format_ms: Callable[[float], str]) -
     block_source = get_annotation_block_sync_source(metadata)
     source = block_source or get_annotation_sensor_sync_source(metadata, item["sensor_id"])
     source_label = source.get("method", "not synced") if source else "not synced"
+    timing_note = _sync_timing_note(item)
     return (
         f"SYNC | {format_ms(item['video_ms'])} | sensor_{item['sensor_id']} | "
-        f"impact IMU {item['impact_ms']:.0f} ms ({format_ms(item['impact_ms'])}) | {source_label}"
+        f"impact IMU {item['impact_ms']:.0f} ms ({format_ms(item['impact_ms'])}) | {source_label}{timing_note}"
     )
+
+
+def _raw_impact_video_ms(metadata: dict, impact_ms: float, displayed_video_ms: float) -> float:
+    block_offset_ms = get_annotation_block_sync_offset(metadata)
+    if block_offset_ms is not None:
+        return float(impact_ms) + block_offset_ms
+    return float(displayed_video_ms)
+
+
+def _sync_timing_note(item: dict) -> str:
+    raw_video_ms = item.get("raw_video_ms", item.get("video_ms", 0.0))
+    try:
+        raw_value = float(raw_video_ms)
+    except (TypeError, ValueError):
+        return ""
+    if raw_value < 0:
+        return f" | maps before video start ({raw_value:.0f} ms)"
+    return ""

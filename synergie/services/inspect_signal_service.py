@@ -58,6 +58,14 @@ def inspect_selected_jump_title(jump_number: int, *, has_gyro_saturation: bool =
     return f"Zoom on selected jump #{int(jump_number)}{saturation_text}"
 
 
+def inspect_selected_jump_status(jump, *, selected_index: int, total_jumps: int) -> str:
+    """Return the status text shown when an Inspect IMU jump is selected."""
+    return (
+        f"Selected jump {int(selected_index) + 1}/{int(total_jumps)} | "
+        f"start={float(jump.startTimestamp):.0f} ms | len={float(jump.length):.2f} s"
+    )
+
+
 def inspect_zoom_range_title(start_ms: float, end_ms: float) -> str:
     """Return the title for a manually selected Inspect IMU zoom range."""
     return f"Zoom on selected range: {float(start_ms):.0f}-{float(end_ms):.0f} ms"

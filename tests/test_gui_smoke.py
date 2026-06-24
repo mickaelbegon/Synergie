@@ -40,6 +40,7 @@ class GuiSmokeTests(unittest.TestCase):
             "inspect_jump_window_bounds_ms",
             "inspect_jump_zoom_view",
             "inspect_selected_jump_title",
+            "inspect_selected_jump_status",
             "inspect_signal_series_specs",
             "inspect_text",
             "inspect_zoom_range_title",
