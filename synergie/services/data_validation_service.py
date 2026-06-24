@@ -76,6 +76,30 @@ def format_data_validation_report(result: dict) -> str:
     return "\n".join(lines).rstrip()
 
 
+def data_validation_action_summary(result: dict) -> str:
+    """Return a short next-action summary for the GUI status area."""
+    summary = result.get("summary", {})
+    errors = int(summary.get("errors", 0) or 0)
+    warnings = int(summary.get("warnings", 0) or 0)
+    info = int(summary.get("info", 0) or 0)
+    if errors:
+        return f"{errors} error(s) need action before training or regenerating annotations."
+    if warnings:
+        return f"{warnings} warning(s) to review; normal annotation may still work if segments are archived."
+    if info:
+        return f"No blocking issue; {info} informational item(s) explain optional raw/video files."
+    return "No obvious data consistency issue found."
+
+
+def data_validation_status_text(result: dict) -> str:
+    """Return the one-line validation status shown above the full report."""
+    summary = result.get("summary", {})
+    errors = int(summary.get("errors", 0) or 0)
+    warnings = int(summary.get("warnings", 0) or 0)
+    info = int(summary.get("info", 0) or 0)
+    return f"{errors} error(s), {warnings} warning(s), {info} info | {data_validation_action_summary(result)}"
+
+
 def _validate_configured_raw_sessions(
     raw_root: Path,
     pending_root: Path,

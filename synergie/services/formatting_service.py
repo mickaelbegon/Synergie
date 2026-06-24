@@ -51,3 +51,40 @@ def format_file_size(size_bytes: int) -> str:
             return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
         value /= 1024.0
     return f"{value:.1f} TB"
+
+
+def format_video_cache_button(size_bytes: int) -> str:
+    """Return the annotation video cache clear button label."""
+    return f"Clear cache ({format_file_size(size_bytes)})"
+
+
+def format_annotation_video_info(
+    *,
+    video_name: str,
+    frame_count: int,
+    duration_ms: float | None,
+    cache_note: str = "",
+) -> str:
+    """Return the compact annotation video info line shown below the chooser."""
+    duration_text = format_video_ms(duration_ms) if duration_ms else "unknown"
+    return f"{video_name} | {int(frame_count)} frames | {duration_text}{cache_note}"
+
+
+def format_video_preparation_message(cache_status: dict, proxy_status: dict) -> str:
+    """Return the modal progress message used while preparing annotation video playback."""
+    cache_needed = bool(cache_status.get("copy_needed"))
+    proxy_needed = bool(proxy_status.get("proxy_needed"))
+    if cache_needed and proxy_needed:
+        return (
+            "Preparing video for smooth playback.\n"
+            f"1/2 Caching local copy ({format_file_size(cache_status['size_bytes'])}).\n"
+            "2/2 Optimizing playback proxy with ffmpeg."
+        )
+    if proxy_needed:
+        return "Optimizing video for smoother playback with ffmpeg.\nThis happens only once per video."
+    return f"Caching video locally ({format_file_size(cache_status['size_bytes'])}).\nPlease wait..."
+
+
+def format_video_cache_cleared_status(result: dict) -> str:
+    """Return the status-bar text shown after clearing cached annotation videos."""
+    return f"Video cache cleared: {int(result['removed_files'])} file(s), {format_file_size(result['freed_bytes'])} freed."

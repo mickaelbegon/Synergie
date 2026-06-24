@@ -124,6 +124,77 @@ def annotation_review_status_to_backend(review_status: str) -> dict:
     return {"video_status": "visible", "detection_status": "detected_jump"}
 
 
+def annotation_ui_values_from_row(row) -> dict:
+    """Return the Annotation tab widget values represented by one CSV row."""
+    review_status = annotation_review_status_from_row(row)
+    type_value = int(_safe_float(row.get("type", 8), default=8))
+    type_key = next((key for key, _label, value in ANNOTATION_JUMP_TYPE_OPTIONS if value == type_value), "")
+    success_value = int(_safe_float(row.get("success", 2), default=2))
+    return {
+        "review_status": review_status,
+        "jump_type": type_key,
+        "turns": annotation_turn_value_for_ui(type_key, row.get("turns", "")),
+        "success": str(success_value),
+        "athlete_id": str(row.get("athlete_id", row.get("skater", ""))),
+        "combination": _safe_bool(row.get("combination", False)),
+    }
+
+
+def save_annotation_values(
+    annotation_frame,
+    index: int,
+    *,
+    jump_type: str,
+    turn_value: str,
+    success_value: str | int,
+    review_status: str,
+    athlete_id: str,
+    combination: bool,
+) -> object:
+    """Return a copy of the annotation frame with one row updated from GUI values."""
+    type_value = next(
+        value for key, _label, value in ANNOTATION_JUMP_TYPE_OPTIONS
+        if key == jump_type
+    )
+    backend_status = annotation_review_status_to_backend(review_status)
+    is_excluded_by_status = review_status in {
+        "not_seen_on_video",
+        "weird_signal",
+        "jump_drill",
+        "not_a_jump_or_drill",
+        "not_a_jump",
+    }
+    stored_type = 8 if is_excluded_by_status else type_value
+    stored_turns = "" if is_excluded_by_status else annotation_turn_value_for_storage(jump_type, turn_value)
+    stored_success = 2 if is_excluded_by_status else int(success_value)
+
+    updated = annotation_frame.copy()
+    for column in ("turns", "video_status", "detection_status", "athlete_id", "annotation_status"):
+        if column in updated:
+            updated[column] = updated[column].astype("object")
+    updated.at[index, "type"] = stored_type
+    updated.at[index, "turns"] = stored_turns
+    updated.at[index, "success"] = stored_success
+    updated.at[index, "video_status"] = backend_status["video_status"]
+    updated.at[index, "detection_status"] = backend_status["detection_status"]
+    updated.at[index, "athlete_id"] = athlete_id
+    updated.at[index, "combination"] = bool(combination)
+    updated.at[index, "annotation_status"] = "annotated"
+    return updated
+
+
+def save_annotation_file_values(
+    annotation_frame,
+    annotation_csv_path: str | Path,
+    index: int,
+    **annotation_values,
+):
+    """Update one annotation row, persist the CSV, and return the updated frame."""
+    updated = save_annotation_values(annotation_frame, index, **annotation_values)
+    updated.to_csv(annotation_csv_path, index=False)
+    return updated
+
+
 def annotation_metadata_path(annotation_csv_path: str | Path) -> Path:
     """Return the sidecar metadata path for one annotation CSV."""
     path = Path(annotation_csv_path)
@@ -369,3 +440,14 @@ def annotate_combination_flags(annotation_rows, max_gap_ms: float = 1500.0):
 
 def _safe_float(value, default: float = 0.0) -> float:
     return safe_float(value, default)
+
+
+def _safe_bool(value) -> bool:
+    if value is None or value != value:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    normalized = str(value).strip().lower()
+    return normalized in {"1", "true", "yes", "y", "on"}

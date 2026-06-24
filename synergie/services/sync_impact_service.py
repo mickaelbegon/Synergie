@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -75,6 +76,120 @@ def detect_sync_impacts(
         if len(impacts) >= max_candidates:
             break
     return sorted(impacts, key=lambda impact: impact.ms)
+
+
+def sync_impact_signal_window(
+    dataframe,
+    impact_ms: float,
+    *,
+    before_ms: float = 2000.0,
+    after_ms: float = 3000.0,
+    fallback_rows: int = 300,
+):
+    """Return a display window and 3D acceleration norm around a sync impact."""
+    if dataframe is None or dataframe.empty or "ms" not in dataframe:
+        return dataframe, np.array([], dtype="float64")
+    required = {"Acc_X", "Acc_Y", "Acc_Z"}
+    if not required.issubset(dataframe.columns):
+        return dataframe.iloc[:0].copy(), np.array([], dtype="float64")
+
+    window_start_ms = max(0.0, float(impact_ms) - float(before_ms))
+    window_end_ms = float(impact_ms) + float(after_ms)
+    view_df = dataframe[(dataframe["ms"] >= window_start_ms) & (dataframe["ms"] <= window_end_ms)]
+    if view_df.empty:
+        view_df = dataframe.iloc[: min(len(dataframe), int(fallback_rows))]
+
+    acc_norm = np.sqrt(
+        np.square(view_df["Acc_X"].to_numpy(dtype="float64"))
+        + np.square(view_df["Acc_Y"].to_numpy(dtype="float64"))
+        + np.square(view_df["Acc_Z"].to_numpy(dtype="float64"))
+    )
+    return view_df, acc_norm
+
+
+def sync_impact_list_labels(impacts: list[SyncImpact]) -> list[str]:
+    """Return stable labels for the Inspect IMU sync impact list."""
+    return [
+        f"{index + 1:02d} | {impact.ms:.0f} ms | strength {impact.strength:.2f} | {impact.confidence}"
+        for index, impact in enumerate(impacts)
+    ]
+
+
+def sync_impact_review_warning(impact_count: int) -> str:
+    """Explain whether sync impact candidates need manual review."""
+    if impact_count > 1:
+        return (
+            f"{impact_count} sync impact candidates remain. Review the acceleration signals and select the one "
+            "that matches the visible tap on video."
+        )
+    if impact_count == 1:
+        return "One sync impact candidate found. Select it to review the acceleration signal."
+    return "No reliable sync impact candidate found. Review the recording or choose sync manually."
+
+
+def sync_impact_selected_status(impact: SyncImpact, impact_number: int) -> str:
+    """Return a short status bar message for a selected sync impact."""
+    return (
+        f"Selected sync impact {impact_number}: {impact.ms:.0f} ms. "
+        "Detection uses the sudden change in 3D acceleration norm; use this selected candidate only if it matches the video tap."
+    )
+
+
+def sync_impact_plot_title(impact: SyncImpact, impact_number: int) -> str:
+    """Return the Inspect IMU zoom title for a selected sync impact."""
+    return (
+        f"Sync impact #{impact_number}: {impact.ms:.0f} ms | "
+        f"3D acceleration-norm change strength {impact.strength:.2f} | {impact.confidence}"
+    )
+
+
+def prepare_sync_impact_signal(
+    raw_path: str | Path,
+    impact_ms: float,
+    *,
+    acceleration_limit_g: float,
+    smoothing_sigma: float,
+    threshold: float,
+    read_csv=None,
+    training_session_factory=None,
+    clean_frame=None,
+    recompute_derivatives=None,
+) -> dict:
+    """Load and prepare raw IMU acceleration signals around a sync impact."""
+    if read_csv is None:
+        import pandas as pd
+
+        read_csv = pd.read_csv
+    if training_session_factory is None:
+        from core.data_treatment.data_generation.trainingSession import trainingSession as training_session_factory
+    if clean_frame is None:
+        from synergie.services.signal_cleaning_service import clean_imu_outliers as clean_frame
+    if recompute_derivatives is None:
+        from synergie.services.signal_cleaning_service import recompute_gyro_x_derivatives as recompute_derivatives
+
+    session = training_session_factory(read_csv(raw_path, low_memory=False))
+    dataframe = session.df.copy()
+    if dataframe.empty or "ms" not in dataframe:
+        return {"status": "missing_timeline", "dataframe": dataframe}
+
+    dataframe, cleaning_report = clean_frame(dataframe, acceleration_limit_g=acceleration_limit_g)
+    dataframe = recompute_derivatives(dataframe, smoothing_sigma=smoothing_sigma, threshold=threshold)
+    view_df, acc_norm = sync_impact_signal_window(dataframe, impact_ms)
+    if view_df.empty:
+        return {
+            "status": "missing_acceleration",
+            "dataframe": dataframe,
+            "cleaning_report": cleaning_report,
+            "view_df": view_df,
+            "acc_norm": acc_norm,
+        }
+    return {
+        "status": "ok",
+        "dataframe": dataframe,
+        "cleaning_report": cleaning_report,
+        "view_df": view_df,
+        "acc_norm": acc_norm,
+    }
 
 
 def _has_stable_context(

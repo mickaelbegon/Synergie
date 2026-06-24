@@ -21,6 +21,19 @@ def annotation_row_video_time_ms(metadata: dict, row, sensor_id: str | None = No
     return compute_annotation_jump_video_time_ms(row, offset_ms)
 
 
+def annotation_review_video_target_ms(
+    metadata: dict,
+    row,
+    sensor_id: str | None,
+    *,
+    type_window_start_imu_ms: float | None = None,
+) -> float:
+    """Return the video timestamp to show when reviewing an annotation row."""
+    if type_window_start_imu_ms is not None:
+        return annotation_imu_to_video_ms(metadata, float(type_window_start_imu_ms), sensor_id)
+    return annotation_row_video_time_ms(metadata, row, sensor_id)
+
+
 def annotation_imu_to_video_ms(metadata: dict, imu_ms: float, sensor_id: str | None = None) -> float:
     """Return the video timestamp for one IMU timestamp using the active sync mode."""
     block_offset_ms = get_annotation_block_sync_offset(metadata)
@@ -70,6 +83,56 @@ def annotation_sync_summary(metadata: dict, sensor_ids: Iterable[str], current_s
         f"Current sensor {current_status}; "
         f"synced: {', '.join(synced) if synced else 'none'}; "
         f"missing: {', '.join(missing) if missing else 'none'}"
+    )
+
+
+def annotation_sync_context_text(
+    metadata: dict,
+    row,
+    *,
+    sensor_id: str | None,
+    sensor_ids: Iterable[str],
+    format_ms: Callable[[float], str],
+) -> str:
+    """Return the complete sync context line shown under the annotation video."""
+    if row is None:
+        block_offset_ms = get_annotation_block_sync_offset(metadata)
+        if block_offset_ms is not None:
+            sync_source = annotation_sync_source_summary(metadata, sensor_id or "", format_ms=format_ms)
+            return f"Block sync active for all sensors | offset {block_offset_ms:+.0f} ms | {sync_source}"
+        return "No sync offset saved for current sensor."
+    if sensor_id is None:
+        return "No sensor ID available for this entry."
+
+    offset_ms = get_annotation_block_sync_offset(metadata)
+    if offset_ms is None:
+        offset_ms = get_annotation_sensor_sync_offset(metadata, sensor_id)
+    jump_video_ms = annotation_row_video_time_ms(metadata, row, sensor_id)
+    sync_summary = annotation_sync_summary(metadata, sensor_ids, sensor_id)
+    sync_source = annotation_sync_source_summary(metadata, sensor_id, format_ms=format_ms)
+    return (
+        f"{sync_summary} | offset {offset_ms:+.0f} ms | "
+        f"{sync_source} | jump at {format_ms(jump_video_ms)} in video"
+    )
+
+
+def sync_impact_selection_text(item: dict, *, format_ms: Callable[[float], str]) -> str:
+    """Return the status text shown when a SYNC impact is selected."""
+    sensor_id = item.get("sensor_id", "")
+    impact_ms = float(item.get("impact_ms", 0.0) or 0.0)
+    video_ms = float(item.get("video_ms", 0.0) or 0.0)
+    return (
+        f"Sync impact for sensor {sensor_id}: IMU {impact_ms:.0f} ms ({format_ms(impact_ms)}) | "
+        f"video {format_ms(video_ms)}"
+    )
+
+
+def sync_impact_diagnostic_text(sensor_id: str, impact_ms: float, *, format_ms: Callable[[float], str]) -> str:
+    """Return the explanation shown with the sync-impact acceleration plot."""
+    return (
+        f"Sync impact acceleration for sensor {sensor_id}: orange line at {float(impact_ms):.0f} ms "
+        f"({format_ms(float(impact_ms))}). Detection uses the sudden change in 3D acceleration norm; "
+        "Acc_Z is bold for visual review."
     )
 
 

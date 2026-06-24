@@ -6,7 +6,12 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from synergie.services.data_validation_service import format_data_validation_report, validate_data_files
+from synergie.services.data_validation_service import (
+    data_validation_action_summary,
+    data_validation_status_text,
+    format_data_validation_report,
+    validate_data_files,
+)
 
 
 class DataValidationServiceTests(unittest.TestCase):
@@ -116,6 +121,22 @@ class DataValidationServiceTests(unittest.TestCase):
         report = format_data_validation_report({"summary": {"errors": 0, "warnings": 0, "info": 0}, "issues": []})
 
         self.assertIn("No obvious data consistency issue", report)
+
+    def test_action_summary_prioritizes_blocking_issues(self):
+        self.assertIn(
+            "need action",
+            data_validation_action_summary({"summary": {"errors": 2, "warnings": 1, "info": 0}}),
+        )
+        self.assertIn(
+            "No blocking issue",
+            data_validation_action_summary({"summary": {"errors": 0, "warnings": 0, "info": 3}}),
+        )
+
+    def test_status_text_combines_counts_and_next_action(self):
+        status = data_validation_status_text({"summary": {"errors": 0, "warnings": 1, "info": 2}})
+
+        self.assertIn("0 error(s), 1 warning(s), 2 info", status)
+        self.assertIn("warning(s) to review", status)
 
 
 if __name__ == "__main__":

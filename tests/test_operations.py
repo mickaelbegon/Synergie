@@ -203,6 +203,130 @@ class OperationsTests(unittest.TestCase):
             "not_seen_on_video",
         )
 
+    def test_annotation_ui_values_from_row_maps_csv_to_widgets(self):
+        values = operations.annotation_ui_values_from_row(
+            {
+                "type": 5,
+                "turns": "2.5",
+                "success": 1,
+                "video_status": "visible",
+                "detection_status": "detected_jump",
+                "athlete_id": "athlete_42",
+                "combination": True,
+            }
+        )
+
+        self.assertEqual(
+            values,
+            {
+                "review_status": "normal",
+                "jump_type": "axel",
+                "turns": "2",
+                "success": "1",
+                "athlete_id": "athlete_42",
+                "combination": True,
+            },
+        )
+
+    def test_annotation_ui_values_from_row_parses_csv_boolean_strings(self):
+        false_values = ["False", "false", "0", "", None]
+        for value in false_values:
+            with self.subTest(value=value):
+                values = operations.annotation_ui_values_from_row({"type": 0, "success": 2, "combination": value})
+                self.assertFalse(values["combination"])
+
+        values = operations.annotation_ui_values_from_row({"type": 0, "success": 2, "combination": "True"})
+        self.assertTrue(values["combination"])
+
+    def test_save_annotation_values_updates_row_for_regular_jump(self):
+        import pandas as pd
+
+        rows = pd.DataFrame(
+            [{"type": 8, "turns": "", "success": 2, "video_status": "", "detection_status": "", "annotation_status": "pending"}]
+        )
+
+        updated = operations.save_annotation_values(
+            rows,
+            0,
+            jump_type="axel",
+            turn_value="2",
+            success_value="1",
+            review_status="normal",
+            athlete_id="sensor_1",
+            combination=True,
+        )
+
+        self.assertEqual(updated.at[0, "type"], 5)
+        self.assertEqual(updated.at[0, "turns"], "2.5")
+        self.assertEqual(updated.at[0, "success"], 1)
+        self.assertEqual(updated.at[0, "video_status"], "visible")
+        self.assertEqual(updated.at[0, "detection_status"], "detected_jump")
+        self.assertEqual(updated.at[0, "athlete_id"], "sensor_1")
+        self.assertEqual(updated.at[0, "combination"], True)
+        self.assertEqual(updated.at[0, "annotation_status"], "annotated")
+        self.assertEqual(rows.at[0, "annotation_status"], "pending")
+
+    def test_save_annotation_values_excludes_bad_signal_from_training_labels(self):
+        import pandas as pd
+
+        rows = pd.DataFrame([{"type": 0, "turns": "3", "success": 1}])
+
+        updated = operations.save_annotation_values(
+            rows,
+            0,
+            jump_type="flip",
+            turn_value="3",
+            success_value="1",
+            review_status="weird_signal",
+            athlete_id="athlete_a",
+            combination=False,
+        )
+
+        self.assertEqual(updated.at[0, "type"], 8)
+        self.assertEqual(updated.at[0, "turns"], "")
+        self.assertEqual(updated.at[0, "success"], 2)
+        self.assertEqual(updated.at[0, "video_status"], "visible")
+        self.assertEqual(updated.at[0, "detection_status"], "weird_signal")
+
+    def test_save_annotation_file_values_persists_csv_workflow(self):
+        import pandas as pd
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            annotation_file = Path(tmpdir) / "session_for_annotation.csv"
+            rows = pd.DataFrame(
+                [
+                    {
+                        "type": 8,
+                        "turns": "",
+                        "success": 2,
+                        "video_status": "",
+                        "detection_status": "",
+                        "annotation_status": "pending",
+                    }
+                ]
+            )
+            rows.to_csv(annotation_file, index=False)
+
+            updated = operations.save_annotation_file_values(
+                pd.read_csv(annotation_file),
+                annotation_file,
+                0,
+                jump_type="loop",
+                turn_value="3",
+                success_value="0",
+                review_status="normal",
+                athlete_id="athlete_a",
+                combination=False,
+            )
+            reloaded = pd.read_csv(annotation_file)
+
+            self.assertEqual(updated.at[0, "type"], 4)
+            self.assertEqual(reloaded.at[0, "type"], 4)
+            self.assertEqual(str(reloaded.at[0, "turns"]), "3")
+            self.assertEqual(reloaded.at[0, "success"], 0)
+            self.assertEqual(reloaded.at[0, "annotation_status"], "annotated")
+            self.assertEqual(reloaded.at[0, "athlete_id"], "athlete_a")
+
     def test_summarize_annotation_progress_counts_explicit_pending_status(self):
         import pandas as pd
 
