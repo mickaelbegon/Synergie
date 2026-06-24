@@ -24,7 +24,7 @@ def validate_data_files(
     archive_segments = _safe_hdf5_segment_paths(hdf5_archive_path)
     raw_files_by_name = _raw_files_by_name(raw_root)
 
-    _validate_configured_raw_sessions(raw_root, issues)
+    _validate_configured_raw_sessions(raw_root, pending_root, archive_segments, issues)
     _validate_unregistered_raw_csvs(raw_root, issues)
     _validate_pending_annotations(
         pending_root,
@@ -76,11 +76,26 @@ def format_data_validation_report(result: dict) -> str:
     return "\n".join(lines).rstrip()
 
 
-def _validate_configured_raw_sessions(raw_root: Path, issues: list[dict]) -> None:
+def _validate_configured_raw_sessions(
+    raw_root: Path,
+    pending_root: Path,
+    archive_segments: set[str],
+    issues: list[dict],
+) -> None:
     for session_name in list_sessions():
         metadata = session_metadata(session_name)
         session_dir = raw_root / metadata["path"]
         if not session_dir.exists():
+            if _session_has_derived_data(session_name, pending_root, archive_segments):
+                _add_issue(
+                    issues,
+                    "info",
+                    "raw",
+                    session_dir,
+                    f"Configured session {session_name} has no local raw folder, but derived annotation/segment data is available.",
+                    "Raw files are only needed if you want to regenerate detections or inspect the full raw session.",
+                )
+                continue
             _add_issue(
                 issues,
                 "error",
@@ -223,7 +238,7 @@ def _validate_annotation_metadata(annotation_csv: Path, frame, issues: list[dict
     if video_path and not Path(video_path).exists():
         _add_issue(
             issues,
-            "warning",
+            "info",
             "pending",
             metadata_path,
             f"Saved video path does not exist: {video_path}",
@@ -314,6 +329,13 @@ def _safe_hdf5_segment_paths(hdf5_archive_path: str | Path | None) -> set[str]:
         return {_normalize_path(path) for path in hdf5_segment_paths(hdf5_archive_path)}
     except (OSError, ValueError, KeyError):
         return set()
+
+
+def _session_has_derived_data(session_name: str, pending_root: Path, archive_segments: set[str]) -> bool:
+    if pending_root.exists() and any(pending_root.glob(f"{session_name}*_for_annotation*.csv")):
+        return True
+    segment_prefix = _normalize_path(pending_root / "segments" / session_name)
+    return any(path.startswith(f"{segment_prefix}/") for path in archive_segments)
 
 
 def _raw_files_by_name(raw_root: Path) -> dict[str, list[Path]]:

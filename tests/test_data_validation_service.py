@@ -37,10 +37,10 @@ class DataValidationServiceTests(unittest.TestCase):
                 )
 
             messages = "\n".join(issue["message"] for issue in result["issues"])
-            self.assertIn("missing raw folder", messages)
+            self.assertIn("no local raw folder", messages)
             self.assertIn("missing segment", messages)
             self.assertIn("source_file(s) not found", messages)
-            self.assertGreaterEqual(result["summary"]["errors"], 2)
+            self.assertGreaterEqual(result["summary"]["errors"], 1)
 
     def test_accepts_pending_segment_represented_in_hdf5_archive(self):
         with tempfile.TemporaryDirectory() as tmpdir:
