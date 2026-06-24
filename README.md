@@ -68,6 +68,8 @@ Sous Windows, si `conda activate` n'est pas reconnu dans PowerShell, ouvre d'abo
 Les sessions de collecte ne sont plus codees dans `constants.py`.
 Elles sont maintenant stockees dans [config/sessions.json](C:\Users\micka\Documents\GIT\Synergie_Data\Synergie_Data\config\sessions.json) et peuvent etre ajoutees depuis l'onglet `Sessions` de `tools_gui.py`.
 
+Pour contribuer au refactor de l'interface sans casser les workflows d'annotation, voir [docs/gui_refactor_architecture.md](C:\Users\micka\Documents\GIT\Synergie_Data\Synergie_Data\docs\gui_refactor_architecture.md).
+
 ### Dependances externes
 
 L'application GUI depend aussi :
