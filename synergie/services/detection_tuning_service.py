@@ -5,6 +5,7 @@ import json
 
 from synergie.services.annotation_service import annotation_review_status_from_row
 from synergie.services.hdf5_archive_service import hdf5_segment_paths, load_segment_dataframe
+from synergie.services.numeric_utils import safe_float
 
 
 OPTIMIZED_DETECTION_PARAMETERS_FILE = Path("config") / "optimized_detection_parameters.json"
@@ -169,7 +170,4 @@ def _list_pending_annotation_files(root: str | Path) -> list[Path]:
 
 
 def _safe_float(value, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
+    return safe_float(value, default)

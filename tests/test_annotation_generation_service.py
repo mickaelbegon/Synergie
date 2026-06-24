@@ -26,6 +26,19 @@ class AnnotationGenerationServiceTests(unittest.TestCase):
 
         self.assertEqual(estimate_sensor_impact_offset_ms(frame), 1200.0)
 
+    def test_estimate_sensor_impact_offset_ms_searches_beyond_first_five_seconds(self):
+        ms = list(range(0, 14000, 100))
+        frame = pd.DataFrame(
+            {
+                "ms": ms,
+                "Acc_X": [0 if value < 12400 else 25 for value in ms],
+                "Acc_Y": [0 for _value in ms],
+                "Acc_Z": [1 for _value in ms],
+            }
+        )
+
+        self.assertEqual(estimate_sensor_impact_offset_ms(frame), 12400.0)
+
     def test_process_new_imu_session_for_annotation_exports_sorted_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from synergie.services.annotation_service import JUMP_TYPE_LABELS
 from synergie.services.hdf5_archive_service import load_segment_dataframe
+from synergie.services.numeric_utils import safe_float
 from synergie.services.signal_cleaning_service import clean_imu_outliers, recompute_gyro_x_derivatives
 from synergie.config import ACCELERATION_ABERRANT_LIMIT_G, DEFAULT_DETECTION_THRESHOLD, DEFAULT_SMOOTHING_SIGMA
 
@@ -181,10 +182,7 @@ def _empty_quality_result(dataset_path: str | Path, skipped: int) -> dict:
 
 
 def _safe_float(value, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
+    return safe_float(value, default)
 
 
 def _segment_exists_in_hdf5(segment_path: Path) -> bool:

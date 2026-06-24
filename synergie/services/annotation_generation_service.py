@@ -97,10 +97,26 @@ def process_new_imu_session_for_annotation(
     }
 
 
-def estimate_sensor_impact_offset_ms(session_df) -> float:
+def estimate_sensor_impact_offset_ms(session_df, *, search_ms: float | None = 30000.0) -> float:
     """Estimate the first strong impact timestamp for one sensor session."""
-    impacts = detect_sync_impacts(session_df, max_candidates=1, search_ms=5000.0)
+    impacts = detect_sync_impacts(session_df, max_candidates=1, search_ms=search_ms)
     return impacts[0].ms if impacts else 0.0
+
+
+def estimate_sensor_impact_offset_from_file(
+    raw_csv_path: str | Path,
+    *,
+    sample_time_fine_synchro: int = 0,
+    search_ms: float | None = 30000.0,
+) -> float | None:
+    """Estimate one sync-impact timestamp from a raw IMU CSV file."""
+    import pandas as pd
+    from core.data_treatment.data_generation.trainingSession import trainingSession
+
+    dataframe = pd.read_csv(raw_csv_path)
+    session = trainingSession(dataframe, sampleTimefineSynchro=sample_time_fine_synchro)
+    impact_ms = estimate_sensor_impact_offset_ms(session.df, search_ms=search_ms)
+    return impact_ms if impact_ms > 0 else None
 
 
 def _records_for_sensor(file_metadata: dict, session, sensor_segment_root: Path, impact_offset_ms: float) -> list[dict]:

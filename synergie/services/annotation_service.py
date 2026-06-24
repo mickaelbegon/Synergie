@@ -4,6 +4,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from synergie.services.numeric_utils import safe_float
+
 
 ANNOTATION_JUMP_TYPE_OPTIONS = [
     ("toe_loop", "Toe loop", 0),
@@ -366,7 +368,4 @@ def annotate_combination_flags(annotation_rows, max_gap_ms: float = 1500.0):
 
 
 def _safe_float(value, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
+    return safe_float(value, default)

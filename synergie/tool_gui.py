@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import threading
 import tkinter as tk
 import tkinter.font as tkfont
 from importlib import util as importlib_util
@@ -22,6 +21,7 @@ from synergie.config import (
     TYPE_WINDOW_START,
     TYPE_WINDOW_FRAMES,
 )
+from synergie.gui_helpers import run_tk_background
 from synergie.services.signal_cleaning_service import clean_imu_outliers, recompute_gyro_x_derivatives
 from synergie.services.hdf5_archive_service import hdf5_segment_paths, load_segment_dataframe
 
@@ -278,6 +278,7 @@ class SynergieToolsApp:
         self.annotation_success_buttons: list[ttk.Radiobutton] = []
         self.annotation_metadata: dict = {}
         self.annotation_video_capture = None
+        self.annotation_video_player = None
         self.annotation_video_fps = 0.0
         self.annotation_video_frame_count = 0
         self.annotation_video_duration_ms = 0.0
@@ -975,6 +976,7 @@ class SynergieToolsApp:
         ttk.Button(sync_buttons, text="Sync block impact at this frame", command=self._sync_current_sensor_impact_to_video).grid(row=0, column=0, sticky="w")
         ttk.Button(sync_buttons, text="Sync selected jump to block", command=self._sync_current_sensor_to_video).grid(row=0, column=1, sticky="w", padx=(6, 0))
         ttk.Button(sync_buttons, text="Clear block sync", command=self._clear_current_sensor_sync).grid(row=0, column=2, sticky="w", padx=(6, 0))
+        ttk.Button(sync_buttons, text="Re-detect IMU impacts", command=self._redetect_annotation_sync_impacts).grid(row=0, column=3, sticky="w", padx=(6, 0))
 
         plot_column = ttk.Frame(right_panel)
         plot_column.columnconfigure(0, weight=1)
@@ -3793,55 +3795,16 @@ class SynergieToolsApp:
         self._annotation_jump_list_items = []
         if self.annotation_dataframe is None:
             return
-        impact_items = []
-        if "sensor_id" in self.annotation_dataframe and "impact_offset_ms" in self.annotation_dataframe:
-            for sensor_id, rows in self.annotation_dataframe.groupby("sensor_id", sort=False):
-                sensor_key = str(sensor_id)
-                impact_ms = float(rows["impact_offset_ms"].dropna().iloc[0]) if not rows["impact_offset_ms"].dropna().empty else 0.0
-                impact_video_ms = self._annotation_imu_to_video_ms(impact_ms, sensor_key)
-                impact_items.append(
-                    {
-                        "kind": "sync_impact",
-                        "sensor_id": sensor_key,
-                        "impact_ms": impact_ms,
-                        "video_ms": impact_video_ms,
-                        "sort_ms": impact_video_ms,
-                    }
-                )
-        for index, row in self.annotation_dataframe.iterrows():
-            sensor_id = str(row.get("sensor_id", ""))
-            video_ms = self._annotation_row_video_time_ms(row, sensor_id)
-            video_label = self._format_video_ms(video_ms)
-            label = (
-                f"{index + 1:03d} | {video_label} | "
-                f"{row.get('athlete_id', row.get('skater', 'unknown'))} | "
-                f"{row.get('detection_status', 'detected_jump')}"
-            )
-            if str(row.get("prediction_source", "") or ""):
-                jump_type = int(float(row.get("type", 8)))
-                success = int(float(row.get("success", 2)))
-                label += f" | model: {operations.JUMP_TYPE_LABELS.get(jump_type, jump_type)} / success {success}"
-            impact_items.append(
-                {
-                    "kind": "jump",
-                    "dataframe_index": index,
-                    "label": label,
-                    "sort_ms": video_ms,
-                }
-            )
-        for item in sorted(impact_items, key=lambda item: (float(item.get("sort_ms", 0.0)), 0 if item["kind"] == "sync_impact" else 1)):
-            if item["kind"] == "sync_impact":
-                block_source = operations.get_annotation_block_sync_source(self.annotation_metadata)
-                source = block_source or operations.get_annotation_sensor_sync_source(self.annotation_metadata, item["sensor_id"])
-                source_label = source.get("method", "not synced") if source else "not synced"
-                label = (
-                    f"SYNC | {self._format_video_ms(item['video_ms'])} | sensor_{item['sensor_id']} | "
-                    f"impact IMU {item['impact_ms']:.0f} ms ({self._format_video_ms(item['impact_ms'])}) | {source_label}"
-                )
-            else:
-                label = item["label"]
+        timeline_items = operations.build_annotation_timeline_items(
+            self.annotation_dataframe,
+            self.annotation_metadata,
+            row_video_time_ms=self._annotation_row_video_time_ms,
+            imu_to_video_ms=self._annotation_imu_to_video_ms,
+            format_ms=self._format_video_ms,
+        )
+        for item in timeline_items:
             self._annotation_jump_list_items.append(item)
-            self.annotation_jump_listbox.insert(tk.END, label)
+            self.annotation_jump_listbox.insert(tk.END, item["label"])
 
     def _refresh_annotation_progress(self) -> None:
         if self.annotation_dataframe is None:
@@ -4197,18 +4160,10 @@ class SynergieToolsApp:
         return f"Caching video locally ({self._format_file_size(cache_status['size_bytes'])}).\nPlease wait..."
 
     def _format_video_ms(self, milliseconds: float) -> str:
-        total_ms = max(0, int(round(float(milliseconds))))
-        minutes, remaining_ms = divmod(total_ms, 60000)
-        seconds, millis = divmod(remaining_ms, 1000)
-        return f"{minutes:02d}:{seconds:02d}.{millis:03d}"
+        return operations.format_video_ms(milliseconds)
 
     def _format_file_size(self, size_bytes: int) -> str:
-        value = float(max(0, int(size_bytes)))
-        for unit in ("B", "KB", "MB", "GB"):
-            if value < 1024.0 or unit == "GB":
-                return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} B"
-            value /= 1024.0
-        return f"{value:.1f} GB"
+        return operations.format_file_size(size_bytes)
 
     def _refresh_annotation_video_cache_button(self) -> None:
         size_bytes = operations.video_cache_size_bytes()
@@ -4242,19 +4197,10 @@ class SynergieToolsApp:
         return str(sensor_id)
 
     def _annotation_row_video_time_ms(self, row, sensor_id: str | None = None) -> float:
-        block_offset_ms = operations.get_annotation_block_sync_offset(self.annotation_metadata)
-        if block_offset_ms is not None:
-            return operations.compute_annotation_jump_video_time_ms(row, block_sync_offset_ms=block_offset_ms)
-        resolved_sensor_id = sensor_id if sensor_id is not None else str(row.get("sensor_id", ""))
-        offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, resolved_sensor_id)
-        return operations.compute_annotation_jump_video_time_ms(row, offset_ms)
+        return operations.annotation_row_video_time_ms(self.annotation_metadata, row, sensor_id)
 
     def _annotation_imu_to_video_ms(self, imu_ms: float, sensor_id: str | None = None) -> float:
-        block_offset_ms = operations.get_annotation_block_sync_offset(self.annotation_metadata)
-        if block_offset_ms is not None:
-            return max(float(imu_ms) + block_offset_ms, 0.0)
-        offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, sensor_id or "")
-        return max(float(imu_ms) + offset_ms, 0.0)
+        return operations.annotation_imu_to_video_ms(self.annotation_metadata, imu_ms, sensor_id)
 
     def _refresh_annotation_video_context(self) -> None:
         row = self._selected_annotation_row()
@@ -4284,54 +4230,17 @@ class SynergieToolsApp:
         )
 
     def _annotation_sensor_sync_summary(self, current_sensor_id: str) -> str:
-        block_offset = operations.get_annotation_block_sync_offset(self.annotation_metadata)
-        if block_offset is not None:
-            return "Block sync active for all sensors"
-        offsets = self.annotation_metadata.get("sensor_sync_offsets_ms", {})
-        synced = sorted(str(sensor_id) for sensor_id in offsets)
         if self.annotation_dataframe is None or "sensor_id" not in self.annotation_dataframe:
-            return f"Synced sensors: {', '.join(synced) if synced else 'none'}"
+            return operations.annotation_sync_summary(self.annotation_metadata, [], current_sensor_id)
         sensors = sorted(str(sensor_id) for sensor_id in self.annotation_dataframe["sensor_id"].dropna().unique())
-        missing = [sensor_id for sensor_id in sensors if sensor_id not in offsets]
-        current_status = "synced" if current_sensor_id in offsets else "not synced"
-        return (
-            f"Current sensor {current_status}; "
-            f"synced: {', '.join(synced) if synced else 'none'}; "
-            f"missing: {', '.join(missing) if missing else 'none'}"
-        )
+        return operations.annotation_sync_summary(self.annotation_metadata, sensors, current_sensor_id)
 
     def _annotation_sensor_sync_source_summary(self, sensor_id: str) -> str:
-        block_source = operations.get_annotation_block_sync_source(self.annotation_metadata)
-        if block_source:
-            method = str(block_source.get("method", "block")).strip().lower()
-            sensor = block_source.get("sensor_id")
-            video_ms = block_source.get("video_ms")
-            imu_ms = block_source.get("imu_impact_ms")
-            if method == "block_impact" and imu_ms is not None and video_ms is not None:
-                sensor_text = f" sensor {sensor}" if sensor is not None else ""
-                return (
-                    f"block sync by impact{sensor_text}: IMU {self._format_video_ms(float(imu_ms))} "
-                    f"-> video {self._format_video_ms(float(video_ms))}"
-                )
-            if method == "block_jump" and video_ms is not None:
-                return f"block sync by selected jump at video {self._format_video_ms(float(video_ms))}"
-            return f"block sync by {method}"
-        source = operations.get_annotation_sensor_sync_source(self.annotation_metadata, sensor_id)
-        method = str(source.get("method", "")).strip().lower()
-        if method == "impact":
-            imu_ms = source.get("imu_impact_ms")
-            video_ms = source.get("video_ms")
-            if imu_ms is not None and video_ms is not None:
-                return f"synced by impact: IMU {self._format_video_ms(float(imu_ms))} -> video {self._format_video_ms(float(video_ms))}"
-            return "synced by impact"
-        if method == "jump":
-            video_ms = source.get("video_ms")
-            if video_ms is not None:
-                return f"synced by selected jump at video {self._format_video_ms(float(video_ms))}"
-            return "synced by selected jump"
-        if method:
-            return f"synced by {method}"
-        return "sync source unknown"
+        return operations.annotation_sync_source_summary(
+            self.annotation_metadata,
+            sensor_id,
+            format_ms=self._format_video_ms,
+        )
 
     def _open_annotation_video_popup(self) -> None:
         if self.annotation_video_popup is not None and self.annotation_video_popup.winfo_exists():
@@ -4462,22 +4371,7 @@ class SynergieToolsApp:
         self._draw_add_jump_placeholder("Detect candidates to preview the signal.")
 
     def _annotation_raw_source_path(self, sensor_id: str) -> Path | None:
-        if self.annotation_dataframe is None:
-            return None
-        rows = self.annotation_dataframe[self.annotation_dataframe["sensor_id"].astype(str) == str(sensor_id)]
-        for _, row in rows.iterrows():
-            source_name = str(row.get("source_file", "")).strip()
-            if not source_name:
-                continue
-            direct = Path(source_name)
-            if direct.exists():
-                return direct
-            for root in [Path("data/new"), Path("data/raw"), Path("data/pending")]:
-                if root.exists():
-                    matches = sorted(root.rglob(source_name))
-                    if matches:
-                        return matches[0]
-        return None
+        return operations.find_annotation_raw_source_path(self.annotation_dataframe, sensor_id)
 
     def _detect_add_jump_candidates(self) -> None:
         sensor_id = self.add_jump_sensor_var.get()
@@ -4488,24 +4382,13 @@ class SynergieToolsApp:
             self._draw_add_jump_placeholder(f"Unable to find raw CSV for sensor {sensor_id}.")
             return
 
-        import pandas as pd
-        from core.data_treatment.data_generation.trainingSession import trainingSession
-
-        session = trainingSession(
-            pd.read_csv(raw_path, low_memory=False),
+        self.add_jump_candidates = operations.detect_add_jump_candidates(
+            raw_path,
             detection_threshold=float(self.add_jump_threshold_var.get()),
             smoothing_sigma=float(self.add_jump_sigma_var.get()),
             combination_gap_frames=int(self.add_jump_gap_var.get()),
         )
-        self.add_jump_candidates = [
-            {"index": index, "jump": jump, "raw_path": raw_path, "session": session}
-            for index, jump in enumerate(session.jumps, start=1)
-        ]
-        labels = [
-            f"{candidate['index']:03d} | start {candidate['jump'].startTimestamp:.0f} ms | "
-            f"end {candidate['jump'].endTimestamp:.0f} ms | rotation {candidate['jump'].rotation:.1f}"
-            for candidate in self.add_jump_candidates
-        ]
+        labels = operations.format_add_jump_candidate_labels(self.add_jump_candidates)
         self.add_jump_candidates_var.set(labels)
         if self.add_jump_candidates_listbox is not None and labels:
             self.add_jump_candidates_listbox.selection_clear(0, tk.END)
@@ -4573,43 +4456,29 @@ class SynergieToolsApp:
         self.status_var.set(f"Captured manual jump {bound}: {formatted}")
 
     def _video_bound_to_sensor_ms(self, video_text: str, sensor_id: str, impact_offset_ms: float) -> float | None:
-        text = str(video_text or "").strip()
-        if not text:
-            return None
         try:
-            minutes_text, rest = text.split(":", 1)
-            seconds_text, millis_text = rest.split(".", 1)
-            video_ms = (int(minutes_text) * 60 + int(seconds_text)) * 1000 + int(millis_text[:3].ljust(3, "0"))
-        except ValueError:
+            video_ms = operations.parse_video_ms(video_text)
+        except (TypeError, ValueError):
             return None
-        block_offset_ms = operations.get_annotation_block_sync_offset(self.annotation_metadata)
-        if block_offset_ms is not None:
-            return float(video_ms) - block_offset_ms
-        sync_offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, sensor_id)
-        return float(video_ms) - sync_offset_ms + float(impact_offset_ms)
+        if video_ms is None:
+            return None
+        return operations.annotation_video_to_imu_ms(
+            self.annotation_metadata,
+            video_ms,
+            sensor_id,
+            impact_offset_ms=impact_offset_ms,
+        )
 
     def _manual_segment_for_bounds(self, candidate: dict, start_ms: float):
-        session_df = candidate["session"].df
-        start_index = int((session_df["ms"] - float(start_ms)).abs().idxmin())
-        segment_start = max(0, start_index - SEGMENT_FRAMES_BEFORE_TAKEOFF)
-        segment_end = min(len(session_df), segment_start + JUMP_WINDOW_FRAMES)
-        if segment_end - segment_start < JUMP_WINDOW_FRAMES:
-            segment_start = max(0, segment_end - JUMP_WINDOW_FRAMES)
-        segment = session_df.iloc[segment_start:segment_end].copy()
-        segment["Combination"] = int(candidate["jump"].combinate)
-        return segment, start_index
+        return operations.build_manual_jump_segment(
+            candidate,
+            start_ms,
+            frames_before_takeoff=SEGMENT_FRAMES_BEFORE_TAKEOFF,
+            window_frames=JUMP_WINDOW_FRAMES,
+        )
 
     def _rotation_between_ms(self, frame, start_ms: float, end_ms: float) -> float:
-        if end_ms <= start_ms or not {"ms", "SampleTimeFine", "Gyr_X"}.issubset(frame.columns):
-            return 0.0
-        interval = frame[(frame["ms"] >= float(start_ms)) & (frame["ms"] <= float(end_ms))].copy()
-        interval = interval[interval["Gyr_X"].abs() <= 1e6]
-        if len(interval) < 2:
-            return 0.0
-        timestamps = interval["SampleTimeFine"].to_numpy(dtype="float64")
-        speeds = interval["Gyr_X"].to_numpy(dtype="float64")[:-1]
-        dt = (timestamps[1:] - timestamps[:-1]) / 1e6
-        return abs(float((speeds * dt).sum()) / 360.0)
+        return operations.compute_rotation_between_ms(frame, start_ms, end_ms)
 
     def _add_selected_jump_candidate(self) -> None:
         candidate = self._selected_add_jump_candidate()
@@ -4618,11 +4487,10 @@ class SynergieToolsApp:
             return
         jump = candidate["jump"]
         sensor_id = self.add_jump_sensor_var.get()
-        sensor_rows = self.annotation_dataframe[self.annotation_dataframe["sensor_id"].astype(str) == str(sensor_id)]
-        template = sensor_rows.iloc[0].to_dict() if not sensor_rows.empty else {}
-        segment_dir = Path(str(template.get("path", self.annotation_file_path.parent))).parent
+        template = operations.template_for_sensor(self.annotation_dataframe, sensor_id)
+        segment_path = operations.manual_segment_path(template, self.annotation_file_path, sensor_id, len(self.annotation_dataframe))
+        segment_dir = segment_path.parent
         segment_dir.mkdir(parents=True, exist_ok=True)
-        segment_path = segment_dir / f"manual_sensor{sensor_id}_jump{len(self.annotation_dataframe) + 1:03d}.csv"
 
         impact_offset_ms = float(template.get("impact_offset_ms", 0.0) or 0.0)
         manual_start_ms = self._video_bound_to_sensor_ms(self.add_jump_takeoff_video_var.get(), sensor_id, impact_offset_ms)
@@ -4635,42 +4503,29 @@ class SynergieToolsApp:
         segment, _start_index = self._manual_segment_for_bounds(candidate, start_ms)
         segment.to_csv(segment_path, index=False)
 
-        synced_start_ms = round(start_ms - impact_offset_ms, 3)
         rotations = self._rotation_between_ms(candidate["session"].df, start_ms, end_ms)
-        normalized_segment_path = str(segment_path).replace("\\", "/")
-        new_row = dict(template)
-        new_row.update(
-            {
-                "path": normalized_segment_path,
-                "videoTimeStamp": self._format_video_ms(max(synced_start_ms, 0.0)),
-                "type": 8,
-                "turns": "",
-                "skater": template.get("skater", f"sensor_{sensor_id}"),
-                "athlete_id": template.get("athlete_id", f"sensor_{sensor_id}"),
-                "success": 2,
-                "rotations": round(float(rotations), 1),
-                "source_file": candidate["raw_path"].name,
-                "sensor_id": sensor_id,
-                "annotation_status": "pending",
-                "video_status": "visible",
-                "detection_status": "manual_missing_jump",
-                "start_ms": round(start_ms, 3),
-                "end_ms": round(end_ms, 3),
-                "synced_start_ms": synced_start_ms,
-                "added_by": "add_jump_popup",
-                "manual_takeoff_video_ms": self.add_jump_takeoff_video_var.get(),
-                "manual_landing_video_ms": self.add_jump_landing_video_var.get(),
-                "detection_threshold": float(self.add_jump_threshold_var.get()),
-                "smoothing_sigma": float(self.add_jump_sigma_var.get()),
-                "combination_gap_frames": int(self.add_jump_gap_var.get()),
-            }
+        new_row = operations.build_manual_annotation_row(
+            template,
+            segment_path=segment_path,
+            source_file_name=candidate["raw_path"].name,
+            sensor_id=sensor_id,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            impact_offset_ms=impact_offset_ms,
+            rotations=rotations,
+            takeoff_video_text=self.add_jump_takeoff_video_var.get(),
+            landing_video_text=self.add_jump_landing_video_var.get(),
+            detection_threshold=float(self.add_jump_threshold_var.get()),
+            smoothing_sigma=float(self.add_jump_sigma_var.get()),
+            combination_gap_frames=int(self.add_jump_gap_var.get()),
+            format_video_ms=self._format_video_ms,
         )
-        self.annotation_dataframe.loc[len(self.annotation_dataframe)] = new_row
-        self.annotation_dataframe = self.annotation_dataframe.sort_values(by=["synced_start_ms", "sensor_id", "start_ms"]).reset_index(drop=True)
+        normalized_segment_path = new_row["path"]
+        self.annotation_dataframe = operations.append_manual_annotation_row(self.annotation_dataframe, new_row)
         self.annotation_dataframe.to_csv(self.annotation_file_path, index=False)
         self._refresh_annotation_jump_list()
         self._refresh_annotation_progress()
-        new_index = int(self.annotation_dataframe.index[self.annotation_dataframe["path"].astype(str) == normalized_segment_path][0])
+        new_index = operations.annotation_index_for_path(self.annotation_dataframe, normalized_segment_path)
         self._select_annotation_dataframe_index(new_index)
         self._on_annotation_jump_selected()
         self.status_var.set(f"Added jump candidate for sensor {sensor_id}")
@@ -4761,8 +4616,9 @@ class SynergieToolsApp:
         if self._annotation_video_resize_after_id is not None:
             self.root.after_cancel(self._annotation_video_resize_after_id)
             self._annotation_video_resize_after_id = None
-        if self.annotation_video_capture is not None:
-            self.annotation_video_capture.release()
+        if self.annotation_video_player is not None:
+            self.annotation_video_player.release()
+            self.annotation_video_player = None
             self.annotation_video_capture = None
         self._annotation_video_frame_image = None
         self.annotation_video_fps = 0.0
@@ -4799,15 +4655,12 @@ class SynergieToolsApp:
             self._draw_placeholder_annotation_video(message)
             self._show_annotation_video_progress_popup(message)
 
-            def prepare_video() -> None:
-                try:
-                    result = operations.optimized_playback_video_path(path)
-                except Exception as exc:
-                    self.root.after(0, lambda error=exc: self._fail_annotation_video_load(path, error, load_token))
-                    return
-                self.root.after(0, lambda: self._finish_annotation_video_load(path, result, persist, load_token))
-
-            threading.Thread(target=prepare_video, daemon=True).start()
+            run_tk_background(
+                self.root,
+                lambda: operations.optimized_playback_video_path(path),
+                lambda result: self._finish_annotation_video_load(path, result, persist, load_token),
+                lambda error: self._fail_annotation_video_load(path, error, load_token),
+            )
             return
 
         playback_result = operations.optimized_playback_video_path(path)
@@ -4824,30 +4677,24 @@ class SynergieToolsApp:
         if load_token != self._annotation_video_load_token:
             return
         self._close_annotation_video_progress_popup()
-        import cv2
-
         open_path = Path(playback_result["path"])
 
         self._stop_annotation_playback()
         self._release_annotation_video()
-        capture = cv2.VideoCapture(str(open_path))
-        if not capture.isOpened():
+        try:
+            player = operations.AnnotationVideoPlayer(open_path)
+        except OSError:
             messagebox.showerror("Synergie Tools", f"Unable to open video:\n{open_path}")
             return
 
-        fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
-        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-        duration_ms = 0.0
-        if fps > 0 and frame_count > 0:
-            duration_ms = frame_count / fps * 1000.0
-
-        self.annotation_video_capture = capture
-        self.annotation_video_fps = fps
-        self.annotation_video_frame_count = frame_count
-        self.annotation_video_duration_ms = duration_ms
+        self.annotation_video_player = player
+        self.annotation_video_capture = player
+        self.annotation_video_fps = player.fps
+        self.annotation_video_frame_count = player.frame_count
+        self.annotation_video_duration_ms = player.duration_ms
         self.annotation_video_path_var.set(str(path))
         self.annotation_video_directory_var.set(str(path.parent))
-        self.annotation_video_slider.configure(to=max(duration_ms, 1.0))
+        self.annotation_video_slider.configure(to=max(player.duration_ms, 1.0))
         cache_text = " | optimized playback" if playback_result.get("from_proxy") else ""
         if not cache_text and playback_result["from_cache"]:
             cache_text = " | cached locally"
@@ -4856,7 +4703,7 @@ class SynergieToolsApp:
         if playback_result.get("cache_failed"):
             cache_text = " | cache unavailable; reading source"
         self.annotation_video_cache_note = cache_text
-        self.annotation_video_info_var.set(f"{path.name} | fps={fps:.2f}{cache_text}")
+        self.annotation_video_info_var.set(f"{path.name} | fps={player.fps:.2f}{cache_text}")
         self._refresh_annotation_video_cache_button()
         if persist and self.annotation_file_path is not None:
             self.annotation_metadata = operations.set_annotation_video_path(self.annotation_file_path, path)
@@ -4866,38 +4713,18 @@ class SynergieToolsApp:
         self._seek_annotation_video_to_selected_jump(auto=True)
 
     def _display_annotation_video_frame(self, milliseconds: float | None = None, seek: bool = True) -> bool:
-        if self.annotation_video_capture is None:
+        if self.annotation_video_player is None:
             self._draw_placeholder_annotation_video()
             return False
 
-        import cv2
         from PIL import Image
 
-        if milliseconds is None:
-            target_ms = self.annotation_video_current_ms
-        else:
-            target_ms = max(0.0, min(float(milliseconds), self.annotation_video_duration_ms or float(milliseconds)))
-        if seek:
-            if self.annotation_video_fps > 0:
-                frame_index = int(round((target_ms / 1000.0) * self.annotation_video_fps))
-                max_frame_index = max(self.annotation_video_frame_count - 1, 0)
-                frame_index = min(frame_index, max_frame_index)
-                self.annotation_video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
-            else:
-                self.annotation_video_capture.set(cv2.CAP_PROP_POS_MSEC, target_ms)
-
-        ok, frame = self.annotation_video_capture.read()
-        if not ok:
+        video_frame = self.annotation_video_player.read_frame(milliseconds, seek=seek)
+        if video_frame is None:
             return False
-        if not seek:
-            position_ms = float(self.annotation_video_capture.get(cv2.CAP_PROP_POS_MSEC) or 0.0)
-            if position_ms > 0:
-                target_ms = position_ms
-            else:
-                target_ms = min(target_ms, self.annotation_video_duration_ms or target_ms)
 
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        self._annotation_video_frame_image = Image.fromarray(frame)
+        target_ms = video_frame.position_ms
+        self._annotation_video_frame_image = Image.fromarray(video_frame.rgb_frame)
         self._redraw_annotation_video_frame()
         self.annotation_video_current_ms = target_ms
         self.annotation_video_slider_var.set(target_ms)
@@ -4923,10 +4750,10 @@ class SynergieToolsApp:
         self._display_annotation_video_frame(self.annotation_video_current_ms + delta_ms)
 
     def _seek_annotation_video_frames(self, frame_delta: int) -> None:
-        if self.annotation_video_capture is None:
+        if self.annotation_video_player is None:
             return
         self._stop_annotation_playback()
-        frame_ms = 1000.0 / self.annotation_video_fps if self.annotation_video_fps > 0 else 40.0
+        frame_ms = self.annotation_video_player.frame_step_ms()
         self._display_annotation_video_frame(self.annotation_video_current_ms + frame_delta * frame_ms)
 
     def _annotation_playback_speed_multiplier(self) -> float:
@@ -5056,7 +4883,7 @@ class SynergieToolsApp:
             return
 
         start_ms = float(row.get("start_ms", row.get("synced_start_ms", 0.0)) or 0.0)
-        offset_ms = self.annotation_video_current_ms - start_ms
+        offset_ms = operations.block_offset_from_jump(self.annotation_video_current_ms, row)
         self.annotation_metadata = operations.set_annotation_block_sync_offset(
             self.annotation_file_path,
             offset_ms,
@@ -5091,7 +4918,7 @@ class SynergieToolsApp:
             messagebox.showwarning("Synergie Tools", "Select a SYNC impact or an annotation entry first.")
             return
 
-        offset_ms = self.annotation_video_current_ms - impact_ms
+        offset_ms = operations.block_offset_from_impact(self.annotation_video_current_ms, impact_ms)
         self.annotation_metadata = operations.set_annotation_block_sync_offset(
             self.annotation_file_path,
             offset_ms,
@@ -5117,6 +4944,44 @@ class SynergieToolsApp:
             self._select_annotation_dataframe_index(index)
         self._refresh_annotation_video_context()
         self.status_var.set("Cleared block video sync")
+
+    def _redetect_annotation_sync_impacts(self) -> None:
+        if self.annotation_file_path is None or self.annotation_dataframe is None:
+            messagebox.showwarning("Synergie Tools", "Select an annotation file first.")
+            return
+        if "sensor_id" not in self.annotation_dataframe.columns:
+            messagebox.showwarning("Synergie Tools", "This annotation file has no sensor_id column.")
+            return
+
+        selected_index = self._selected_annotation_index()
+        result = operations.redetect_annotation_sync_impacts(
+            self.annotation_dataframe,
+            raw_path_for_sensor=self._annotation_raw_source_path,
+            estimate_impact_ms=lambda raw_path: operations.estimate_sensor_impact_offset_from_file(raw_path, search_ms=30000.0),
+        )
+        updated = result["updated"]
+        skipped = result["skipped"]
+        if not updated:
+            messagebox.showwarning(
+                "Synergie Tools",
+                "No sync impact could be re-detected.\n\n" + "\n".join(skipped[:8]),
+            )
+            return
+
+        self.annotation_dataframe = result["frame"]
+        self.annotation_dataframe.to_csv(self.annotation_file_path, index=False)
+        self._refresh_annotation_jump_list()
+        self._refresh_annotation_progress()
+        if selected_index is not None:
+            self._select_annotation_dataframe_index(selected_index)
+            self._on_annotation_jump_selected()
+        else:
+            self._refresh_annotation_video_context()
+        details = "\n".join(f"sensor_{item['sensor_id']}: {item['impact_ms']:.0f} ms" for item in updated)
+        if skipped:
+            details += "\n\nSkipped:\n" + "\n".join(skipped[:8])
+        messagebox.showinfo("Synergie Tools", f"Re-detected sync impacts:\n\n{details}")
+        self.status_var.set(f"Re-detected sync impacts for {len(updated)} sensor(s).")
 
     def _draw_annotation_sync_impact_signal(self, item: dict) -> None:
         if self.annotation_ax is None:
@@ -5503,14 +5368,11 @@ class SynergieToolsApp:
         widget.see(tk.END)
 
     def _run_in_thread(self, target, on_error_message: str) -> None:
-        def runner() -> None:
-            try:
-                target()
-            except Exception as exc:
-                self.root.after(0, lambda: messagebox.showerror("Synergie Tools", f"{on_error_message}\n\n{exc}"))
-                self.root.after(0, lambda: self.status_var.set("Error"))
+        def on_error(exc: Exception) -> None:
+            messagebox.showerror("Synergie Tools", f"{on_error_message}\n\n{exc}")
+            self.status_var.set("Error")
 
-        threading.Thread(target=runner, daemon=True).start()
+        run_tk_background(self.root, target, lambda _result: None, on_error)
 
     def _run_batch_process_files(self) -> None:
         selections = self.process_session_files.curselection()

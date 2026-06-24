@@ -6,6 +6,17 @@ from datetime import datetime
 from pathlib import Path
 
 from synergie import pretrained_models
+from synergie.services.add_jump_service import (
+    annotation_index_for_path,
+    append_manual_annotation_row,
+    build_manual_annotation_row,
+    build_manual_jump_segment,
+    compute_rotation_between_ms,
+    detect_add_jump_candidates,
+    format_add_jump_candidate_labels,
+    manual_segment_path,
+    template_for_sensor,
+)
 from synergie.services.annotation_service import (
     ANNOTATION_EDGE_JUMP_OPTIONS,
     ANNOTATION_JUMP_TYPE_OPTIONS,
@@ -35,12 +46,26 @@ from synergie.services.annotation_service import (
     set_annotation_video_path,
     summarize_annotation_progress,
 )
+from synergie.services.annotation_sync_service import (
+    annotation_imu_to_video_ms,
+    annotation_row_video_time_ms,
+    annotation_sync_source_summary,
+    annotation_sync_summary,
+    annotation_video_to_imu_ms,
+    block_offset_from_impact,
+    block_offset_from_jump,
+)
+from synergie.services.annotation_timeline_service import build_annotation_timeline_items
+from synergie.services.annotation_video_player import AnnotationVideoPlayer
 from synergie.services.annotation_finalization_service import finalize_annotation_file
 from synergie.services.annotation_generation_service import (
+    estimate_sensor_impact_offset_from_file,
     estimate_sensor_impact_offset_ms,
     process_new_imu_file_for_annotation,
     process_new_imu_session_for_annotation,
 )
+from synergie.services.annotation_impact_repair_service import redetect_annotation_sync_impacts
+from synergie.services.annotation_source_service import find_annotation_raw_source_path
 from synergie.services.csv_processing_service import process_csv_file
 from synergie.services.hyperparameter_search_service import (
     hyperparameter_search_space,
@@ -57,6 +82,7 @@ from synergie.services.detection_tuning_service import (
 )
 from synergie.services.data_inventory_service import build_data_inventory
 from synergie.services.data_validation_service import format_data_validation_report, validate_data_files
+from synergie.services.formatting_service import format_file_size, format_video_ms, parse_video_ms
 from synergie.services.backup_manifest_service import build_backup_manifest, write_backup_manifest
 from synergie.services.hdf5_archive_service import archive_segment_csvs, export_hdf5_archive, plan_segment_csv_cleanup
 from synergie.services.quality_service import analyze_jump_quality
