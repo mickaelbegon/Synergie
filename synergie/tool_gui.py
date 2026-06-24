@@ -106,6 +106,7 @@ class SynergieToolsApp:
         self.annotation_summary_var = tk.StringVar(value="No annotation file selected.")
         self.annotation_progress_var = tk.StringVar(value="Pending annotations: 0")
         self.annotation_global_progress_var = tk.StringVar(value="All files pending annotations: 0")
+        self.data_validation_summary_var = tk.StringVar(value="Data validation not run yet.")
         self.annotation_detection_diagnostic_var = tk.StringVar(value="Select a jump to see why the detector flagged it.")
         self.annotation_detection_warning_var = tk.StringVar(value="")
         self.annotation_shortcuts_header_var = tk.StringVar(value="")
@@ -118,6 +119,7 @@ class SynergieToolsApp:
         self.annotation_exclusion_hint_var = tk.StringVar(value="")
         self.annotation_combination_var = tk.BooleanVar(value=False)
         self.annotation_auto_save_var = tk.BooleanVar(value=False)
+        self._annotation_jump_list_items: list[dict] = []
         self.add_jump_sensor_var = tk.StringVar()
         self.add_jump_threshold_var = tk.DoubleVar(value=DEFAULT_DETECTION_THRESHOLD)
         self.add_jump_sigma_var = tk.IntVar(value=DEFAULT_SMOOTHING_SIGMA)
@@ -199,6 +201,7 @@ class SynergieToolsApp:
         self.detection_review_summary_var = tk.StringVar(value="Run the review scan to inspect false positives and false negatives.")
         self.detection_review_records_var = tk.StringVar(value=[])
         self.inspect_sync_impacts_var = tk.StringVar(value=[])
+        self.inspect_sync_impacts_warning_var = tk.StringVar(value="")
         self.detection_tuning_summary_var = tk.StringVar(value="No threshold sweep run yet.")
 
         self.inspect_csv_path_var = tk.StringVar()
@@ -221,6 +224,9 @@ class SynergieToolsApp:
         self.inspect_session = None
         self.detected_jumps: list = []
         self.detected_sync_impacts: list = []
+        self.inspect_zoom_range_ms: tuple[float, float] | None = None
+        self._inspect_drag_start_ms: float | None = None
+        self._inspect_drag_span = None
         self._new_data_files_cache: list[dict] = []
         self._annotation_files_cache: list[Path] = []
         self._annotation_video_match_cache: list[dict] = []
@@ -631,12 +637,17 @@ class SynergieToolsApp:
         """Build a cross-folder view of the current data pipeline state."""
         parent.columnconfigure(0, weight=1)
         parent.rowconfigure(2, weight=1)
+        parent.rowconfigure(5, weight=1)
         ttk.Label(
             parent,
             text="Etat derive automatiquement depuis data/new, data/pending, data/annotated et le jumplist d'entrainement.",
             justify=tk.LEFT,
         ).grid(row=0, column=0, sticky="w", pady=(0, 8))
-        ttk.Button(parent, text="Refresh data status", command=self._refresh_data_inventory).grid(row=1, column=0, sticky="w", pady=(0, 8))
+        inventory_actions = ttk.Frame(parent)
+        inventory_actions.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(inventory_actions, text="Refresh data status", command=self._refresh_data_inventory).grid(row=0, column=0, sticky="w")
+        ttk.Button(inventory_actions, text="Validate data files", command=self._validate_data_files).grid(row=0, column=1, sticky="w", padx=(8, 0))
+        ttk.Label(inventory_actions, textvariable=self.data_validation_summary_var).grid(row=0, column=2, sticky="w", padx=(12, 0))
         columns = ("session", "new", "pending", "segments", "trainable", "total", "trainable_total", "workflow", "predictions")
         self.data_inventory_tree = ttk.Treeview(parent, columns=columns, show="headings")
         headings = {
@@ -662,6 +673,10 @@ class SynergieToolsApp:
             sticky="w",
             pady=(8, 0),
         )
+        self.data_validation_report = scrolledtext.ScrolledText(parent, height=8, wrap=tk.WORD)
+        self.data_validation_report.grid(row=5, column=0, sticky="nsew", pady=(8, 0))
+        self.data_validation_report.insert("1.0", "Click 'Validate data files' to check raw, pending and annotated references.")
+        self.data_validation_report.configure(state="disabled")
         self._refresh_data_inventory()
 
     def _build_inspect_tab(self, parent: ttk.Frame) -> None:
@@ -759,10 +774,7 @@ class SynergieToolsApp:
 
         actions = ttk.Frame(controls)
         actions.grid(row=9, column=0, columnspan=3, sticky="ew", pady=(12, 0))
-        inspect_button = ttk.Button(actions, text="Load and detect", command=self._run_inspection)
-        inspect_button.grid(row=0, column=0, sticky="w")
-        self._add_tooltip(inspect_button, "Charge le CSV et recalcule les sauts avec les seuils visibles.")
-        ttk.Button(actions, text="Refresh plots", command=self._redraw_plots).grid(row=0, column=1, sticky="w", padx=(8, 0))
+        ttk.Button(actions, text="Refresh plots", command=self._redraw_plots).grid(row=0, column=0, sticky="w")
 
         ttk.Label(controls, text="Sync impacts").grid(row=10, column=0, sticky="nw", pady=(12, 0))
         self.inspect_sync_impacts_listbox = tk.Listbox(
@@ -772,7 +784,18 @@ class SynergieToolsApp:
             exportselection=False,
         )
         self.inspect_sync_impacts_listbox.grid(row=10, column=1, columnspan=2, sticky="ew", padx=8, pady=(12, 0))
-        self._add_tooltip(self.inspect_sync_impacts_listbox, "Impacts probables au debut du CSV pour valider la synchronisation video/IMU.")
+        self.inspect_sync_impacts_listbox.bind("<<ListboxSelect>>", self._on_sync_impact_selected)
+        self._add_tooltip(
+            self.inspect_sync_impacts_listbox,
+            "Impacts probables detectes avec le changement de norme 3D de l'acceleration: sqrt(Acc_X^2 + Acc_Y^2 + Acc_Z^2).",
+        )
+        ttk.Label(
+            controls,
+            textvariable=self.inspect_sync_impacts_warning_var,
+            justify=tk.LEFT,
+            wraplength=360,
+            foreground="crimson",
+        ).grid(row=11, column=1, columnspan=2, sticky="ew", padx=8, pady=(4, 0))
 
         jump_frame = ttk.LabelFrame(parent, text="Detected Jumps", padding=12)
         jump_frame.grid(row=1, column=0, sticky="nsew", padx=(0, 12))
@@ -949,8 +972,9 @@ class SynergieToolsApp:
         )
         sync_buttons = ttk.Frame(video_frame)
         sync_buttons.grid(row=6, column=0, columnspan=3, sticky="w")
-        ttk.Button(sync_buttons, text="Sync current IMU at this frame", command=self._sync_current_sensor_to_video).grid(row=0, column=0, sticky="w")
-        ttk.Button(sync_buttons, text="Clear current IMU sync", command=self._clear_current_sensor_sync).grid(row=0, column=1, sticky="w", padx=(6, 0))
+        ttk.Button(sync_buttons, text="Sync block impact at this frame", command=self._sync_current_sensor_impact_to_video).grid(row=0, column=0, sticky="w")
+        ttk.Button(sync_buttons, text="Sync selected jump to block", command=self._sync_current_sensor_to_video).grid(row=0, column=1, sticky="w", padx=(6, 0))
+        ttk.Button(sync_buttons, text="Clear block sync", command=self._clear_current_sensor_sync).grid(row=0, column=2, sticky="w", padx=(6, 0))
 
         plot_column = ttk.Frame(right_panel)
         plot_column.columnconfigure(0, weight=1)
@@ -1040,8 +1064,14 @@ class SynergieToolsApp:
         success_frame = ttk.LabelFrame(status_grid, text="Success", padding=6)
         success_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         self.annotation_success_buttons = []
-        for row_index, (label, value) in enumerate([("Fall", "0"), ("Success", "1"), ("Unknown", "2")]):
-            button = ttk.Radiobutton(success_frame, text=label, value=value, variable=self.annotation_success_var)
+        for row_index, (label, value, underline) in enumerate([("Chute", "0", 0), ("Réussi", "1", 0), ("Inconnu", "2", 1)]):
+            button = ttk.Radiobutton(
+                success_frame,
+                text=label,
+                value=value,
+                variable=self.annotation_success_var,
+                underline=underline,
+            )
             button.grid(row=row_index, column=0, sticky="w")
             self.annotation_success_buttons.append(button)
 
@@ -1104,6 +1134,9 @@ class SynergieToolsApp:
         self.figure = figure
         self.axes = (overview_ax, zoom_ax)
         self.canvas = FigureCanvasTkAgg(figure, master=self.plot_container)
+        self.canvas.mpl_connect("button_press_event", self._on_inspect_overview_press)
+        self.canvas.mpl_connect("motion_notify_event", self._on_inspect_overview_motion)
+        self.canvas.mpl_connect("button_release_event", self._on_inspect_overview_release)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._draw_placeholder_plots()
 
@@ -1904,6 +1937,21 @@ class SynergieToolsApp:
                     row["prediction_status"] or "-",
                 ),
             )
+
+    def _validate_data_files(self) -> None:
+        if not hasattr(self, "data_validation_report"):
+            return
+        result = operations.validate_data_files()
+        report = operations.format_data_validation_report(result)
+        summary = result["summary"]
+        self.data_validation_summary_var.set(
+            f"{summary['errors']} error(s), {summary['warnings']} warning(s), {summary['info']} info"
+        )
+        self.data_validation_report.configure(state="normal")
+        self.data_validation_report.delete("1.0", tk.END)
+        self.data_validation_report.insert("1.0", report)
+        self.data_validation_report.configure(state="disabled")
+        self.status_var.set("Data validation complete.")
 
     def _import_legacy_annotated_session(self) -> None:
         path = filedialog.askopenfilename(
@@ -3480,6 +3528,8 @@ class SynergieToolsApp:
         path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
         if path:
             self.inspect_csv_path_var.set(path)
+            self.inspect_selected_file_info_var.set(self._describe_selected_file(path))
+            self._run_inspection()
 
     def _on_process_session_changed(self, _event=None) -> None:
         self._populate_process_session_files()
@@ -3604,6 +3654,7 @@ class SynergieToolsApp:
             selected_path = self.inspect_session_files.get(selection[0])
             self.inspect_csv_path_var.set(selected_path)
             self.inspect_selected_file_info_var.set(self._describe_selected_file(selected_path))
+            self._run_inspection()
 
     def _on_new_data_file_selected(self, _event=None) -> None:
         selection = self.new_data_files.curselection()
@@ -3734,18 +3785,33 @@ class SynergieToolsApp:
             if video_directory and Path(video_directory).exists():
                 self._find_annotation_video_matches(auto_load=True)
         if len(self.annotation_dataframe) > 0:
-            self.annotation_jump_listbox.selection_clear(0, tk.END)
-            self.annotation_jump_listbox.selection_set(0)
+            self._select_annotation_dataframe_index(0)
             self._on_annotation_jump_selected()
 
     def _refresh_annotation_jump_list(self) -> None:
         self.annotation_jump_listbox.delete(0, tk.END)
+        self._annotation_jump_list_items = []
         if self.annotation_dataframe is None:
             return
+        impact_items = []
+        if "sensor_id" in self.annotation_dataframe and "impact_offset_ms" in self.annotation_dataframe:
+            for sensor_id, rows in self.annotation_dataframe.groupby("sensor_id", sort=False):
+                sensor_key = str(sensor_id)
+                impact_ms = float(rows["impact_offset_ms"].dropna().iloc[0]) if not rows["impact_offset_ms"].dropna().empty else 0.0
+                impact_video_ms = self._annotation_imu_to_video_ms(impact_ms, sensor_key)
+                impact_items.append(
+                    {
+                        "kind": "sync_impact",
+                        "sensor_id": sensor_key,
+                        "impact_ms": impact_ms,
+                        "video_ms": impact_video_ms,
+                        "sort_ms": impact_video_ms,
+                    }
+                )
         for index, row in self.annotation_dataframe.iterrows():
             sensor_id = str(row.get("sensor_id", ""))
-            offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, sensor_id)
-            video_label = self._format_video_ms(operations.compute_annotation_jump_video_time_ms(row, offset_ms))
+            video_ms = self._annotation_row_video_time_ms(row, sensor_id)
+            video_label = self._format_video_ms(video_ms)
             label = (
                 f"{index + 1:03d} | {video_label} | "
                 f"{row.get('athlete_id', row.get('skater', 'unknown'))} | "
@@ -3755,6 +3821,26 @@ class SynergieToolsApp:
                 jump_type = int(float(row.get("type", 8)))
                 success = int(float(row.get("success", 2)))
                 label += f" | model: {operations.JUMP_TYPE_LABELS.get(jump_type, jump_type)} / success {success}"
+            impact_items.append(
+                {
+                    "kind": "jump",
+                    "dataframe_index": index,
+                    "label": label,
+                    "sort_ms": video_ms,
+                }
+            )
+        for item in sorted(impact_items, key=lambda item: (float(item.get("sort_ms", 0.0)), 0 if item["kind"] == "sync_impact" else 1)):
+            if item["kind"] == "sync_impact":
+                block_source = operations.get_annotation_block_sync_source(self.annotation_metadata)
+                source = block_source or operations.get_annotation_sensor_sync_source(self.annotation_metadata, item["sensor_id"])
+                source_label = source.get("method", "not synced") if source else "not synced"
+                label = (
+                    f"SYNC | {self._format_video_ms(item['video_ms'])} | sensor_{item['sensor_id']} | "
+                    f"impact IMU {item['impact_ms']:.0f} ms ({self._format_video_ms(item['impact_ms'])}) | {source_label}"
+                )
+            else:
+                label = item["label"]
+            self._annotation_jump_list_items.append(item)
             self.annotation_jump_listbox.insert(tk.END, label)
 
     def _refresh_annotation_progress(self) -> None:
@@ -3775,9 +3861,45 @@ class SynergieToolsApp:
         selection = self.annotation_jump_listbox.curselection()
         if not selection:
             return None
-        return selection[0]
+        list_index = selection[0]
+        if list_index >= len(self._annotation_jump_list_items):
+            return None
+        item = self._annotation_jump_list_items[list_index]
+        if item.get("kind") != "jump":
+            return None
+        return int(item["dataframe_index"])
+
+    def _selected_annotation_list_item(self) -> dict | None:
+        selection = self.annotation_jump_listbox.curselection()
+        if not selection:
+            return None
+        list_index = selection[0]
+        if list_index >= len(self._annotation_jump_list_items):
+            return None
+        return self._annotation_jump_list_items[list_index]
+
+    def _select_annotation_dataframe_index(self, dataframe_index: int | None) -> None:
+        if dataframe_index is None:
+            return
+        for list_index, item in enumerate(self._annotation_jump_list_items):
+            if item.get("kind") == "jump" and int(item.get("dataframe_index", -1)) == int(dataframe_index):
+                self.annotation_jump_listbox.selection_clear(0, tk.END)
+                self.annotation_jump_listbox.selection_set(list_index)
+                self.annotation_jump_listbox.see(list_index)
+                return
 
     def _on_annotation_jump_selected(self, _event=None) -> None:
+        item = self._selected_annotation_list_item()
+        if item is not None and item.get("kind") == "sync_impact":
+            self.annotation_sensor_sync_var.set(
+                f"Sync impact for sensor {item['sensor_id']}: IMU {item['impact_ms']:.0f} ms ({self._format_video_ms(item['impact_ms'])}) | "
+                f"video {self._format_video_ms(item['video_ms'])}"
+            )
+            self._draw_annotation_sync_impact_signal(item)
+            if self.annotation_video_capture is not None:
+                self._stop_annotation_playback()
+                self._display_annotation_video_frame(float(item["video_ms"]))
+            return
         index = self._selected_annotation_index()
         if index is None or self.annotation_dataframe is None:
             return
@@ -3799,6 +3921,7 @@ class SynergieToolsApp:
             self._annotation_loading_selection = False
         self._refresh_annotation_video_context()
         self._draw_annotation_segment(row)
+        self._seek_annotation_video_to_selected_jump(auto=True)
 
     def _sync_annotation_turn_options(self) -> None:
         options = operations.annotation_turn_options(self.annotation_type_var.get())
@@ -4118,21 +4241,97 @@ class SynergieToolsApp:
             return None
         return str(sensor_id)
 
+    def _annotation_row_video_time_ms(self, row, sensor_id: str | None = None) -> float:
+        block_offset_ms = operations.get_annotation_block_sync_offset(self.annotation_metadata)
+        if block_offset_ms is not None:
+            return operations.compute_annotation_jump_video_time_ms(row, block_sync_offset_ms=block_offset_ms)
+        resolved_sensor_id = sensor_id if sensor_id is not None else str(row.get("sensor_id", ""))
+        offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, resolved_sensor_id)
+        return operations.compute_annotation_jump_video_time_ms(row, offset_ms)
+
+    def _annotation_imu_to_video_ms(self, imu_ms: float, sensor_id: str | None = None) -> float:
+        block_offset_ms = operations.get_annotation_block_sync_offset(self.annotation_metadata)
+        if block_offset_ms is not None:
+            return max(float(imu_ms) + block_offset_ms, 0.0)
+        offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, sensor_id or "")
+        return max(float(imu_ms) + offset_ms, 0.0)
+
     def _refresh_annotation_video_context(self) -> None:
         row = self._selected_annotation_row()
         if row is None:
+            block_offset_ms = operations.get_annotation_block_sync_offset(self.annotation_metadata)
+            if block_offset_ms is not None:
+                sync_source = self._annotation_sensor_sync_source_summary("")
+                self.annotation_sensor_sync_var.set(
+                    f"Block sync active for all sensors | offset {block_offset_ms:+.0f} ms | {sync_source}"
+                )
+                return
             self.annotation_sensor_sync_var.set("No sync offset saved for current sensor.")
             return
         sensor_id = self._current_annotation_sensor_id()
         if sensor_id is None:
             self.annotation_sensor_sync_var.set("No sensor ID available for this entry.")
             return
-        offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, sensor_id)
-        jump_video_ms = operations.compute_annotation_jump_video_time_ms(row, offset_ms)
+        offset_ms = operations.get_annotation_block_sync_offset(self.annotation_metadata)
+        if offset_ms is None:
+            offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, sensor_id)
+        jump_video_ms = self._annotation_row_video_time_ms(row, sensor_id)
+        sync_summary = self._annotation_sensor_sync_summary(sensor_id)
+        sync_source = self._annotation_sensor_sync_source_summary(sensor_id)
         self.annotation_sensor_sync_var.set(
-            f"Sensor {sensor_id} sync offset: {offset_ms:+.0f} ms | "
-            f"jump at {self._format_video_ms(jump_video_ms)} in video"
+            f"{sync_summary} | offset {offset_ms:+.0f} ms | "
+            f"{sync_source} | jump at {self._format_video_ms(jump_video_ms)} in video"
         )
+
+    def _annotation_sensor_sync_summary(self, current_sensor_id: str) -> str:
+        block_offset = operations.get_annotation_block_sync_offset(self.annotation_metadata)
+        if block_offset is not None:
+            return "Block sync active for all sensors"
+        offsets = self.annotation_metadata.get("sensor_sync_offsets_ms", {})
+        synced = sorted(str(sensor_id) for sensor_id in offsets)
+        if self.annotation_dataframe is None or "sensor_id" not in self.annotation_dataframe:
+            return f"Synced sensors: {', '.join(synced) if synced else 'none'}"
+        sensors = sorted(str(sensor_id) for sensor_id in self.annotation_dataframe["sensor_id"].dropna().unique())
+        missing = [sensor_id for sensor_id in sensors if sensor_id not in offsets]
+        current_status = "synced" if current_sensor_id in offsets else "not synced"
+        return (
+            f"Current sensor {current_status}; "
+            f"synced: {', '.join(synced) if synced else 'none'}; "
+            f"missing: {', '.join(missing) if missing else 'none'}"
+        )
+
+    def _annotation_sensor_sync_source_summary(self, sensor_id: str) -> str:
+        block_source = operations.get_annotation_block_sync_source(self.annotation_metadata)
+        if block_source:
+            method = str(block_source.get("method", "block")).strip().lower()
+            sensor = block_source.get("sensor_id")
+            video_ms = block_source.get("video_ms")
+            imu_ms = block_source.get("imu_impact_ms")
+            if method == "block_impact" and imu_ms is not None and video_ms is not None:
+                sensor_text = f" sensor {sensor}" if sensor is not None else ""
+                return (
+                    f"block sync by impact{sensor_text}: IMU {self._format_video_ms(float(imu_ms))} "
+                    f"-> video {self._format_video_ms(float(video_ms))}"
+                )
+            if method == "block_jump" and video_ms is not None:
+                return f"block sync by selected jump at video {self._format_video_ms(float(video_ms))}"
+            return f"block sync by {method}"
+        source = operations.get_annotation_sensor_sync_source(self.annotation_metadata, sensor_id)
+        method = str(source.get("method", "")).strip().lower()
+        if method == "impact":
+            imu_ms = source.get("imu_impact_ms")
+            video_ms = source.get("video_ms")
+            if imu_ms is not None and video_ms is not None:
+                return f"synced by impact: IMU {self._format_video_ms(float(imu_ms))} -> video {self._format_video_ms(float(video_ms))}"
+            return "synced by impact"
+        if method == "jump":
+            video_ms = source.get("video_ms")
+            if video_ms is not None:
+                return f"synced by selected jump at video {self._format_video_ms(float(video_ms))}"
+            return "synced by selected jump"
+        if method:
+            return f"synced by {method}"
+        return "sync source unknown"
 
     def _open_annotation_video_popup(self) -> None:
         if self.annotation_video_popup is not None and self.annotation_video_popup.winfo_exists():
@@ -4383,6 +4582,9 @@ class SynergieToolsApp:
             video_ms = (int(minutes_text) * 60 + int(seconds_text)) * 1000 + int(millis_text[:3].ljust(3, "0"))
         except ValueError:
             return None
+        block_offset_ms = operations.get_annotation_block_sync_offset(self.annotation_metadata)
+        if block_offset_ms is not None:
+            return float(video_ms) - block_offset_ms
         sync_offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, sensor_id)
         return float(video_ms) - sync_offset_ms + float(impact_offset_ms)
 
@@ -4469,8 +4671,7 @@ class SynergieToolsApp:
         self._refresh_annotation_jump_list()
         self._refresh_annotation_progress()
         new_index = int(self.annotation_dataframe.index[self.annotation_dataframe["path"].astype(str) == normalized_segment_path][0])
-        self.annotation_jump_listbox.selection_clear(0, tk.END)
-        self.annotation_jump_listbox.selection_set(new_index)
+        self._select_annotation_dataframe_index(new_index)
         self._on_annotation_jump_selected()
         self.status_var.set(f"Added jump candidate for sensor {sensor_id}")
 
@@ -4662,6 +4863,7 @@ class SynergieToolsApp:
             self.annotation_metadata = operations.set_annotation_video_directory(self.annotation_file_path, path.parent)
         self._display_annotation_video_frame(0.0)
         self._refresh_annotation_video_context()
+        self._seek_annotation_video_to_selected_jump(auto=True)
 
     def _display_annotation_video_frame(self, milliseconds: float | None = None, seek: bool = True) -> bool:
         if self.annotation_video_capture is None:
@@ -4739,16 +4941,20 @@ class SynergieToolsApp:
         sensor_id = self._current_annotation_sensor_id()
         if row is None or sensor_id is None:
             return None
-        offset_ms = operations.get_annotation_sensor_sync_offset(self.annotation_metadata, sensor_id)
-        return operations.compute_annotation_jump_video_time_ms(row, offset_ms)
+        return self._annotation_row_video_time_ms(row, sensor_id)
 
     def _seek_annotation_video_to_current_jump(self) -> None:
+        self._seek_annotation_video_to_selected_jump(auto=False)
+
+    def _seek_annotation_video_to_selected_jump(self, auto: bool = False) -> None:
         if self.annotation_video_capture is None:
-            messagebox.showwarning("Synergie Tools", "Load the session video first.")
+            if not auto:
+                messagebox.showwarning("Synergie Tools", "Load the session video first.")
             return
         target_ms = self._current_jump_video_time_ms()
         if target_ms is None:
-            messagebox.showwarning("Synergie Tools", "Select an annotation entry first.")
+            if not auto:
+                messagebox.showwarning("Synergie Tools", "Select an annotation entry first.")
             return
         self._stop_annotation_playback()
         self._display_annotation_video_frame(target_ms)
@@ -4849,35 +5055,135 @@ class SynergieToolsApp:
             messagebox.showwarning("Synergie Tools", "Select an annotation entry first.")
             return
 
-        base_ms = operations.compute_annotation_jump_video_time_ms(row, 0.0)
-        offset_ms = self.annotation_video_current_ms - base_ms
-        self.annotation_metadata = operations.set_annotation_sensor_sync_offset(self.annotation_file_path, sensor_id, offset_ms)
-        self._refresh_annotation_jump_list()
+        start_ms = float(row.get("start_ms", row.get("synced_start_ms", 0.0)) or 0.0)
+        offset_ms = self.annotation_video_current_ms - start_ms
+        self.annotation_metadata = operations.set_annotation_block_sync_offset(
+            self.annotation_file_path,
+            offset_ms,
+            method="block_jump",
+            sensor_id=sensor_id,
+            video_ms=self.annotation_video_current_ms,
+            jump_start_ms=start_ms,
+        )
         index = self._selected_annotation_index()
+        self._refresh_annotation_jump_list()
         if index is not None:
-            self.annotation_jump_listbox.selection_clear(0, tk.END)
-            self.annotation_jump_listbox.selection_set(index)
+            self._select_annotation_dataframe_index(index)
         self._refresh_annotation_video_context()
-        self.status_var.set(f"Saved video sync for sensor {sensor_id}")
+        self.status_var.set("Saved block sync from selected jump")
+
+    def _sync_current_sensor_impact_to_video(self) -> None:
+        if self.annotation_file_path is None:
+            messagebox.showwarning("Synergie Tools", "Select an annotation file first.")
+            return
+        if self.annotation_video_capture is None:
+            messagebox.showwarning("Synergie Tools", "Load the session video first.")
+            return
+        selected_item = self._selected_annotation_list_item()
+        row = self._selected_annotation_row()
+        sensor_id = self._current_annotation_sensor_id()
+        if selected_item is not None and selected_item.get("kind") == "sync_impact":
+            sensor_id = str(selected_item.get("sensor_id", ""))
+            impact_ms = float(selected_item.get("impact_ms", 0.0) or 0.0)
+        elif row is not None and sensor_id is not None:
+            impact_ms = float(row.get("impact_offset_ms", 0.0) or 0.0)
+        else:
+            messagebox.showwarning("Synergie Tools", "Select a SYNC impact or an annotation entry first.")
+            return
+
+        offset_ms = self.annotation_video_current_ms - impact_ms
+        self.annotation_metadata = operations.set_annotation_block_sync_offset(
+            self.annotation_file_path,
+            offset_ms,
+            method="block_impact",
+            sensor_id=sensor_id,
+            imu_impact_ms=impact_ms,
+            video_ms=self.annotation_video_current_ms,
+        )
+        index = self._selected_annotation_index()
+        self._refresh_annotation_jump_list()
+        if index is not None:
+            self._select_annotation_dataframe_index(index)
+        self._refresh_annotation_video_context()
+        self.status_var.set(f"Saved block sync from sensor {sensor_id} impact")
 
     def _clear_current_sensor_sync(self) -> None:
         if self.annotation_file_path is None:
             return
-        sensor_id = self._current_annotation_sensor_id()
-        if sensor_id is None:
-            return
-        offsets = dict(self.annotation_metadata.get("sensor_sync_offsets_ms", {}))
-        if sensor_id in offsets:
-            offsets.pop(sensor_id)
-            self.annotation_metadata["sensor_sync_offsets_ms"] = offsets
-            operations.save_annotation_metadata(self.annotation_file_path, self.annotation_metadata)
-        self._refresh_annotation_jump_list()
         index = self._selected_annotation_index()
+        self.annotation_metadata = operations.clear_annotation_block_sync(self.annotation_file_path)
+        self._refresh_annotation_jump_list()
         if index is not None:
-            self.annotation_jump_listbox.selection_clear(0, tk.END)
-            self.annotation_jump_listbox.selection_set(index)
+            self._select_annotation_dataframe_index(index)
         self._refresh_annotation_video_context()
-        self.status_var.set(f"Cleared video sync for sensor {sensor_id}")
+        self.status_var.set("Cleared block video sync")
+
+    def _draw_annotation_sync_impact_signal(self, item: dict) -> None:
+        if self.annotation_ax is None:
+            return
+        sensor_id = str(item.get("sensor_id", ""))
+        impact_ms = float(item.get("impact_ms", 0.0) or 0.0)
+        raw_path = self._annotation_raw_source_path(sensor_id)
+        if raw_path is None:
+            self._draw_placeholder_annotation_plot()
+            self.annotation_detection_diagnostic_var.set(
+                f"Sync impact for sensor {sensor_id}: {impact_ms:.0f} ms ({self._format_video_ms(impact_ms)}). "
+                "Raw source CSV not found, so the impact signal cannot be displayed on this computer."
+            )
+            return
+
+        import pandas as pd
+        from core.data_treatment.data_generation.trainingSession import trainingSession
+
+        session = trainingSession(pd.read_csv(raw_path, low_memory=False))
+        dataframe = session.df.copy()
+        if dataframe.empty or "ms" not in dataframe:
+            self._draw_placeholder_annotation_plot()
+            self.annotation_detection_diagnostic_var.set(f"Raw source CSV for sensor {sensor_id} has no usable ms timeline.")
+            return
+        dataframe, _cleaning_report = clean_imu_outliers(dataframe, acceleration_limit_g=ACCELERATION_ABERRANT_LIMIT_G)
+        dataframe = recompute_gyro_x_derivatives(
+            dataframe,
+            smoothing_sigma=DEFAULT_SMOOTHING_SIGMA,
+            threshold=DEFAULT_DETECTION_THRESHOLD,
+        )
+        window_start_ms = max(0.0, impact_ms - 2000.0)
+        window_end_ms = impact_ms + 3000.0
+        view_df = dataframe[(dataframe["ms"] >= window_start_ms) & (dataframe["ms"] <= window_end_ms)]
+        if view_df.empty:
+            view_df = dataframe.iloc[: min(len(dataframe), 300)]
+
+        import numpy as np
+
+        acc_norm = np.sqrt(
+            np.square(view_df["Acc_X"].to_numpy(dtype="float64"))
+            + np.square(view_df["Acc_Y"].to_numpy(dtype="float64"))
+            + np.square(view_df["Acc_Z"].to_numpy(dtype="float64"))
+        )
+        self.annotation_ax.clear()
+        if self.annotation_acc_ax is not None:
+            self.annotation_acc_ax.remove()
+            self.annotation_acc_ax = None
+        self.annotation_ax.plot(view_df["ms"], view_df["Acc_X"], linewidth=0.9, alpha=0.75, color="#1f77b4", label="Acc_X")
+        self.annotation_ax.plot(view_df["ms"], view_df["Acc_Y"], linewidth=0.9, alpha=0.75, color="#2ca02c", label="Acc_Y")
+        self.annotation_ax.plot(view_df["ms"], view_df["Acc_Z"], linewidth=2.2, alpha=0.95, color="#ff7f0e", label="Acc_Z (bold)")
+        self.annotation_ax.plot(view_df["ms"], acc_norm, linewidth=1.3, alpha=0.85, color="black", linestyle="--", label="3D acc norm used for sync")
+        self.annotation_ax.axvline(impact_ms, color="darkorange", linestyle="-.", linewidth=1.6, label="Sync impact")
+        self.annotation_ax.set_xlim(float(view_df["ms"].iloc[0]), float(view_df["ms"].iloc[-1]))
+        self.annotation_ax.set_xlabel("")
+        self.annotation_ax.tick_params(axis="x", labelbottom=False)
+        self.annotation_ax.set_ylabel("Acceleration")
+        lines, labels = self.annotation_ax.get_legend_handles_labels()
+        if self.annotation_show_legend_var.get():
+            self.annotation_ax.legend(lines, labels, loc="upper right", fontsize=7)
+        self.annotation_detection_diagnostic_var.set(
+            f"Sync impact acceleration for sensor {sensor_id}: orange line at {impact_ms:.0f} ms "
+            f"({self._format_video_ms(impact_ms)}). Detection uses the sudden change in 3D acceleration norm; Acc_Z is bold for visual review."
+        )
+        self.annotation_detection_warning_var.set("")
+        self._update_annotation_shortcuts_header()
+        self.annotation_figure.tight_layout()
+        self.annotation_canvas.draw_idle()
 
     def _draw_annotation_segment(self, row) -> None:
         import pandas as pd
@@ -5092,8 +5398,7 @@ class SynergieToolsApp:
         self.annotation_dataframe.to_csv(self.annotation_file_path, index=False)
         self._refresh_annotation_jump_list()
         self._refresh_annotation_progress()
-        self.annotation_jump_listbox.selection_clear(0, tk.END)
-        self.annotation_jump_listbox.selection_set(index)
+        self._select_annotation_dataframe_index(index)
         self.status_var.set("Annotation saved" if show_status else "Annotation auto-saved")
 
     def _finalize_current_annotation_file(self) -> None:
@@ -5181,7 +5486,6 @@ class SynergieToolsApp:
 
     def _on_inspect_file_double_clicked(self, _event=None) -> None:
         self._on_inspect_file_selected()
-        self._run_inspection()
 
     def _suggest_output_path(self, input_path: str) -> str:
         return str(operations.next_jumplist_output_path(Path(input_path).parent))
@@ -5473,18 +5777,33 @@ class SynergieToolsApp:
         self.inspect_session = session
         self.detected_jumps = session.jumps
         self.detected_sync_impacts = detect_sync_impacts(session.df)
+        self.inspect_zoom_range_ms = None
+        self._inspect_drag_start_ms = None
+        self._inspect_drag_span = None
         self.inspect_sync_impacts_var.set(
             [
                 f"{index + 1:02d} | {impact.ms:.0f} ms | strength {impact.strength:.2f} | {impact.confidence}"
                 for index, impact in enumerate(self.detected_sync_impacts)
             ]
         )
+        self._refresh_sync_impacts_warning()
         self._refresh_jump_list()
         self._redraw_plots()
         self.status_var.set(
             f"Inspection ready: {len(self.detected_jumps)} jumps detected | "
             f"{len(self.detected_sync_impacts)} sync impact(s)"
         )
+
+    def _refresh_sync_impacts_warning(self) -> None:
+        count = len(self.detected_sync_impacts)
+        if count > 1:
+            self.inspect_sync_impacts_warning_var.set(
+                f"{count} sync impact candidates remain. Review the acceleration signals and select the one that matches the visible tap on video."
+            )
+        elif count == 1:
+            self.inspect_sync_impacts_warning_var.set("One sync impact candidate found. Select it to review the acceleration signal.")
+        else:
+            self.inspect_sync_impacts_warning_var.set("No reliable sync impact candidate found. Review the recording or choose sync manually.")
 
     def _refresh_jump_list(self) -> None:
         self.jump_listbox.delete(0, tk.END)
@@ -5544,8 +5863,18 @@ class SynergieToolsApp:
             axis.axvline(bounds["detected"][0], color="crimson", linestyle=":", linewidth=1.2)
             axis.axvline(bounds["detected"][1], color="crimson", linestyle=":", linewidth=1.2)
 
-    def _draw_sync_impacts(self, axis, alpha_scale: float = 1.0) -> None:
+    def _draw_sync_impacts(
+        self,
+        axis,
+        alpha_scale: float = 1.0,
+        x_min_ms: float | None = None,
+        x_max_ms: float | None = None,
+    ) -> None:
         for impact in self.detected_sync_impacts:
+            if x_min_ms is not None and impact.ms < x_min_ms:
+                continue
+            if x_max_ms is not None and impact.ms > x_max_ms:
+                continue
             axis.axvline(impact.ms, color="darkorange", linestyle="-.", linewidth=1.0, alpha=0.75 * alpha_scale)
 
     def _redraw_plots(self) -> None:
@@ -5555,7 +5884,10 @@ class SynergieToolsApp:
 
         selected_index = self._selected_jump_index()
         self._draw_overview_plot()
-        self._draw_zoom_plot(selected_index)
+        if self.inspect_zoom_range_ms is not None:
+            self._draw_zoom_range_plot(*self.inspect_zoom_range_ms)
+        else:
+            self._draw_zoom_plot(selected_index)
         self.figure.tight_layout()
         self.canvas.draw_idle()
 
@@ -5649,6 +5981,8 @@ class SynergieToolsApp:
         start_idx = max(0, jump.start - 140)
         end_idx = min(len(session_df) - 1, jump.end + 140)
         view_df = session_df.iloc[start_idx : end_idx + 1]
+        view_start_ms = float(view_df["ms"].iloc[0])
+        view_end_ms = float(view_df["ms"].iloc[-1])
 
         zoom_ax.plot(view_df["ms"], view_df["Gyr_X_unfiltered"], label="Gyr_X raw", linewidth=0.8, alpha=0.4)
         zoom_ax.plot(view_df["ms"], view_df["Gyr_X_smoothed"], label="Gyr_X smoothed", linewidth=1.3)
@@ -5667,10 +6001,12 @@ class SynergieToolsApp:
         )
 
         self._draw_jump_windows(zoom_ax, session_df, jump, alpha_scale=1.5)
-        self._draw_sync_impacts(zoom_ax, alpha_scale=1.2)
+        self._draw_sync_impacts(zoom_ax, alpha_scale=1.2, x_min_ms=view_start_ms, x_max_ms=view_end_ms)
         bounds = self._jump_window_bounds_ms(session_df, jump)
         zoom_ax.axvline(bounds["detected"][0], color="black", linestyle=":")
         zoom_ax.axvline(bounds["detected"][1], color="black", linestyle=":")
+        zoom_ax.set_xlim(view_start_ms, view_end_ms)
+        zoom_right_ax.set_xlim(view_start_ms, view_end_ms)
         zoom_ax.set_xlabel("ms")
         zoom_ax.set_ylabel("Gyroscope")
         zoom_right_ax.set_ylabel("2nd derivative")
@@ -5683,6 +6019,175 @@ class SynergieToolsApp:
         zoom_lines, zoom_labels = zoom_ax.get_legend_handles_labels()
         zoom_right_lines, zoom_right_labels = zoom_right_ax.get_legend_handles_labels()
         zoom_ax.legend(zoom_lines + zoom_right_lines, zoom_labels + zoom_right_labels, loc="upper right", fontsize=8)
+
+    def _draw_zoom_range_plot(self, start_ms: float, end_ms: float) -> None:
+        _, zoom_ax = self.axes
+        zoom_ax.clear()
+        zoom_right_ax = zoom_ax.twinx()
+        session_df = self.inspect_session.df
+        start_ms, end_ms = sorted((float(start_ms), float(end_ms)))
+        view_df = session_df[(session_df["ms"] >= start_ms) & (session_df["ms"] <= end_ms)]
+        if view_df.empty:
+            zoom_ax.text(0.5, 0.5, "Selected range contains no data", ha="center", va="center", transform=zoom_ax.transAxes)
+            zoom_ax.set_title("Zoom on selected range")
+            return
+
+        zoom_ax.plot(view_df["ms"], view_df["Gyr_X_unfiltered"], label="Gyr_X raw", linewidth=0.8, alpha=0.4)
+        zoom_ax.plot(view_df["ms"], view_df["Gyr_X_smoothed"], label="Gyr_X smoothed", linewidth=1.3)
+        zoom_right_ax.plot(
+            view_df["ms"],
+            view_df["X_gyr_second_derivative"],
+            label="2nd derivative",
+            linewidth=1.0,
+            color="crimson",
+        )
+        zoom_right_ax.axhline(
+            self.inspect_session.detection_threshold,
+            color="crimson",
+            linestyle="--",
+            label="Detection threshold",
+        )
+        for jump in self.detected_jumps:
+            bounds = self._jump_window_bounds_ms(session_df, jump)
+            if bounds["detected"][1] >= start_ms and bounds["detected"][0] <= end_ms:
+                self._draw_jump_windows(zoom_ax, session_df, jump, alpha_scale=1.5)
+        self._draw_sync_impacts(zoom_ax, alpha_scale=1.2, x_min_ms=start_ms, x_max_ms=end_ms)
+        zoom_ax.set_xlim(start_ms, end_ms)
+        zoom_right_ax.set_xlim(start_ms, end_ms)
+        zoom_ax.set_xlabel("ms")
+        zoom_ax.set_ylabel("Gyroscope")
+        zoom_right_ax.set_ylabel("2nd derivative")
+        zoom_ax.set_title(f"Zoom on selected range: {start_ms:.0f}-{end_ms:.0f} ms")
+        zoom_ax.plot([], [], color="royalblue", linewidth=6, alpha=0.35, label="Type window")
+        zoom_ax.plot([], [], color="seagreen", linewidth=6, alpha=0.35, label="Success window")
+        zoom_ax.plot([], [], color="crimson", linewidth=2, linestyle=":", label="Gyro saturation")
+        zoom_ax.plot([], [], color="darkorange", linewidth=1.5, linestyle="-.", label="Sync impact")
+        zoom_lines, zoom_labels = zoom_ax.get_legend_handles_labels()
+        zoom_right_lines, zoom_right_labels = zoom_right_ax.get_legend_handles_labels()
+        zoom_ax.legend(zoom_lines + zoom_right_lines, zoom_labels + zoom_right_labels, loc="upper right", fontsize=8)
+
+    def _draw_sync_impact_acceleration_plot(self, impact_index: int) -> None:
+        if self.inspect_session is None or self.axes is None or impact_index >= len(self.detected_sync_impacts):
+            return
+        self._reset_secondary_axes()
+        _, zoom_ax = self.axes
+        zoom_ax.clear()
+        impact = self.detected_sync_impacts[impact_index]
+        session_df = self.inspect_session.df
+        start_ms = max(0.0, impact.ms - 1500.0)
+        end_ms = impact.ms + 2500.0
+        view_df = session_df[(session_df["ms"] >= start_ms) & (session_df["ms"] <= end_ms)]
+        if view_df.empty:
+            zoom_ax.text(0.5, 0.5, "Selected sync impact range contains no data", ha="center", va="center", transform=zoom_ax.transAxes)
+            zoom_ax.set_title("Sync impact acceleration")
+            self.canvas.draw_idle()
+            return
+
+        import numpy as np
+
+        acc_norm = np.sqrt(
+            np.square(view_df["Acc_X"].to_numpy(dtype="float64"))
+            + np.square(view_df["Acc_Y"].to_numpy(dtype="float64"))
+            + np.square(view_df["Acc_Z"].to_numpy(dtype="float64"))
+        )
+        zoom_ax.plot(view_df["ms"], view_df["Acc_X"], linewidth=0.9, alpha=0.75, color="#1f77b4", label="Acc_X")
+        zoom_ax.plot(view_df["ms"], view_df["Acc_Y"], linewidth=0.9, alpha=0.75, color="#2ca02c", label="Acc_Y")
+        zoom_ax.plot(view_df["ms"], view_df["Acc_Z"], linewidth=2.2, alpha=0.95, color="#ff7f0e", label="Acc_Z (bold)")
+        zoom_ax.plot(view_df["ms"], acc_norm, linewidth=1.3, alpha=0.85, color="black", linestyle="--", label="3D acc norm used for sync")
+        zoom_ax.axvline(impact.ms, color="darkorange", linestyle="-.", linewidth=1.6, label="Selected sync impact")
+        zoom_ax.set_xlim(float(view_df["ms"].iloc[0]), float(view_df["ms"].iloc[-1]))
+        zoom_ax.set_xlabel("ms")
+        zoom_ax.set_ylabel("Acceleration")
+        zoom_ax.set_title(
+            f"Sync impact #{impact_index + 1}: {impact.ms:.0f} ms | "
+            f"3D acceleration-norm change strength {impact.strength:.2f} | {impact.confidence}"
+        )
+        zoom_ax.legend(loc="upper right", fontsize=8)
+        self.figure.tight_layout()
+        self.canvas.draw_idle()
+
+    def _on_sync_impact_selected(self, _event=None) -> None:
+        selection = self.inspect_sync_impacts_listbox.curselection()
+        if not selection:
+            return
+        impact_index = selection[0]
+        if impact_index >= len(self.detected_sync_impacts):
+            return
+        self.inspect_zoom_range_ms = None
+        impact = self.detected_sync_impacts[impact_index]
+        self._draw_overview_plot()
+        self._draw_sync_impact_acceleration_plot(impact_index)
+        self.status_var.set(
+            f"Selected sync impact {impact_index + 1}: {impact.ms:.0f} ms. "
+            "Detection uses the sudden change in 3D acceleration norm; use this selected candidate only if it matches the video tap."
+        )
+
+    def _on_inspect_overview_press(self, event) -> None:
+        if self.inspect_session is None or self.axes is None:
+            return
+        overview_ax, _ = self.axes
+        x_ms = self._inspect_overview_event_x_ms(event)
+        if event.button != 1 or x_ms is None:
+            return
+        self._inspect_drag_start_ms = x_ms
+        if self._inspect_drag_span is not None:
+            self._inspect_drag_span.remove()
+            self._inspect_drag_span = None
+        self._inspect_drag_span = overview_ax.axvspan(
+            self._inspect_drag_start_ms,
+            self._inspect_drag_start_ms,
+            color="gold",
+            alpha=0.20,
+            linewidth=0,
+        )
+        self.canvas.draw_idle()
+
+    def _on_inspect_overview_motion(self, event) -> None:
+        if self._inspect_drag_start_ms is None or self._inspect_drag_span is None:
+            return
+        overview_ax, _ = self.axes
+        x_ms = self._inspect_overview_event_x_ms(event)
+        if x_ms is None:
+            return
+        self._inspect_drag_span.remove()
+        self._inspect_drag_span = overview_ax.axvspan(
+            self._inspect_drag_start_ms,
+            x_ms,
+            color="gold",
+            alpha=0.20,
+            linewidth=0,
+        )
+        self.canvas.draw_idle()
+
+    def _on_inspect_overview_release(self, event) -> None:
+        if self._inspect_drag_start_ms is None:
+            return
+        start_ms = self._inspect_drag_start_ms
+        self._inspect_drag_start_ms = None
+        if self._inspect_drag_span is not None:
+            self._inspect_drag_span.remove()
+            self._inspect_drag_span = None
+        end_ms = self._inspect_overview_event_x_ms(event)
+        if end_ms is None:
+            self.canvas.draw_idle()
+            return
+        if abs(end_ms - start_ms) < 5.0:
+            self.canvas.draw_idle()
+            return
+        self.inspect_zoom_range_ms = tuple(sorted((start_ms, end_ms)))
+        self.status_var.set(f"Inspect IMU zoom: {self.inspect_zoom_range_ms[0]:.0f}-{self.inspect_zoom_range_ms[1]:.0f} ms")
+        self._redraw_plots()
+
+    def _inspect_overview_event_x_ms(self, event) -> float | None:
+        if self.axes is None or event.x is None or event.y is None:
+            return None
+        overview_ax, _ = self.axes
+        if not overview_ax.bbox.contains(event.x, event.y):
+            return None
+        x_ms = float(overview_ax.transData.inverted().transform((event.x, event.y))[0])
+        x_min, x_max = overview_ax.get_xlim()
+        lower, upper = sorted((float(x_min), float(x_max)))
+        return min(max(x_ms, lower), upper)
 
     def _reset_secondary_axes(self) -> None:
         primary_axes = set(self.axes)
@@ -5697,6 +6202,7 @@ class SynergieToolsApp:
         return selection[0]
 
     def _on_jump_selected(self, _event) -> None:
+        self.inspect_zoom_range_ms = None
         selected_index = self._selected_jump_index()
         if selected_index is not None and selected_index < len(self.detected_jumps):
             jump = self.detected_jumps[selected_index]

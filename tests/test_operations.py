@@ -366,7 +366,14 @@ class OperationsTests(unittest.TestCase):
 
             operations.set_annotation_video_path(annotation_csv, Path(tmpdir) / "session.mp4")
             operations.set_annotation_video_directory(annotation_csv, Path(tmpdir) / "videos")
-            operations.set_annotation_sensor_sync_offset(annotation_csv, "2", 183.25)
+            operations.set_annotation_sensor_sync_offset(
+                annotation_csv,
+                "2",
+                183.25,
+                method="impact",
+                imu_impact_ms=42.5,
+                video_ms=183.25,
+            )
 
             metadata = operations.load_annotation_metadata(annotation_csv)
 
@@ -375,6 +382,33 @@ class OperationsTests(unittest.TestCase):
             self.assertTrue(metadata["video_directory"].endswith("videos"))
             self.assertEqual(metadata["sensor_sync_offsets_ms"]["2"], 183.25)
             self.assertEqual(operations.get_annotation_sensor_sync_offset(metadata, "2"), 183.25)
+            self.assertEqual(metadata["sensor_sync_sources"]["2"]["method"], "impact")
+            self.assertEqual(metadata["sensor_sync_sources"]["2"]["imu_impact_ms"], 42.5)
+            self.assertEqual(operations.get_annotation_sensor_sync_source(metadata, "2")["video_ms"], 183.25)
+
+            cleared = operations.clear_annotation_sensor_sync(annotation_csv, "2")
+
+            self.assertNotIn("2", cleared["sensor_sync_offsets_ms"])
+            self.assertNotIn("2", cleared["sensor_sync_sources"])
+
+            operations.set_annotation_block_sync_offset(
+                annotation_csv,
+                800.0,
+                method="block_impact",
+                sensor_id="2",
+                imu_impact_ms=200.0,
+                video_ms=1000.0,
+            )
+            metadata = operations.load_annotation_metadata(annotation_csv)
+
+            self.assertEqual(operations.get_annotation_block_sync_offset(metadata), 800.0)
+            self.assertEqual(operations.get_annotation_block_sync_source(metadata)["method"], "block_impact")
+            self.assertEqual(operations.get_annotation_block_sync_source(metadata)["sensor_id"], "2")
+
+            cleared_block = operations.clear_annotation_block_sync(annotation_csv)
+
+            self.assertIsNone(cleared_block["block_sync_offset_ms"])
+            self.assertEqual(cleared_block["block_sync_source"], {})
 
     def test_compute_annotation_jump_video_time_ms_applies_sensor_offset(self):
         row = {"synced_start_ms": "1520.5"}
@@ -382,6 +416,13 @@ class OperationsTests(unittest.TestCase):
         result = operations.compute_annotation_jump_video_time_ms(row, sensor_sync_offset_ms=180)
 
         self.assertEqual(result, 1700.5)
+
+    def test_compute_annotation_jump_video_time_ms_prefers_block_offset(self):
+        row = {"start_ms": "2500", "synced_start_ms": "1500"}
+
+        result = operations.compute_annotation_jump_video_time_ms(row, sensor_sync_offset_ms=180, block_sync_offset_ms=800)
+
+        self.assertEqual(result, 3300.0)
 
     def test_annotation_reference_datetime_prefers_recorded_at_column(self):
         annotation_csv = Path("20250911_085656_for_annotation.csv")

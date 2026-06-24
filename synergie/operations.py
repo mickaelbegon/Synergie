@@ -20,10 +20,16 @@ from synergie.services.annotation_service import (
     annotation_turn_options,
     annotation_turn_value_for_storage,
     annotation_turn_value_for_ui,
+    clear_annotation_block_sync,
+    clear_annotation_sensor_sync,
     compute_annotation_jump_video_time_ms,
+    get_annotation_block_sync_offset,
+    get_annotation_block_sync_source,
     get_annotation_sensor_sync_offset,
+    get_annotation_sensor_sync_source,
     load_annotation_metadata,
     save_annotation_metadata,
+    set_annotation_block_sync_offset,
     set_annotation_sensor_sync_offset,
     set_annotation_video_directory,
     set_annotation_video_path,
@@ -50,6 +56,7 @@ from synergie.services.detection_tuning_service import (
     save_optimized_detection_parameters,
 )
 from synergie.services.data_inventory_service import build_data_inventory
+from synergie.services.data_validation_service import format_data_validation_report, validate_data_files
 from synergie.services.backup_manifest_service import build_backup_manifest, write_backup_manifest
 from synergie.services.hdf5_archive_service import archive_segment_csvs, export_hdf5_archive, plan_segment_csv_cleanup
 from synergie.services.quality_service import analyze_jump_quality

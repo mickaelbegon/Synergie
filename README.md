@@ -383,9 +383,13 @@ Synchronisation video :
 
 - Le systeme essaie de trouver automatiquement une video proche de l'heure de la seance.
 - Si la bonne video n'est pas chargee, cliquer `Choose video...`, choisir le dossier video, puis charger le meilleur match.
-- Si le saut n'arrive pas au bon moment dans la video, placer la video au bon frame et cliquer `Sync current IMU at this frame`.
-- La synchronisation peut etre differente selon le capteur, donc verifier le capteur affiche pour le saut courant.
-- `Clear current IMU sync` supprime la synchronisation sauvegardee pour le capteur courant.
+- Methode recommandee : aller au moment ou le tap sur un capteur est visible dans la video, selectionner la ligne `SYNC` correspondante dans `Session Timeline`, puis cliquer `Sync block impact at this frame`.
+- Comme les capteurs sont lances ensemble par l'application, cette synchro est appliquee a tout le block de capteurs du fichier d'annotation.
+- Methode de secours : si le tap n'est pas utilisable, placer la video exactement sur le saut selectionne et cliquer `Sync selected jump to block`.
+- L'offset de block et sa source (`block_impact` ou `block_jump`) sont sauvegardes dans le fichier JSON `*.annotation_meta.json`, puis relus automatiquement quand on rouvre le fichier d'annotation.
+- Quand une video est chargee, selectionner un saut dans `Session Timeline` deplace automatiquement la video au bon timecode calcule avec l'offset de block.
+- La ligne de statut sous la video indique si la synchro de block est active et comment elle a ete faite.
+- `Clear block sync` supprime la synchronisation sauvegardee pour le block courant.
 
 Cache video local :
 

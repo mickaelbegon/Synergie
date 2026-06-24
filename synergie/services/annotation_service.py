@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -36,7 +37,10 @@ ANNOTATION_REVIEW_STATUS_OPTIONS = [
 ANNOTATION_METADATA_DEFAULTS = {
     "video_path": "",
     "video_directory": "",
+    "block_sync_offset_ms": None,
+    "block_sync_source": {},
     "sensor_sync_offsets_ms": {},
+    "sensor_sync_sources": {},
 }
 
 JUMP_TYPE_LABELS = {
@@ -139,6 +143,14 @@ def load_annotation_metadata(annotation_csv_path: str | Path) -> dict:
         str(sensor_id): float(offset_ms)
         for sensor_id, offset_ms in metadata.get("sensor_sync_offsets_ms", {}).items()
     }
+    metadata["sensor_sync_sources"] = {
+        str(sensor_id): dict(source)
+        for sensor_id, source in metadata.get("sensor_sync_sources", {}).items()
+        if isinstance(source, dict)
+    }
+    if metadata.get("block_sync_offset_ms") is not None:
+        metadata["block_sync_offset_ms"] = float(metadata["block_sync_offset_ms"])
+    metadata["block_sync_source"] = dict(metadata.get("block_sync_source", {})) if isinstance(metadata.get("block_sync_source"), dict) else {}
     return metadata
 
 
@@ -151,6 +163,14 @@ def save_annotation_metadata(annotation_csv_path: str | Path, metadata: dict) ->
         str(sensor_id): float(offset_ms)
         for sensor_id, offset_ms in payload.get("sensor_sync_offsets_ms", {}).items()
     }
+    payload["sensor_sync_sources"] = {
+        str(sensor_id): dict(source)
+        for sensor_id, source in payload.get("sensor_sync_sources", {}).items()
+        if isinstance(source, dict)
+    }
+    if payload.get("block_sync_offset_ms") is not None:
+        payload["block_sync_offset_ms"] = float(payload["block_sync_offset_ms"])
+    payload["block_sync_source"] = dict(payload.get("block_sync_source", {})) if isinstance(payload.get("block_sync_source"), dict) else {}
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     with metadata_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, ensure_ascii=True)
@@ -165,12 +185,88 @@ def set_annotation_video_path(annotation_csv_path: str | Path, video_path: str |
     return metadata
 
 
-def set_annotation_sensor_sync_offset(annotation_csv_path: str | Path, sensor_id: str | int, offset_ms: float) -> dict:
+def set_annotation_sensor_sync_offset(
+    annotation_csv_path: str | Path,
+    sensor_id: str | int,
+    offset_ms: float,
+    *,
+    method: str = "manual",
+    imu_impact_ms: float | None = None,
+    video_ms: float | None = None,
+    jump_synced_ms: float | None = None,
+) -> dict:
     """Store one IMU-to-video sync offset."""
     metadata = load_annotation_metadata(annotation_csv_path)
+    sensor_key = str(sensor_id)
     offsets = dict(metadata.get("sensor_sync_offsets_ms", {}))
-    offsets[str(sensor_id)] = round(float(offset_ms), 3)
+    offsets[sensor_key] = round(float(offset_ms), 3)
     metadata["sensor_sync_offsets_ms"] = offsets
+    sources = dict(metadata.get("sensor_sync_sources", {}))
+    source = {
+        "method": str(method or "manual"),
+        "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    if imu_impact_ms is not None:
+        source["imu_impact_ms"] = round(float(imu_impact_ms), 3)
+    if video_ms is not None:
+        source["video_ms"] = round(float(video_ms), 3)
+    if jump_synced_ms is not None:
+        source["jump_synced_ms"] = round(float(jump_synced_ms), 3)
+    sources[sensor_key] = source
+    metadata["sensor_sync_sources"] = sources
+    save_annotation_metadata(annotation_csv_path, metadata)
+    return metadata
+
+
+def set_annotation_block_sync_offset(
+    annotation_csv_path: str | Path,
+    offset_ms: float,
+    *,
+    method: str = "block",
+    sensor_id: str | int | None = None,
+    imu_impact_ms: float | None = None,
+    video_ms: float | None = None,
+    jump_start_ms: float | None = None,
+) -> dict:
+    """Store one shared IMU-to-video sync offset for the whole sensor block."""
+    metadata = load_annotation_metadata(annotation_csv_path)
+    metadata["block_sync_offset_ms"] = round(float(offset_ms), 3)
+    source = {
+        "method": str(method or "block"),
+        "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    if sensor_id is not None:
+        source["sensor_id"] = str(sensor_id)
+    if imu_impact_ms is not None:
+        source["imu_impact_ms"] = round(float(imu_impact_ms), 3)
+    if video_ms is not None:
+        source["video_ms"] = round(float(video_ms), 3)
+    if jump_start_ms is not None:
+        source["jump_start_ms"] = round(float(jump_start_ms), 3)
+    metadata["block_sync_source"] = source
+    save_annotation_metadata(annotation_csv_path, metadata)
+    return metadata
+
+
+def clear_annotation_block_sync(annotation_csv_path: str | Path) -> dict:
+    """Remove the saved block-level video sync offset."""
+    metadata = load_annotation_metadata(annotation_csv_path)
+    metadata["block_sync_offset_ms"] = None
+    metadata["block_sync_source"] = {}
+    save_annotation_metadata(annotation_csv_path, metadata)
+    return metadata
+
+
+def clear_annotation_sensor_sync(annotation_csv_path: str | Path, sensor_id: str | int) -> dict:
+    """Remove the saved video sync offset and its source metadata for one sensor."""
+    metadata = load_annotation_metadata(annotation_csv_path)
+    sensor_key = str(sensor_id)
+    offsets = dict(metadata.get("sensor_sync_offsets_ms", {}))
+    sources = dict(metadata.get("sensor_sync_sources", {}))
+    offsets.pop(sensor_key, None)
+    sources.pop(sensor_key, None)
+    metadata["sensor_sync_offsets_ms"] = offsets
+    metadata["sensor_sync_sources"] = sources
     save_annotation_metadata(annotation_csv_path, metadata)
     return metadata
 
@@ -190,8 +286,37 @@ def get_annotation_sensor_sync_offset(metadata: dict | str | Path, sensor_id: st
     return float(offsets.get(str(sensor_id), 0.0))
 
 
-def compute_annotation_jump_video_time_ms(row, sensor_sync_offset_ms: float = 0.0) -> float:
+def get_annotation_block_sync_offset(metadata: dict | str | Path) -> float | None:
+    """Return the shared block sync offset when one is stored."""
+    loaded = load_annotation_metadata(metadata) if isinstance(metadata, (str, Path)) else metadata
+    value = loaded.get("block_sync_offset_ms")
+    return None if value is None else float(value)
+
+
+def get_annotation_sensor_sync_source(metadata: dict | str | Path, sensor_id: str | int) -> dict:
+    """Return metadata describing how one sensor sync offset was created."""
+    loaded = load_annotation_metadata(metadata) if isinstance(metadata, (str, Path)) else metadata
+    sources = loaded.get("sensor_sync_sources", {})
+    source = sources.get(str(sensor_id), {})
+    return dict(source) if isinstance(source, dict) else {}
+
+
+def get_annotation_block_sync_source(metadata: dict | str | Path) -> dict:
+    """Return metadata describing how the block sync offset was created."""
+    loaded = load_annotation_metadata(metadata) if isinstance(metadata, (str, Path)) else metadata
+    source = loaded.get("block_sync_source", {})
+    return dict(source) if isinstance(source, dict) else {}
+
+
+def compute_annotation_jump_video_time_ms(
+    row,
+    sensor_sync_offset_ms: float = 0.0,
+    block_sync_offset_ms: float | None = None,
+) -> float:
     """Return the synced video timestamp for one annotation row."""
+    if block_sync_offset_ms is not None:
+        raw_start_ms = _safe_float(row.get("start_ms", row.get("synced_start_ms", 0.0)), default=0.0)
+        return max(raw_start_ms + float(block_sync_offset_ms), 0.0)
     base_ms = _safe_float(row.get("synced_start_ms", row.get("start_ms", 0.0)), default=0.0)
     return max(base_ms + float(sensor_sync_offset_ms), 0.0)
 

@@ -14,16 +14,17 @@ from synergie.services.annotation_generation_service import (
 
 class AnnotationGenerationServiceTests(unittest.TestCase):
     def test_estimate_sensor_impact_offset_ms_uses_first_strong_acceleration_change(self):
+        ms = list(range(0, 2100, 100))
         frame = pd.DataFrame(
             {
-                "ms": [0, 10, 20],
-                "Acc_X": [0, 0, 10],
-                "Acc_Y": [0, 0, 0],
-                "Acc_Z": [0, 0, 0],
+                "ms": ms,
+                "Acc_X": [0 if value < 1200 else 10 for value in ms],
+                "Acc_Y": [0 for _value in ms],
+                "Acc_Z": [0 for _value in ms],
             }
         )
 
-        self.assertEqual(estimate_sensor_impact_offset_ms(frame), 20.0)
+        self.assertEqual(estimate_sensor_impact_offset_ms(frame), 1200.0)
 
     def test_process_new_imu_session_for_annotation_exports_sorted_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
