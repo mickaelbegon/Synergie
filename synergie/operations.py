@@ -105,10 +105,13 @@ from synergie.services.video_service import (
     cached_video_path,
     clear_video_cache,
     list_video_files,
+    optimized_playback_video_path,
     parse_datetime_from_text as _parse_datetime_from_text,
     parse_datetime_value as _parse_datetime_value,
     read_video_creation_time_with_ffprobe as _read_video_creation_time_with_ffprobe,
     select_best_video_datetime as _select_best_video_datetime,
+    video_cache_status,
+    video_proxy_status,
     video_cache_size_bytes,
 )
 from synergie.services.window_benchmark_service import benchmark_temporal_offsets, benchmark_temporal_windows

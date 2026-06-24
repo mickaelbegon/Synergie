@@ -30,15 +30,13 @@ def list_video_files(directory: str | Path, recursive: bool = False) -> list[Pat
 def cached_video_path(video_path: str | Path, cache_root: str | Path = ".tmp/video_cache") -> dict:
     """Return a local cached copy for videos opened from another drive or a network path."""
     source = Path(video_path).resolve()
-    should_cache = should_cache_video(source, Path.cwd().resolve())
-    if not should_cache:
+    status = video_cache_status(source, cache_root=cache_root)
+    if not status["should_cache"]:
         return {"path": source, "source_path": source, "from_cache": False, "copied": False}
 
-    stat = source.stat()
-    fingerprint = hashlib.sha1(f"{source}|{stat.st_size}|{int(stat.st_mtime)}".encode("utf-8")).hexdigest()[:16]
-    cache_dir = Path(cache_root)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    cached = cache_dir / f"{source.stem}-{fingerprint}{source.suffix.lower()}"
+    stat = status["source_stat"]
+    cached = status["cache_path"]
+    cached.parent.mkdir(parents=True, exist_ok=True)
     copied = False
     if not cached.exists() or cached.stat().st_size != stat.st_size:
         try:
@@ -49,6 +47,99 @@ def cached_video_path(video_path: str | Path, cache_root: str | Path = ".tmp/vid
                 return {"path": cached.resolve(), "source_path": source, "from_cache": True, "copied": False, "copy_error": str(exc)}
             return {"path": source, "source_path": source, "from_cache": False, "copied": False, "cache_failed": True, "copy_error": str(exc)}
     return {"path": cached.resolve(), "source_path": source, "from_cache": True, "copied": copied}
+
+
+def optimized_playback_video_path(video_path: str | Path, cache_root: str | Path = ".tmp/video_cache") -> dict:
+    """Return the fastest local playback path available for annotation review."""
+    cache_result = cached_video_path(video_path, cache_root=cache_root)
+    proxy_status = video_proxy_status(video_path, cache_root=cache_root)
+    if not proxy_status["can_create_proxy"]:
+        return {**cache_result, "from_proxy": False, "proxy_created": False, "proxy_failed": False}
+    if proxy_status["proxy_needed"]:
+        input_path = Path(cache_result["path"])
+        try:
+            _create_video_proxy(input_path, proxy_status["proxy_path"])
+        except (OSError, subprocess.SubprocessError):
+            return {**cache_result, "from_proxy": False, "proxy_created": False, "proxy_failed": True}
+        proxy_created = True
+    else:
+        proxy_created = False
+    return {
+        **cache_result,
+        "path": proxy_status["proxy_path"].resolve(),
+        "from_proxy": True,
+        "proxy_created": proxy_created,
+        "proxy_failed": False,
+    }
+
+
+def video_cache_status(video_path: str | Path, cache_root: str | Path = ".tmp/video_cache") -> dict:
+    """Return cache target and whether copying will be needed before playback."""
+    source = Path(video_path).resolve()
+    should_cache = should_cache_video(source, Path.cwd().resolve())
+    stat = source.stat()
+    fingerprint = hashlib.sha1(f"{source}|{stat.st_size}|{int(stat.st_mtime)}".encode("utf-8")).hexdigest()[:16]
+    cache_path = Path(cache_root) / f"{source.stem}-{fingerprint}{source.suffix.lower()}"
+    copy_needed = should_cache and (not cache_path.exists() or cache_path.stat().st_size != stat.st_size)
+    return {
+        "source_path": source,
+        "source_stat": stat,
+        "should_cache": should_cache,
+        "cache_path": cache_path,
+        "copy_needed": copy_needed,
+        "size_bytes": stat.st_size,
+    }
+
+
+def video_proxy_status(video_path: str | Path, cache_root: str | Path = ".tmp/video_cache") -> dict:
+    """Return the optional low-resolution proxy path used for faster playback."""
+    source = Path(video_path).resolve()
+    stat = source.stat()
+    fingerprint = hashlib.sha1(f"{source}|{stat.st_size}|{int(stat.st_mtime)}".encode("utf-8")).hexdigest()[:16]
+    proxy_path = Path(cache_root) / f"{source.stem}-{fingerprint}-proxy.mp4"
+    ffmpeg_path = shutil.which("ffmpeg")
+    proxy_exists = proxy_path.exists() and proxy_path.stat().st_size > 0
+    return {
+        "source_path": source,
+        "proxy_path": proxy_path,
+        "can_create_proxy": ffmpeg_path is not None,
+        "ffmpeg_path": ffmpeg_path,
+        "proxy_needed": ffmpeg_path is not None and not proxy_exists,
+        "proxy_exists": proxy_exists,
+    }
+
+
+def _create_video_proxy(input_path: Path, proxy_path: Path) -> None:
+    proxy_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = proxy_path.with_suffix(".tmp.mp4")
+    if temporary_path.exists():
+        temporary_path.unlink()
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path is None:
+        raise OSError("ffmpeg is not available")
+    command = [
+        ffmpeg_path,
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(input_path),
+        "-vf",
+        "scale='min(960,iw)':-2,fps=30",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "28",
+        "-movflags",
+        "+faststart",
+        str(temporary_path),
+    ]
+    subprocess.run(command, check=True)
+    temporary_path.replace(proxy_path)
 
 
 def should_cache_video(source_path, workspace_path) -> bool:

@@ -14,6 +14,7 @@ dependencies:
   - cryptography
   - openssl
   - pkg-config
+  - ffmpeg
   - pip:
       # TensorFlow 2.20.0 is not published for macOS Intel (osx-64).
       - tensorflow==2.16.2

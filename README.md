@@ -75,6 +75,7 @@ L'application GUI depend aussi :
 - du SDK Movella DOT
 - d'un fichier de credentials Firebase local non versionne
 - de `ffprobe` pour lire certaines metadonnees video, si disponible
+- de `ffmpeg` pour creer une copie video optimisee et rendre la lecture plus fluide dans `Data - Annotate`
 
 Sur Mac Intel, `tools_gui.py` peut servir au traitement, a l'annotation et a l'entrainement, mais la collecte capteurs via Movella/Windows Bluetooth n'est pas couverte par `environment-macos-intel.yml`.
 
@@ -384,6 +385,7 @@ Synchronisation video :
 Cache video local :
 
 - Si une video est lue depuis un autre disque, par exemple `D:` sous Windows ou `/Volumes/...` sur Mac, le GUI peut la copier temporairement dans `.tmp/video_cache`.
+- Si `ffmpeg` est disponible, le GUI peut aussi creer une proxy MP4 plus legere dans `.tmp/video_cache` pour rendre la lecture beaucoup plus fluide.
 - Cette copie rend la lecture plus fluide et evite de relire constamment le disque externe.
 - Le bouton `Clear cache (...)` montre la taille actuelle du cache.
 - Cliquer `Clear cache (...)` libere l'espace disque utilise par ces copies temporaires.

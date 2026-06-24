@@ -133,3 +133,72 @@ class VideoServiceTests(unittest.TestCase):
             self.assertTrue(result["from_cache"])
             self.assertEqual(result["path"], cached.resolve())
             copy_mock.assert_not_called()
+
+    def test_video_cache_status_reports_copy_needed(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source = root / "external.mov"
+            source.write_bytes(b"video")
+            with mock.patch("synergie.services.video_service.should_cache_video", return_value=True):
+                status = video_service.video_cache_status(source, cache_root=root / "cache")
+
+            self.assertTrue(status["should_cache"])
+            self.assertTrue(status["copy_needed"])
+            self.assertEqual(status["size_bytes"], 5)
+
+    def test_video_cache_status_reports_existing_cache(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source = root / "external.mov"
+            source.write_bytes(b"video")
+            with mock.patch("synergie.services.video_service.should_cache_video", return_value=True):
+                first_status = video_service.video_cache_status(source, cache_root=root / "cache")
+                first_status["cache_path"].parent.mkdir()
+                first_status["cache_path"].write_bytes(b"video")
+                second_status = video_service.video_cache_status(source, cache_root=root / "cache")
+
+            self.assertFalse(second_status["copy_needed"])
+
+    def test_video_proxy_status_reports_missing_ffmpeg(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "external.mov"
+            source.write_bytes(b"video")
+            with mock.patch("synergie.services.video_service.shutil.which", return_value=None):
+                status = video_service.video_proxy_status(source, cache_root=Path(tmpdir) / "cache")
+
+            self.assertFalse(status["can_create_proxy"])
+            self.assertFalse(status["proxy_needed"])
+
+    def test_optimized_playback_video_path_uses_proxy_when_available(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source = root / "external.mov"
+            source.write_bytes(b"video")
+            cache_root = root / "cache"
+
+            def fake_create_proxy(_input_path, proxy_path):
+                proxy_path.parent.mkdir(parents=True, exist_ok=True)
+                proxy_path.write_bytes(b"proxy")
+
+            with mock.patch("synergie.services.video_service.shutil.which", return_value="ffmpeg"):
+                with mock.patch("synergie.services.video_service.should_cache_video", return_value=False):
+                    with mock.patch("synergie.services.video_service._create_video_proxy", side_effect=fake_create_proxy):
+                        result = video_service.optimized_playback_video_path(source, cache_root=cache_root)
+
+            self.assertTrue(result["from_proxy"])
+            self.assertTrue(result["proxy_created"])
+            self.assertEqual(Path(result["path"]).suffix, ".mp4")
+
+    def test_optimized_playback_video_path_falls_back_when_proxy_fails(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source = root / "external.mov"
+            source.write_bytes(b"video")
+            with mock.patch("synergie.services.video_service.shutil.which", return_value="ffmpeg"):
+                with mock.patch("synergie.services.video_service.should_cache_video", return_value=False):
+                    with mock.patch("synergie.services.video_service._create_video_proxy", side_effect=OSError("ffmpeg failed")):
+                        result = video_service.optimized_playback_video_path(source, cache_root=root / "cache")
+
+            self.assertFalse(result["from_proxy"])
+            self.assertTrue(result["proxy_failed"])
+            self.assertEqual(result["path"], source.resolve())

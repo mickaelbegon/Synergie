@@ -4470,8 +4470,23 @@ class SynergieToolsApp:
         if not path.exists():
             messagebox.showerror("Synergie Tools", f"Video file not found:\n{path}")
             return
-        cache_result = operations.cached_video_path(path)
-        open_path = Path(cache_result["path"])
+        cache_status = operations.video_cache_status(path)
+        if cache_status["copy_needed"]:
+            size_text = self._format_file_size(cache_status["size_bytes"])
+            message = f"Caching video locally ({size_text}). Please wait..."
+            self.annotation_video_info_var.set(message)
+            self.status_var.set(message)
+            self._draw_placeholder_annotation_video(message)
+            self.root.update_idletasks()
+        proxy_status = operations.video_proxy_status(path)
+        if proxy_status["proxy_needed"]:
+            message = "Optimizing video for smoother playback. Please wait..."
+            self.annotation_video_info_var.set(message)
+            self.status_var.set(message)
+            self._draw_placeholder_annotation_video(message)
+            self.root.update_idletasks()
+        playback_result = operations.optimized_playback_video_path(path)
+        open_path = Path(playback_result["path"])
 
         self._stop_annotation_playback()
         self._release_annotation_video()
@@ -4493,8 +4508,12 @@ class SynergieToolsApp:
         self.annotation_video_path_var.set(str(path))
         self.annotation_video_directory_var.set(str(path.parent))
         self.annotation_video_slider.configure(to=max(duration_ms, 1.0))
-        cache_text = " | cached locally" if cache_result["from_cache"] else ""
-        if cache_result.get("cache_failed"):
+        cache_text = " | optimized playback" if playback_result.get("from_proxy") else ""
+        if not cache_text and playback_result["from_cache"]:
+            cache_text = " | cached locally"
+        if playback_result.get("proxy_failed"):
+            cache_text += " | proxy unavailable"
+        if playback_result.get("cache_failed"):
             cache_text = " | cache unavailable; reading source"
         self.annotation_video_cache_note = cache_text
         self.annotation_video_info_var.set(f"{path.name} | fps={fps:.2f}{cache_text}")
