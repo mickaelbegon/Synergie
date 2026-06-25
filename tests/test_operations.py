@@ -381,12 +381,13 @@ class OperationsTests(unittest.TestCase):
     def test_suggest_turns_from_rotation_bounds_result(self):
         self.assertEqual(operations.suggest_turns_from_rotation(0.2), "1")
         self.assertEqual(operations.suggest_turns_from_rotation(0.6), "1")
-        self.assertEqual(operations.suggest_turns_from_rotation(2.3), "3")
+        self.assertEqual(operations.suggest_turns_from_rotation(2.3), "2")
         self.assertEqual(operations.suggest_turns_from_rotation(5.1), "4")
 
     def test_suggest_turns_from_rotation_accepts_custom_contact_offset(self):
         self.assertEqual(operations.suggest_turns_from_rotation(2.3, contact_offset_turns=0.0), "2")
-        self.assertEqual(operations.suggest_turns_from_rotation(2.3), "3")
+        self.assertEqual(operations.suggest_turns_from_rotation(2.3), "2")
+        self.assertEqual(operations.suggest_turns_from_rotation(2.3, contact_offset_turns=0.45), "3")
         self.assertEqual(operations.suggest_turns_from_rotation(2.3, jump_type="axel"), "2")
 
     def test_analyze_detection_review_labels_collects_false_positive_and_negative(self):

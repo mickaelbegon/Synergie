@@ -26,11 +26,12 @@ class RotationAuditServiceTests(unittest.TestCase):
 
         self.assertEqual(result["labelled_jumps"], 3)
         self.assertEqual(result["labels"], [2.0, 2.5, 3.0])
-        self.assertEqual(result["confusion_matrix"], [[0, 0, 1], [0, 1, 0], [1, 0, 0]])
-        self.assertEqual(len(result["suspicious_records"]), 2)
-        self.assertEqual([item["path"] for item in result["suspicious_records"]], ["a.csv", "c.csv"])
+        self.assertEqual(result["confusion_matrix"], [[1, 0, 0], [0, 1, 0], [1, 0, 0]])
+        self.assertEqual(len(result["suspicious_records"]), 1)
+        self.assertEqual([item["path"] for item in result["suspicious_records"]], ["c.csv"])
         self.assertEqual(result["rounding_rule_summary"][0]["label"], "round")
-        self.assertIn(result["contact_offset_summary"][0]["offset_turns"], {0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6})
+        self.assertGreaterEqual(result["contact_offset_summary"][0]["offset_turns"], -0.1)
+        self.assertLessEqual(result["contact_offset_summary"][0]["offset_turns"], 0.6)
         self.assertIn("fixed_contact_offset_0.45", [item["label"] for item in result["strategy_summary"]])
         self.assertEqual(
             [item["label"] for item in result["rounding_rule_summary"]],
@@ -41,7 +42,14 @@ class RotationAuditServiceTests(unittest.TestCase):
         self.assertEqual(result["type_summary"][1]["best_rule"], "round")
         self.assertEqual(
             [item["label"] for item in result["strategy_summary"]],
-            ["current_round", "fixed_contact_offset_0.45", "hybrid_non_axel_shift", "best_rule_per_type_observed"],
+            [
+                "current_round",
+                "fixed_contact_offset_0.16",
+                "fixed_contact_offset_0.21",
+                "fixed_contact_offset_0.45",
+                "hybrid_non_axel_shift",
+                "best_rule_per_type_observed",
+            ],
         )
         self.assertEqual(result["strategy_by_skater"], [])
 

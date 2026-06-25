@@ -28,16 +28,18 @@ def gather_jumps(df: pd.DataFrame, combination_gap_frames: int = DEFAULT_COMBINA
     
     end_cursor = 0
     previous_begin = None
-    for begin_index in begin:
+    begin_list = [int(value) for value in begin]
+    for begin_position, begin_index in enumerate(begin_list):
         while end_cursor < len(end) and end[end_cursor] <= begin_index:
             end_cursor += 1
         if end_cursor >= len(end):
             break
 
-        end_index = end[end_cursor]
+        end_index = int(end[end_cursor])
         end_cursor += 1
+        max_landing_index = begin_list[begin_position + 1] - 1 if begin_position + 1 < len(begin_list) else None
         combinate = previous_begin is not None and (begin_index - previous_begin) < combination_gap_frames
-        jumps.append(Jump(begin_index, end_index, df, combinate))
+        jumps.append(Jump(begin_index, end_index, df, combinate, max_landing_index=max_landing_index))
         previous_begin = begin_index
 
     return jumps

@@ -218,6 +218,9 @@ from synergie.services.window_benchmark_service import benchmark_temporal_offset
 from synergie.services.segment_reexport_service import ensure_pre_takeoff_context, reexport_segment_with_context
 
 
+DEFAULT_TURN_CONTACT_OFFSET = 0.16
+
+
 def read_video_metadata(video_path: str | Path) -> dict:
     """Read video timestamps while preserving patchable helper aliases."""
     path = Path(video_path)
@@ -306,7 +309,7 @@ def summarize_pending_annotation_files(root: str | Path = "data/pending") -> dic
 def suggest_turns_from_rotation(
     rotation_value,
     *,
-    contact_offset_turns: float = 0.45,
+    contact_offset_turns: float = DEFAULT_TURN_CONTACT_OFFSET,
     jump_type: str | int | None = None,
 ) -> str:
     """Convert measured airborne rotation into a 1-4 UI turn guess with on-ice offset."""

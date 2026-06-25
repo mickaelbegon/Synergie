@@ -24,6 +24,8 @@ def audit_turn_estimation(
 
 def load_turn_audit_signal(segment_path: str | Path) -> dict | None:
     """Load one audited segment with the takeoff/landing bounds used for rotation."""
+    from core.utils.jump import rotation_start_index_for_turns
+
     frame = _load_segment_frame(segment_path)
     if frame is None:
         return None
@@ -35,6 +37,7 @@ def load_turn_audit_signal(segment_path: str | Path) -> dict | None:
         "path": str(segment_path),
         "frame": frame,
         "takeoff_index": begin,
+        "rotation_start_index": rotation_start_index_for_turns(begin, frame, end),
         "landing_index": end,
     }
 
@@ -120,6 +123,7 @@ def _build_record(source_file: Path, row_index: int, row, annotated_turns: float
 
 def _measured_rotation_from_segment(segment_path) -> float | None:
     import numpy as np
+    from core.utils.jump import rotation_start_index_for_turns
 
     frame = _load_segment_frame(segment_path)
     if frame is None:
@@ -128,7 +132,7 @@ def _measured_rotation_from_segment(segment_path) -> float | None:
     if pair is None:
         return None
     begin, end = pair
-    interval = frame.iloc[begin:end]
+    interval = frame.iloc[rotation_start_index_for_turns(begin, frame, end):end]
     if len(interval) < 2:
         return None
     timestamps = interval["SampleTimeFine"].to_numpy(dtype="float64")
@@ -189,6 +193,7 @@ def _add_rotation_detection_columns(frame):
 
 def _rotation_interval_indices(frame) -> tuple[int, int] | None:
     import numpy as np
+    from core.utils.jump import refine_landing_index_by_acceleration
 
     crossing = frame["X_gyr_second_derivative_crossing"].astype(int).to_numpy()
     begins = np.where(np.diff(crossing) == 1)[0]
@@ -196,7 +201,8 @@ def _rotation_interval_indices(frame) -> tuple[int, int] | None:
     pairs = [(int(begin), int(end)) for begin in begins for end in ends if end > begin]
     if not pairs:
         return None
-    return min(pairs, key=lambda pair: pair[1] - pair[0])
+    begin, end = min(pairs, key=lambda pair: pair[1] - pair[0])
+    return begin, refine_landing_index_by_acceleration(frame, begin, end)
 
 
 def _summarize_records(root: Path, scanned_files: int, records: list[dict]) -> dict:
@@ -285,6 +291,8 @@ def _strategy_summary(labelled) -> list[dict]:
     """Compare deployable and optimistic post-processing strategies."""
     strategies = {
         "current_round": lambda row: _estimate_turns_for_rule(row, round),
+        "fixed_contact_offset_0.16": lambda row: _estimate_turns_with_contact_offset(row, 0.16),
+        "fixed_contact_offset_0.21": lambda row: _estimate_turns_with_contact_offset(row, 0.21),
         "fixed_contact_offset_0.45": lambda row: _estimate_turns_with_contact_offset(row, 0.45),
         "hybrid_non_axel_shift": _estimate_turns_for_hybrid_rule,
         "best_rule_per_type_observed": _estimate_turns_for_best_observed_type_rule,
@@ -304,7 +312,7 @@ def _strategy_summary(labelled) -> list[dict]:
 
 def _contact_offset_summary(labelled) -> list[dict]:
     summaries = []
-    for offset in _float_range(0.30, 0.60, 0.05):
+    for offset in _float_range(-0.10, 0.60, 0.01):
         predicted = labelled.apply(lambda row: _estimate_turns_with_contact_offset(row, offset), axis=1)
         summaries.append(
             {
