@@ -122,7 +122,10 @@ class DotManager:
                 break
             scan_attempts -= 1
             time.sleep(1)
-        self.portInfoBt = xdpcHandler.detectedDots()
+        self.portInfoBt = self._filter_bluetooth_ports_for_usb(
+            xdpcHandler.detectedDots(),
+            expected_bluetooth_addresses,
+        )
         xdpcHandler.cleanup()
         if self.portInfoUsb and not self.portInfoBt:
             self.lastError = (
@@ -167,6 +170,24 @@ class DotManager:
         self.usbPresentCounts = {device.deviceId: self.usbTransitionThreshold for device in self.devices}
         self.statusMessage = f"{len(self.devices)} sensor(s) ready"
         return (check, unconnectedDevice)
+
+    def _filter_bluetooth_ports_for_usb(self, bluetooth_ports: List[XsPortInfo], expected_addresses: List[str]) -> List[XsPortInfo]:
+        """
+        Keep only Bluetooth DOTs that match the USB sensors selected for this session.
+
+        Nearby DOTs can still advertise during scanning even when the SDK scan uses
+        a whitelist. Without this guard, the UI may ask the coach to plug a sensor
+        that is powered on nearby but not intended for the current session.
+        """
+        if not expected_addresses:
+            return bluetooth_ports
+        expected = {address.upper() for address in expected_addresses if is_valid_bluetooth_address(address)}
+        return [
+            port_info
+            for port_info in bluetooth_ports
+            if is_valid_bluetooth_address(port_info.bluetoothAddress())
+            and port_info.bluetoothAddress().upper() in expected
+        ]
     
     def checkDevices(self) -> tuple[List[DotDevice], List[DotDevice]]:
         """

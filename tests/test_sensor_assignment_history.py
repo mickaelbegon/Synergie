@@ -3,7 +3,7 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 
-from synergie.sensor_assignment_history import assignment_count, record_assignment, sort_skaters_for_sensor
+from synergie.sensor_assignment_history import assignment_count, assignment_label, record_assignment, sort_skaters_for_sensor
 
 
 @dataclass
@@ -29,6 +29,25 @@ class SensorAssignmentHistoryTests(unittest.TestCase):
             history_path = Path(tmpdir) / "history.json"
             skaters = [SkaterStub("alice", "Alice"), SkaterStub("bob", "Bob")]
             record_assignment("1", "bob", "Bob", path=history_path)
+            record_assignment("1", "bob", "Bob", path=history_path)
+
+            sorted_skaters = sort_skaters_for_sensor(skaters, "1", path=history_path)
+
+            self.assertEqual([skater.skater_id for skater in sorted_skaters], ["bob", "alice"])
+
+    def test_assignment_label_summarizes_sensor_history(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            history_path = Path(tmpdir) / "history.json"
+            record_assignment("1", "alice", "Alice", path=history_path)
+
+            self.assertEqual(assignment_label("1", "alice", path=history_path), "Déjà utilisé 1 fois avec ce capteur")
+            self.assertEqual(assignment_label("1", "bob", path=history_path), "")
+
+    def test_sort_skaters_for_sensor_uses_recent_history_for_ties(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            history_path = Path(tmpdir) / "history.json"
+            skaters = [SkaterStub("alice", "Alice"), SkaterStub("bob", "Bob")]
+            record_assignment("1", "alice", "Alice", path=history_path)
             record_assignment("1", "bob", "Bob", path=history_path)
 
             sorted_skaters = sort_skaters_for_sensor(skaters, "1", path=history_path)

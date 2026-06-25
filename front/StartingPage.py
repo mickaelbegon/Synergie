@@ -1,17 +1,19 @@
-import time
 import sys
-from tkinter import VERTICAL
-from PIL import Image, ImageTk
-from tkinter.font import BOLD, Font
+import time
 from math import ceil
+from tkinter import VERTICAL
+
+from PIL import Image, ImageTk
 import ttkbootstrap as ttkb
 
-from core.utils.DotDevice import DotDevice
 from core.database.DatabaseManager import DatabaseManager, TrainingData
-from synergie.sensor_assignment_history import record_assignment, sort_skaters_for_sensor
+from core.utils.DotDevice import DotDevice
+from front.ui_theme import setup_styles
+from synergie.sensor_assignment_history import assignment_label, record_assignment, sort_skaters_for_sensor
+
 
 class StartingPage:
-    def __init__(self, device : DotDevice, db_manager : DatabaseManager, userConnected : str, on_close=None) -> None:
+    def __init__(self, device: DotDevice, db_manager: DatabaseManager, userConnected: str, on_close=None) -> None:
         self.device = device
         self.db_manager = db_manager
         self.on_close = on_close
@@ -21,61 +23,66 @@ class StartingPage:
             self.deviceTag,
         )
 
-        self.window = ttkb.Toplevel(title="Confirmation", size=(1400,400), topmost=True)
+        self.window = ttkb.Toplevel(title="Démarrer un enregistrement", size=(1180, 620), topmost=True)
+        setup_styles(self.window)
         self.window.place_window_center()
         try:
-            ico = Image.open(f'{sys._MEIPASS}/img/Logo_s2mJUMP_RGB.png')
+            ico = Image.open(f"{sys._MEIPASS}/img/Logo_s2mJUMP_RGB.png")
         except (AttributeError, FileNotFoundError, OSError):
-            ico = Image.open(f'img/Logo_s2mJUMP_RGB.png')
+            ico = Image.open("img/Logo_s2mJUMP_RGB.png")
         photo = ImageTk.PhotoImage(ico)
         self.window.wm_iconphoto(False, photo)
         self.window.grid_rowconfigure(0, weight=0)
         self.window.grid_rowconfigure(1, weight=1)
-        self.window.grid_columnconfigure(0, weight=1, pad=20)
+        self.window.grid_columnconfigure(0, weight=1)
         self.window.grid_columnconfigure(1, weight=0)
 
-        self.label = ttkb.Label(self.window, text=f"Lancer un enregistrement sur le capteur {self.deviceTag}", font=Font(self.window, size=20, weight=BOLD))
-        self.label.grid(row=0,column=0,columnspan=2, pady=20)
+        header = ttkb.Frame(self.window, style="Synergie.TFrame", padding=(28, 24, 28, 12))
+        header.grid_columnconfigure(0, weight=1)
+        ttkb.Label(header, text=f"Démarrer le capteur {self.deviceTag}", style="Title.TLabel").grid(row=0, column=0, sticky="w")
+        ttkb.Label(
+            header,
+            text=(
+                "Choisissez l'athlète associé à ce capteur pour créer l'entraînement. "
+                "Les athlètes déjà associés à ce capteur apparaissent en premier."
+            ),
+            style="Body.TLabel",
+            wraplength=900,
+        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
+        header.grid(row=0, column=0, columnspan=2, sticky="we")
 
-        self.canvas = ttkb.Canvas(self.window)
-        self.canvas.grid_rowconfigure(0, weight = 1)
-        self.canvas.grid_columnconfigure(0, weight = 1)
+        self.canvas = ttkb.Canvas(self.window, highlightthickness=0)
+        self.frame = ttkb.Frame(self.canvas, style="Synergie.TFrame", padding=(18, 10, 18, 24))
+        columns = 4
+        for column in range(columns):
+            self.frame.grid_columnconfigure(column, weight=1, uniform="skaters")
 
-        self.frame = ttkb.Frame(self.canvas)
-        self.frame.grid_rowconfigure(0, weight = 1)
-        self.frame.grid_rowconfigure(1, weight = 1)
-        self.frame.grid_columnconfigure(0, weight = 1)
-        self.frame.grid_columnconfigure(1, weight = 1)
-        self.frame.grid_columnconfigure(2, weight = 1)
-        self.frame.grid_columnconfigure(3, weight = 1)
-        self.frame.grid_columnconfigure(4, weight = 1)
+        button_width = ceil((280 - 24) / 11)
+        for index, skater in enumerate(self.skaters):
+            history_label = assignment_label(self.deviceTag, skater.skater_id)
+            button_text = f"\n{skater.skater_name}\n{history_label}\n" if history_label else f"\n{skater.skater_name}\n"
+            button = ttkb.Button(
+                self.frame,
+                text=button_text,
+                style="my.TButton",
+                width=button_width,
+                command=(lambda x=skater.skater_id, y=skater.skater_name: self.startRecord(x, y)),
+            )
+            button.grid(row=index // columns, column=index % columns, sticky="nsew", padx=10, pady=10)
 
-        buttonStyle = ttkb.Style()
-        buttonStyle.configure('my.TButton', font=Font(self.frame, size=12, weight=BOLD))
-        for i,skater in enumerate(self.skaters):
-            button = ttkb.Button(self.frame, text=f"\n{skater.skater_name}\n", style="my.TButton", width=ceil((250-24)/11), command=(lambda x=skater.skater_id,y=skater.skater_name: self.startRecord(x,y)))
-            button.grid(row=i//5+1,column=i%5,padx=10,pady=10)
-        
-        self.frame.bind('<Enter>', self._bound_to_mousewheel)
-        self.frame.bind('<Leave>', self._unbound_to_mousewheel)
+        self.frame.bind("<Enter>", self._bound_to_mousewheel)
+        self.frame.bind("<Leave>", self._unbound_to_mousewheel)
+        self.canvas_window = self.canvas.create_window((0, 0), window=self.frame, anchor="nw")
 
-        self.frame.grid(row=0, column=0, sticky="nswe")
-        
         scroll = ttkb.Scrollbar(self.window, orient=VERTICAL, command=self.canvas.yview)
-        scroll.grid(row=1,column=1, sticky="ns")
-
+        scroll.grid(row=1, column=1, sticky="ns")
         self.canvas.configure(yscrollcommand=scroll.set)
-        self.canvas.bind(
-            '<Configure>', lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-        )
-        self.canvas.create_window((0, 0), window=self.frame, anchor="center")
+        self.canvas.bind("<Configure>", self._resize_canvas)
+        self.canvas.grid(row=1, column=0, sticky="nsew")
 
-        self.canvas.grid(row=1,column=0, sticky="nswe", padx=10)
-
-        self.window.grid()
         self.window.protocol("WM_DELETE_WINDOW", self.close)
 
-    def startRecord(self ,skaterId: str, skaterName: str):
+    def startRecord(self, skaterId: str, skaterName: str):
         deviceId = self.device.deviceId
         new_training = TrainingData(0, skaterId, 0, deviceId, [])
         self.db_manager.set_current_record(deviceId, self.db_manager.save_training_data(new_training))
@@ -83,18 +90,16 @@ class StartingPage:
         if recordStarted:
             record_assignment(self.deviceTag, skaterId, skaterName)
         self.canvas.destroy()
-        self.label.destroy()
-        self.frame = ttkb.Frame(self.window)
-        if recordStarted :
-            message = f"Enregistrement commencé sur le capteur {self.deviceTag} pour {skaterName}"
-        else : 
-            message = "Erreur durant le lancement, impossible de lancer l'enregistrement"
-        label = ttkb.Label(self.frame, text=message, font=Font(self.window, size=20, weight=BOLD))
-        label.grid()
-        self.frame.grid(row=1,column=0)
+        self.frame = ttkb.Frame(self.window, style="Synergie.TFrame", padding=28)
+        message = (
+            f"Enregistrement démarré sur le capteur {self.deviceTag} pour {skaterName}"
+            if recordStarted
+            else "Erreur durant le lancement. Impossible de démarrer l'enregistrement."
+        )
+        ttkb.Label(self.frame, text=message, style="Title.TLabel", wraplength=820).grid()
+        self.frame.grid(row=1, column=0, sticky="nsew")
         self.window.update()
         time.sleep(1)
-        self.canvas.destroy()
         self.close()
 
     def close(self):
@@ -102,7 +107,11 @@ class StartingPage:
             self.on_close()
             self.on_close = None
         self.window.destroy()
-    
+
+    def _resize_canvas(self, event):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self.canvas.itemconfigure(self.canvas_window, width=event.width)
+
     def _bound_to_mousewheel(self, event):
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
 
@@ -110,4 +119,4 @@ class StartingPage:
         self.canvas.unbind_all("<MouseWheel>")
 
     def _on_mousewheel(self, event):
-        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")

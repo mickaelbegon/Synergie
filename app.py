@@ -2,21 +2,22 @@ import synergie.runtime  # noqa: F401
 import logging
 import sys
 import time
-from PIL import Image, ImageTk
-import ttkbootstrap as ttkb
 from tkinter import messagebox
 import threading
 
-from front.ConnectionPage import ConnectionPage
+from PIL import Image, ImageTk
+import ttkbootstrap as ttkb
+
 from core.database.DatabaseManager import *
 from core.utils.sensor_diagnostics import probe_movella_usb_detection
+from front.ConnectionPage import ConnectionPage
 
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger(__name__)
 
-class App:
 
-    def __init__(self, root : ttkb.Window):
+class App:
+    def __init__(self, root: ttkb.Window):
         self.db_manager = DatabaseManager()
         self.root = root
         self.dot_manager = None
@@ -25,6 +26,7 @@ class App:
 
         try:
             from core.utils.DotManager import DotManager
+
             self.dot_manager = DotManager(self.db_manager)
         except Exception as exc:
             messagebox.showerror(
@@ -48,6 +50,7 @@ class App:
 
     def launchMainPage(self):
         from front.MainPage import MainPage
+
         self.mainPage = MainPage([], self.dot_manager, self.db_manager, self.root)
         self.initializationCancelled = False
         self.root.after(100, self.initialize)
@@ -57,14 +60,14 @@ class App:
         if not probe.ok:
             if probe.timed_out:
                 retry_message = (
-                    "Le scan USB du SDK Movella ne repond pas.\n\n"
-                    "Windows voit probablement des ports COM, mais le SDK reste bloque pendant la detection.\n"
-                    "Fermez les autres applications Movella/Xsens, puis debranchez et rebranchez les capteurs USB."
+                    "Le scan USB du SDK Movella ne répond pas.\n\n"
+                    "Windows voit probablement des ports COM, mais le SDK reste bloqué pendant la détection.\n"
+                    "Fermez les autres applications Movella/Xsens, puis débranchez et rebranchez les capteurs USB."
                 )
             else:
                 retry_message = (
-                    "Le diagnostic USB Movella a echoue.\n\n"
-                    f"Detail: {probe.error or probe.output or 'aucun detail disponible'}"
+                    "Le diagnostic USB Movella a échoué.\n\n"
+                    f"Détail: {probe.error or probe.output or 'aucun détail disponible'}"
                 )
             if self._ask_retry_cancel("Connexion capteurs", retry_message):
                 self.root.after(100, self.initialize)
@@ -75,15 +78,15 @@ class App:
         if probe.detected_count == 0:
             if self._ask_retry_cancel(
                 "Connexion capteurs",
-                "Aucun capteur Movella DOT detecte en USB.\n\n"
-                "Branchez les capteurs en USB, attendez quelques secondes, puis reessayez.",
+                "Aucun capteur Movella DOT détecté en USB.\n\n"
+                "Branchez les capteurs en USB, attendez quelques secondes, puis réessayez.",
             ):
                 self.root.after(100, self.initialize)
             else:
                 self.initializationCancelled = True
             return
 
-        self.mainPage.set_waiting_status(f"{probe.detected_count} capteur(s) USB detecte(s): {', '.join(probe.ports or [])}")
+        self.mainPage.set_waiting_status(f"{probe.detected_count} capteur(s) USB détecté(s): {', '.join(probe.ports or [])}")
         (check, unconnectedDevice) = self.dot_manager.firstConnection()
         self.mainPage.set_waiting_status(self.dot_manager.statusMessage or self.dot_manager.lastError)
         while not check:
@@ -93,7 +96,7 @@ class App:
             elif self.dot_manager.lastError:
                 retry_message = self.dot_manager.lastError
             else:
-                retry_message = "La connexion aux capteurs a echoue. Veuillez reessayer."
+                retry_message = "La connexion aux capteurs a échoué. Veuillez réessayer."
             should_retry = self._ask_retry_cancel(
                 "Connexion",
                 retry_message,
@@ -155,10 +158,12 @@ class App:
 
     def startStopping(self, device):
         from front.StopingPage import StopingPage
+
         StopingPage(device, self.db_manager, on_close=lambda: self.activeStopWindows.discard(device.deviceId))
-    
+
     def startStarting(self, device):
         from front.StartingPage import StartingPage
+
         StartingPage(
             device,
             self.db_manager,
@@ -169,16 +174,17 @@ class App:
     def _ask_retry_cancel(self, title: str, message: str) -> bool:
         return bool(messagebox.askretrycancel(title, message))
 
+
 def main():
     root = ttkb.Window(title="Synergie", themename="minty")
     App(root)
     width = root.winfo_screenwidth()
     height = root.winfo_screenheight()
     root.geometry("%dx%d" % (width, height))
-    try :
-        ico = Image.open(f'{sys._MEIPASS}/img/Logo_s2mJUMP_RGB.png')
-    except:
-        ico = Image.open(f'img/Logo_s2mJUMP_RGB.png')
+    try:
+        ico = Image.open(f"{sys._MEIPASS}/img/Logo_s2mJUMP_RGB.png")
+    except (AttributeError, FileNotFoundError, OSError):
+        ico = Image.open("img/Logo_s2mJUMP_RGB.png")
     photo = ImageTk.PhotoImage(ico)
     root.wm_iconphoto(False, photo)
     root.mainloop()

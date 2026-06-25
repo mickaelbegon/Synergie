@@ -85,7 +85,7 @@ class DotDevice(XsDotCallback):
             if device is None:
                 time.sleep(0.2)
                 continue
-            time.sleep(1)
+            time.sleep(0.35)
             if device.deviceTagName() != '' and device.batteryLevel() != 0:
                 return device
         return None
@@ -338,6 +338,7 @@ class DotDevice(XsDotCallback):
         self.usbManager.closePort(self.portInfoUsb)
         self.isPlugged = False
         self.isBatteryCharging = False
+        self.currentImage = self.imageInactive
     
     def openUsb(self):
         """
@@ -350,4 +351,5 @@ class DotDevice(XsDotCallback):
         self.usbDevice = device
         self.isPlugged = True
         self.isBatteryCharging = True
+        self.currentImage = self.imageActive
         return True

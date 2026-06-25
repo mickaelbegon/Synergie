@@ -38,7 +38,7 @@ def record_assignment(sensor_id: str, skater_id: str, skater_name: str, path: Pa
     )
     record["count"] = int(record.get("count", 0)) + 1
     record["skater_name"] = skater_name
-    record["last_used_at"] = datetime.now().isoformat(timespec="seconds")
+    record["last_used_at"] = datetime.now().isoformat(timespec="milliseconds")
     save_history(history, path)
 
 
@@ -51,6 +51,19 @@ def assignment_count(sensor_id: str, skater_id: str, path: Path = HISTORY_FILE) 
         return 0
 
 
+def assignment_record(sensor_id: str, skater_id: str, path: Path = HISTORY_FILE) -> dict:
+    history = load_history(path)
+    record = history.get("assignments", {}).get(str(sensor_id), {}).get(str(skater_id), {})
+    return record if isinstance(record, dict) else {}
+
+
+def assignment_label(sensor_id: str, skater_id: str, path: Path = HISTORY_FILE) -> str:
+    count = assignment_count(sensor_id, skater_id, path)
+    if count <= 0:
+        return ""
+    return f"Déjà utilisé {count} fois avec ce capteur"
+
+
 def sort_skaters_for_sensor(skaters: list, sensor_id: str, path: Path = HISTORY_FILE) -> list:
     indexed_skaters = list(enumerate(skaters))
     return [
@@ -59,7 +72,18 @@ def sort_skaters_for_sensor(skaters: list, sensor_id: str, path: Path = HISTORY_
             indexed_skaters,
             key=lambda item: (
                 -assignment_count(sensor_id, item[1].skater_id, path),
+                -_last_used_timestamp(sensor_id, item[1].skater_id, path),
                 item[0],
             ),
         )
     ]
+
+
+def _last_used_timestamp(sensor_id: str, skater_id: str, path: Path = HISTORY_FILE) -> float:
+    value = assignment_record(sensor_id, skater_id, path).get("last_used_at", "")
+    if not isinstance(value, str) or not value:
+        return 0.0
+    try:
+        return datetime.fromisoformat(value).timestamp()
+    except ValueError:
+        return 0.0

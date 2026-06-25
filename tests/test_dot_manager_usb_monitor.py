@@ -27,6 +27,14 @@ class FakeDevice:
         return True
 
 
+class FakePortInfo:
+    def __init__(self, address):
+        self.address = address
+
+    def bluetoothAddress(self):
+        return self.address
+
+
 def _import_dot_manager_with_fakes():
     dot_device = types.ModuleType("core.utils.DotDevice")
     dot_device.DotDevice = FakeDevice
@@ -125,6 +133,27 @@ class DotManagerUsbMonitorTests(unittest.TestCase):
         self.assertEqual(replugged.opened, 1)
         self.assertEqual(stable.closed, 0)
         self.assertEqual(stable.opened, 0)
+
+    def test_bluetooth_scan_filters_out_nearby_sensors_not_connected_over_usb(self):
+        ports = [
+            FakePortInfo("D4:22:CD:00:76:F7"),
+            FakePortInfo("D4:22:CD:00:77:D9"),
+            FakePortInfo("D4:22:CD:00:99:99"),
+        ]
+
+        filtered = self.manager._filter_bluetooth_ports_for_usb(
+            ports,
+            ["D4:22:CD:00:76:F7", "D4:22:CD:00:77:D9"],
+        )
+
+        self.assertEqual(filtered, ports[:2])
+
+    def test_bluetooth_scan_keeps_all_ports_when_usb_addresses_are_unavailable(self):
+        ports = [FakePortInfo("D4:22:CD:00:76:F7"), FakePortInfo("D4:22:CD:00:99:99")]
+
+        filtered = self.manager._filter_bluetooth_ports_for_usb(ports, [])
+
+        self.assertEqual(filtered, ports)
 
 
 if __name__ == "__main__":
