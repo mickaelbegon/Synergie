@@ -5,6 +5,7 @@ from tkinter import TclError
 import ttkbootstrap as ttkb
 
 from front.ui_theme import setup_styles
+from front.window_utils import set_synergie_icon
 
 
 class ExtractingPage:
@@ -14,6 +15,7 @@ class ExtractingPage:
         self.window = ttkb.Toplevel(title="Extraction", size=(720, 260), topmost=True)
         setup_styles(self.window)
         self.window.place_window_center()
+        set_synergie_icon(self.window)
         self.window.grid_columnconfigure(0, weight=1)
         self.window.grid_rowconfigure(0, weight=1)
 

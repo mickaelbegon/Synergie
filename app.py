@@ -1,16 +1,15 @@
 import synergie.runtime  # noqa: F401
 import logging
-import sys
 import time
 from tkinter import messagebox
 import threading
 
-from PIL import Image, ImageTk
 import ttkbootstrap as ttkb
 
 from core.database.DatabaseManager import *
 from core.utils.sensor_diagnostics import probe_movella_usb_detection
 from front.ConnectionPage import ConnectionPage
+from front.window_utils import set_synergie_icon
 
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger(__name__)
@@ -181,12 +180,7 @@ def main():
     width = root.winfo_screenwidth()
     height = root.winfo_screenheight()
     root.geometry("%dx%d" % (width, height))
-    try:
-        ico = Image.open(f"{sys._MEIPASS}/img/Logo_s2mJUMP_RGB.png")
-    except (AttributeError, FileNotFoundError, OSError):
-        ico = Image.open("img/Logo_s2mJUMP_RGB.png")
-    photo = ImageTk.PhotoImage(ico)
-    root.wm_iconphoto(False, photo)
+    set_synergie_icon(root)
     root.mainloop()
 
 

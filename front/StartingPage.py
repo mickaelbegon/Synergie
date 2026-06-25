@@ -1,14 +1,13 @@
-import sys
 import time
 from math import ceil
 from tkinter import VERTICAL
 
-from PIL import Image, ImageTk
 import ttkbootstrap as ttkb
 
 from core.database.DatabaseManager import DatabaseManager, TrainingData
 from core.utils.DotDevice import DotDevice
 from front.ui_theme import setup_styles
+from front.window_utils import set_synergie_icon
 from synergie.sensor_assignment_history import assignment_label, record_assignment, sort_skaters_for_sensor
 
 
@@ -26,12 +25,7 @@ class StartingPage:
         self.window = ttkb.Toplevel(title="Démarrer un enregistrement", size=(1180, 620), topmost=True)
         setup_styles(self.window)
         self.window.place_window_center()
-        try:
-            ico = Image.open(f"{sys._MEIPASS}/img/Logo_s2mJUMP_RGB.png")
-        except (AttributeError, FileNotFoundError, OSError):
-            ico = Image.open("img/Logo_s2mJUMP_RGB.png")
-        photo = ImageTk.PhotoImage(ico)
-        self.window.wm_iconphoto(False, photo)
+        set_synergie_icon(self.window)
         self.window.grid_rowconfigure(0, weight=0)
         self.window.grid_rowconfigure(1, weight=1)
         self.window.grid_columnconfigure(0, weight=1)
