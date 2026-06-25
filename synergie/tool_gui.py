@@ -5478,8 +5478,10 @@ class SynergieToolsApp:
         self._refresh_jump_list()
         self._redraw_plots()
         self.status_var.set(
-            f"Inspection ready: {len(self.detected_jumps)} jumps detected | "
-            f"{len(self.detected_sync_impacts)} sync impact(s)"
+            operations.inspect_ready_status(
+                jump_count=len(self.detected_jumps),
+                sync_impact_count=len(self.detected_sync_impacts),
+            )
         )
 
     def _refresh_sync_impacts_warning(self) -> None:
@@ -5487,11 +5489,7 @@ class SynergieToolsApp:
 
     def _refresh_jump_list(self) -> None:
         self.jump_listbox.delete(0, tk.END)
-        for index, jump in enumerate(self.detected_jumps, start=1):
-            label = (
-                f"Jump {index} | start={jump.startTimestamp:.0f} ms | "
-                f"len={jump.length:.2f} s | rot={jump.signed_rotation:.2f}"
-            )
+        for label in operations.inspect_jump_list_labels(self.detected_jumps):
             self.jump_listbox.insert(tk.END, label)
 
     def _draw_placeholder_plots(self) -> None:

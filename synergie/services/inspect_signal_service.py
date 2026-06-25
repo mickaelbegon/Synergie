@@ -66,6 +66,22 @@ def inspect_selected_jump_status(jump, *, selected_index: int, total_jumps: int)
     )
 
 
+def inspect_jump_list_labels(jumps) -> list[str]:
+    """Return listbox labels for detected Inspect IMU jumps."""
+    return [
+        (
+            f"Jump {index} | start={float(jump.startTimestamp):.0f} ms | "
+            f"len={float(jump.length):.2f} s | rot={float(jump.signed_rotation):.2f}"
+        )
+        for index, jump in enumerate(jumps, start=1)
+    ]
+
+
+def inspect_ready_status(*, jump_count: int, sync_impact_count: int) -> str:
+    """Return the status text after Inspect IMU loading and detection completes."""
+    return f"Inspection ready: {int(jump_count)} jumps detected | {int(sync_impact_count)} sync impact(s)"
+
+
 def inspect_zoom_range_title(start_ms: float, end_ms: float) -> str:
     """Return the title for a manually selected Inspect IMU zoom range."""
     return f"Zoom on selected range: {float(start_ms):.0f}-{float(end_ms):.0f} ms"

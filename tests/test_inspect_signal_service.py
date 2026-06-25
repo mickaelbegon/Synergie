@@ -11,8 +11,10 @@ from synergie.services.inspect_signal_service import (
     inspect_jump_center_ms,
     inspect_jump_has_gyro_saturation,
     inspect_jump_legend_specs,
+    inspect_jump_list_labels,
     inspect_jump_window_bounds_ms,
     inspect_jump_zoom_view,
+    inspect_ready_status,
     inspect_selected_jump_title,
     inspect_selected_jump_status,
     inspect_signal_series_specs,
@@ -70,6 +72,24 @@ class InspectSignalServiceTests(unittest.TestCase):
             "Selected jump 2/4 | start=1234 ms | len=0.57 s",
         )
         self.assertEqual(inspect_zoom_range_title(100.4, 250.6), "Zoom on selected range: 100-251 ms")
+
+    def test_inspect_jump_list_labels_and_ready_status_are_stable(self):
+        jumps = [
+            SimpleNamespace(startTimestamp=1000.4, length=0.521, signed_rotation=1.234),
+            SimpleNamespace(startTimestamp=2500.6, length=0.734, signed_rotation=-2.345),
+        ]
+
+        self.assertEqual(
+            inspect_jump_list_labels(jumps),
+            [
+                "Jump 1 | start=1000 ms | len=0.52 s | rot=1.23",
+                "Jump 2 | start=2501 ms | len=0.73 s | rot=-2.35",
+            ],
+        )
+        self.assertEqual(
+            inspect_ready_status(jump_count=2, sync_impact_count=1),
+            "Inspection ready: 2 jumps detected | 1 sync impact(s)",
+        )
 
     def test_inspect_jump_center_markers_prepare_overview_points(self):
         frame = pd.DataFrame(
