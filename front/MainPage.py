@@ -81,12 +81,21 @@ class MainPage:
             style="Body.TLabel",
             wraplength=760,
         ).grid(row=1, column=0, sticky="w", pady=(6, 0))
+
+        actions = ttkb.Frame(header, style="Synergie.TFrame")
         ttkb.Button(
-            header,
+            actions,
             text="Ouvrir la visualisation",
             style="home.TButton",
             command=lambda: webbrowser.open("https://synergie-qc.streamlit.app/"),
-        ).grid(row=0, column=1, rowspan=2, sticky="e", padx=(24, 0))
+        ).grid(row=0, column=0, sticky="e")
+        ttkb.Button(
+            actions,
+            text="Fermer",
+            style="home.TButton",
+            command=self.close_app,
+        ).grid(row=0, column=1, sticky="e", padx=(10, 0))
+        actions.grid(row=0, column=1, rowspan=2, sticky="e", padx=(24, 0))
         header.grid(row=0, column=0, sticky="we", pady=(0, 18))
 
     def make_export_button(self):
@@ -96,7 +105,7 @@ class MainPage:
         self.exportFrame.grid_columnconfigure(1, weight=0)
         ttkb.Label(
             self.exportFrame,
-            text=f"Export global · environ {round(self.estimatedTime, 0)} min",
+            text=f"Export global - environ {round(self.estimatedTime, 0)} min",
             style="PanelTitle.TLabel",
         ).grid(row=0, column=0, sticky="w")
         ttkb.Label(
@@ -122,6 +131,9 @@ class MainPage:
                 saveFile = self.saveFile.instate(["selected"])
                 threading.Thread(target=device.exportData, args=([saveFile, extractEvent]), daemon=True).start()
                 ExtractingPage(device.deviceTagName, self.estimatedTime, extractEvent)
+
+    def close_app(self):
+        self.root.destroy()
 
     def run_periodic_background_func(self):
         self.dotPage.updatePage()

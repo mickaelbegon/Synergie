@@ -39,6 +39,14 @@ class FakeCheckbutton:
         return self.selected and states == ["selected"]
 
 
+class FakeRoot:
+    def __init__(self):
+        self.destroyed = False
+
+    def destroy(self):
+        self.destroyed = True
+
+
 class ImmediateThread:
     def __init__(self, target, args=(), daemon=False):
         self.target = target
@@ -162,6 +170,15 @@ class DotInterfaceUiTests(unittest.TestCase):
         self.assertIsNone(recording.export_args)
         self.assertIsNone(empty.export_args)
         self.assertIsNone(unplugged.export_args)
+
+    def test_main_page_close_app_destroys_root(self):
+        module = _import_front_module("front.MainPage")
+        page = module.MainPage.__new__(module.MainPage)
+        page.root = FakeRoot()
+
+        page.close_app()
+
+        self.assertTrue(page.root.destroyed)
 
 
 if __name__ == "__main__":
