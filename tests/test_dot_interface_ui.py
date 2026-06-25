@@ -125,6 +125,14 @@ class DotInterfaceUiTests(unittest.TestCase):
         frame.device.isPlugged = False
         self.assertEqual(frame._display_image(), "inactive")
 
+    def test_dot_frame_recording_message_mentions_pending_export(self):
+        module = _import_front_module("front.DotFrame")
+        frame = module.DotFrame.__new__(module.DotFrame)
+        frame.device = FakeDevice(recording=False, recording_count=3, plugged=True)
+
+        self.assertIn("Données présentes", frame._recording_message())
+        self.assertIn("exportez", frame._recording_message())
+
     def test_main_page_export_all_sends_boolean_save_option(self):
         module = _import_front_module("front.MainPage")
         device = FakeDevice(recording=False, recording_count=1, plugged=True)

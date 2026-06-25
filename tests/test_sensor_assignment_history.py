@@ -3,7 +3,13 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 
-from synergie.sensor_assignment_history import assignment_count, assignment_label, record_assignment, sort_skaters_for_sensor
+from synergie.sensor_assignment_history import (
+    assignment_count,
+    assignment_label,
+    load_history,
+    record_assignment,
+    sort_skaters_for_sensor,
+)
 
 
 @dataclass
@@ -23,6 +29,22 @@ class SensorAssignmentHistoryTests(unittest.TestCase):
 
             self.assertEqual(assignment_count("1", "alice", path=history_path), 2)
             self.assertEqual(assignment_count("10", "alice", path=history_path), 1)
+
+    def test_record_assignment_creates_parent_directory(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            history_path = Path(tmpdir) / "nested" / "history.json"
+
+            record_assignment("1", "alice", "Alice", path=history_path)
+
+            self.assertTrue(history_path.is_file())
+            self.assertEqual(assignment_count("1", "alice", path=history_path), 1)
+
+    def test_load_history_recovers_from_invalid_json(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            history_path = Path(tmpdir) / "history.json"
+            history_path.write_text("{not valid json", encoding="utf-8")
+
+            self.assertEqual(load_history(history_path), {"assignments": {}})
 
     def test_sort_skaters_for_sensor_keeps_frequent_skater_first(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -155,6 +155,13 @@ class DotManagerUsbMonitorTests(unittest.TestCase):
 
         self.assertEqual(filtered, ports)
 
+    def test_bluetooth_scan_filter_matches_addresses_case_insensitively(self):
+        ports = [FakePortInfo("d4:22:cd:00:76:f7"), FakePortInfo("D4:22:CD:00:99:99")]
+
+        filtered = self.manager._filter_bluetooth_ports_for_usb(ports, ["D4:22:CD:00:76:F7"])
+
+        self.assertEqual(filtered, ports[:1])
+
 
 if __name__ == "__main__":
     unittest.main()
