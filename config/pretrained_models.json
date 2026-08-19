@@ -182,45 +182,355 @@
     }
   },
   {
-    "id": "type-inceptiontime-20260507-171348",
-    "label": "Type inceptiontime type-inceptiontime-20260507-171348",
+    "id": "type-inceptiontime-20260517-181134",
+    "label": "Type inceptiontime type-inceptiontime-20260517-181134",
     "task": "type",
     "architecture": "inceptiontime",
-    "path": "core/model/saved_models/archive/type/type-inceptiontime-20260507-171348.keras",
+    "path": "core/model/saved_models/archive/type/type-inceptiontime-20260517-181134.keras",
     "compatible": true,
-    "notes": "Automatically registered after GUI/CLI training.",
+    "notes": "Recovered after post-training GUI finalization bug.",
     "performance": {
       "dataset": "data/annotated/total",
-      "test_accuracy": 0.8828125,
-      "test_samples": 640
+      "test_accuracy": 0.8691232528589581,
+      "test_samples": 787,
+      "confusion_matrix": [
+        [
+          106,
+          14,
+          5,
+          3,
+          7,
+          1
+        ],
+        [
+          7,
+          58,
+          0,
+          4,
+          3,
+          3
+        ],
+        [
+          1,
+          3,
+          95,
+          1,
+          4,
+          0
+        ],
+        [
+          8,
+          2,
+          3,
+          121,
+          9,
+          0
+        ],
+        [
+          7,
+          3,
+          1,
+          6,
+          108,
+          1
+        ],
+        [
+          3,
+          0,
+          3,
+          1,
+          0,
+          196
+        ]
+      ]
     }
   },
   {
-    "id": "type-inceptiontime-20260515-111905",
-    "label": "Type inceptiontime type-inceptiontime-20260515-111905",
+    "id": "type-inceptiontime-20260517-201456",
+    "label": "Type inceptiontime type-inceptiontime-20260517-201456",
     "task": "type",
     "architecture": "inceptiontime",
-    "path": "core/model/saved_models/archive/type/type-inceptiontime-20260515-111905.keras",
+    "path": "core/model/saved_models/archive/type/type-inceptiontime-20260517-201456.keras",
     "compatible": true,
     "notes": "Automatically registered after GUI/CLI training.",
     "performance": {
       "dataset": "data/annotated/total",
-      "test_accuracy": 0.978125,
-      "test_samples": 640
+      "test_accuracy": 0.8856416772554002,
+      "test_samples": 787,
+      "confusion_matrix": [
+        [
+          115,
+          5,
+          0,
+          9,
+          3,
+          4
+        ],
+        [
+          5,
+          54,
+          6,
+          3,
+          2,
+          5
+        ],
+        [
+          0,
+          2,
+          99,
+          1,
+          2,
+          0
+        ],
+        [
+          7,
+          2,
+          1,
+          124,
+          7,
+          2
+        ],
+        [
+          5,
+          1,
+          2,
+          8,
+          109,
+          1
+        ],
+        [
+          4,
+          0,
+          1,
+          0,
+          2,
+          196
+        ]
+      ]
     }
   },
   {
-    "id": "type-inceptiontime-20260515-112016",
-    "label": "Type inceptiontime type-inceptiontime-20260515-112016",
+    "id": "type-inceptiontime-20260517-222852",
+    "label": "Type inceptiontime type-inceptiontime-20260517-222852",
     "task": "type",
     "architecture": "inceptiontime",
-    "path": "core/model/saved_models/archive/type/type-inceptiontime-20260515-112016.keras",
+    "path": "core/model/saved_models/archive/type/type-inceptiontime-20260517-222852.keras",
     "compatible": true,
     "notes": "Automatically registered after GUI/CLI training.",
     "performance": {
       "dataset": "data/annotated/total",
-      "test_accuracy": 0.996875,
-      "test_samples": 640
+      "test_accuracy": 0.8894536213468869,
+      "test_samples": 787,
+      "confusion_matrix": [
+        [
+          117,
+          1,
+          3,
+          6,
+          6,
+          3
+        ],
+        [
+          4,
+          59,
+          2,
+          2,
+          4,
+          4
+        ],
+        [
+          2,
+          2,
+          96,
+          1,
+          2,
+          1
+        ],
+        [
+          8,
+          0,
+          1,
+          124,
+          8,
+          2
+        ],
+        [
+          7,
+          2,
+          2,
+          4,
+          110,
+          1
+        ],
+        [
+          0,
+          2,
+          0,
+          4,
+          3,
+          194
+        ]
+      ]
+    }
+  },
+  {
+    "id": "success-tcn-20260518-062136",
+    "label": "Success tcn success-tcn-20260518-062136",
+    "task": "success",
+    "architecture": "tcn",
+    "path": "core/model/saved_models/archive/success/success-tcn-20260518-062136.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.9428208386277002,
+      "test_samples": 787,
+      "confusion_matrix": [
+        [
+          115,
+          15
+        ],
+        [
+          30,
+          627
+        ]
+      ]
+    }
+  },
+  {
+    "id": "success-lstm-20260518-070014",
+    "label": "Success lstm success-lstm-20260518-070014",
+    "task": "success",
+    "architecture": "lstm",
+    "path": "core/model/saved_models/archive/success/success-lstm-20260518-070014.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.8729351969504447,
+      "test_samples": 787,
+      "confusion_matrix": [
+        [
+          76,
+          54
+        ],
+        [
+          46,
+          611
+        ]
+      ]
+    }
+  },
+  {
+    "id": "success-lstm-20260518-073251",
+    "label": "Success lstm success-lstm-20260518-073251",
+    "task": "success",
+    "architecture": "lstm",
+    "path": "core/model/saved_models/archive/success/success-lstm-20260518-073251.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.9110546378653113,
+      "test_samples": 787,
+      "confusion_matrix": [
+        [
+          104,
+          26
+        ],
+        [
+          44,
+          613
+        ]
+      ]
+    }
+  },
+  {
+    "id": "success-tcn-20260518-093649",
+    "label": "Success tcn success-tcn-20260518-093649",
+    "task": "success",
+    "architecture": "tcn",
+    "path": "core/model/saved_models/archive/success/success-tcn-20260518-093649.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.9491740787801779,
+      "test_samples": 787,
+      "confusion_matrix": [
+        [
+          116,
+          14
+        ],
+        [
+          26,
+          631
+        ]
+      ]
+    }
+  },
+  {
+    "id": "type-inceptiontime-20260619-141846",
+    "label": "Type inceptiontime type-inceptiontime-20260619-141846",
+    "task": "type",
+    "architecture": "inceptiontime",
+    "path": "core/model/saved_models/archive/type/type-inceptiontime-20260619-141846.keras",
+    "compatible": true,
+    "notes": "Automatically registered after GUI/CLI training.",
+    "performance": {
+      "dataset": "data/annotated/total",
+      "test_accuracy": 0.9351969504447268,
+      "test_samples": 787,
+      "confusion_matrix": [
+        [
+          130,
+          1,
+          2,
+          3,
+          0,
+          0
+        ],
+        [
+          0,
+          68,
+          1,
+          3,
+          0,
+          3
+        ],
+        [
+          1,
+          0,
+          100,
+          2,
+          1,
+          0
+        ],
+        [
+          7,
+          3,
+          0,
+          130,
+          2,
+          1
+        ],
+        [
+          8,
+          1,
+          2,
+          1,
+          114,
+          0
+        ],
+        [
+          3,
+          1,
+          0,
+          3,
+          2,
+          194
+        ]
+      ]
     }
   }
 ]
