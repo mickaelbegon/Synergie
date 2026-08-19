@@ -153,8 +153,8 @@ def save_annotation_values(
 ) -> object:
     """Return a copy of the annotation frame with one row updated from GUI values."""
     type_value = next(
-        value for key, _label, value in ANNOTATION_JUMP_TYPE_OPTIONS
-        if key == jump_type
+        (value for key, _label, value in ANNOTATION_JUMP_TYPE_OPTIONS if key == jump_type),
+"",
     )
     backend_status = annotation_review_status_to_backend(review_status)
     is_excluded_by_status = review_status in {

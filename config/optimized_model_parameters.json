@@ -1,0 +1,42 @@
+{
+  "type": {
+    "inceptiontime": {
+      "parameters": {
+        "filters": 32,
+        "bottleneck_filters": 32,
+        "modules": 3,
+        "dropout": 0.2,
+        "learning_rate": 3e-05,
+        "batch_size": 32
+      },
+      "best_val_accuracy": 0.5578144788742065,
+      "trial": 6,
+      "saved_at": "2026-05-17T20:12:44"
+    }
+  },
+  "success": {
+    "tcn": {
+      "parameters": {
+        "filters": 64,
+        "dropout": 0.1,
+        "learning_rate": 0.0001,
+        "batch_size": 32
+      },
+      "best_val_accuracy": 0.8475222587585449,
+      "trial": 7,
+      "saved_at": "2026-05-18T06:20:45"
+    },
+    "lstm": {
+      "parameters": {
+        "first_units": 64,
+        "second_units": 32,
+        "dropout": 0.4,
+        "learning_rate": 3e-05,
+        "batch_size": 32
+      },
+      "best_val_accuracy": 0.8348157405853271,
+      "trial": 1,
+      "saved_at": "2026-05-18T07:31:39"
+    }
+  }
+}

@@ -97,7 +97,7 @@ def video_proxy_status(video_path: str | Path, cache_root: str | Path = ".tmp/vi
     stat = source.stat()
     fingerprint = hashlib.sha1(f"{source}|{stat.st_size}|{int(stat.st_mtime)}".encode("utf-8")).hexdigest()[:16]
     proxy_path = Path(cache_root) / f"{source.stem}-{fingerprint}-proxy.mp4"
-    ffmpeg_path = shutil.which("ffmpeg")
+    ffmpeg_path = None
     proxy_exists = proxy_path.exists() and proxy_path.stat().st_size > 0
     return {
         "source_path": source,
