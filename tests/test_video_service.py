@@ -169,6 +169,18 @@ class VideoServiceTests(unittest.TestCase):
             self.assertFalse(status["can_create_proxy"])
             self.assertFalse(status["proxy_needed"])
 
+    def test_video_proxy_status_can_be_disabled_by_environment(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "external.mov"
+            source.write_bytes(b"video")
+            with mock.patch.dict("os.environ", {"SYNERGIE_DISABLE_VIDEO_PROXY": "1"}):
+                with mock.patch("synergie.services.video_service.shutil.which", return_value="ffmpeg"):
+                    status = video_service.video_proxy_status(source, cache_root=Path(tmpdir) / "cache")
+
+            self.assertFalse(status["can_create_proxy"])
+            self.assertFalse(status["proxy_needed"])
+            self.assertIsNone(status["ffmpeg_path"])
+
     def test_optimized_playback_video_path_uses_proxy_when_available(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

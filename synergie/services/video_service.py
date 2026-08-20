@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -97,7 +98,7 @@ def video_proxy_status(video_path: str | Path, cache_root: str | Path = ".tmp/vi
     stat = source.stat()
     fingerprint = hashlib.sha1(f"{source}|{stat.st_size}|{int(stat.st_mtime)}".encode("utf-8")).hexdigest()[:16]
     proxy_path = Path(cache_root) / f"{source.stem}-{fingerprint}-proxy.mp4"
-    ffmpeg_path = shutil.which("ffmpeg")
+    ffmpeg_path = None if _video_proxy_disabled() else shutil.which("ffmpeg")
     proxy_exists = proxy_path.exists() and proxy_path.stat().st_size > 0
     return {
         "source_path": source,
@@ -107,6 +108,11 @@ def video_proxy_status(video_path: str | Path, cache_root: str | Path = ".tmp/vi
         "proxy_needed": ffmpeg_path is not None and not proxy_exists,
         "proxy_exists": proxy_exists,
     }
+
+
+def _video_proxy_disabled() -> bool:
+    value = os.environ.get("SYNERGIE_DISABLE_VIDEO_PROXY", "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
 
 
 def _create_video_proxy(input_path: Path, proxy_path: Path) -> None:

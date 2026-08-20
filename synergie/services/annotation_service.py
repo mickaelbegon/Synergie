@@ -152,10 +152,7 @@ def save_annotation_values(
     combination: bool,
 ) -> object:
     """Return a copy of the annotation frame with one row updated from GUI values."""
-    type_value = next(
-        value for key, _label, value in ANNOTATION_JUMP_TYPE_OPTIONS
-        if key == jump_type
-    )
+    type_value = next((value for key, _label, value in ANNOTATION_JUMP_TYPE_OPTIONS if key == jump_type), 8)
     backend_status = annotation_review_status_to_backend(review_status)
     is_excluded_by_status = review_status in {
         "not_seen_on_video",
@@ -164,9 +161,10 @@ def save_annotation_values(
         "not_a_jump_or_drill",
         "not_a_jump",
     }
-    stored_type = 8 if is_excluded_by_status else type_value
-    stored_turns = "" if is_excluded_by_status else annotation_turn_value_for_storage(jump_type, turn_value)
-    stored_success = 2 if is_excluded_by_status else int(success_value)
+    should_keep_training_label = not is_excluded_by_status and type_value != 8
+    stored_type = type_value if should_keep_training_label else 8
+    stored_turns = annotation_turn_value_for_storage(jump_type, turn_value) if should_keep_training_label else ""
+    stored_success = int(success_value) if should_keep_training_label else 2
 
     updated = annotation_frame.copy()
     for column in ("turns", "video_status", "detection_status", "athlete_id", "annotation_status"):

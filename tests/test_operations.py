@@ -288,6 +288,27 @@ class OperationsTests(unittest.TestCase):
         self.assertEqual(updated.at[0, "video_status"], "visible")
         self.assertEqual(updated.at[0, "detection_status"], "weird_signal")
 
+    def test_save_annotation_values_handles_unknown_jump_type_as_not_trainable(self):
+        import pandas as pd
+
+        rows = pd.DataFrame([{"type": 0, "turns": "3", "success": 1}])
+
+        updated = operations.save_annotation_values(
+            rows,
+            0,
+            jump_type="",
+            turn_value="3",
+            success_value="1",
+            review_status="normal",
+            athlete_id="athlete_a",
+            combination=False,
+        )
+
+        self.assertEqual(updated.at[0, "type"], 8)
+        self.assertEqual(updated.at[0, "turns"], "")
+        self.assertEqual(updated.at[0, "success"], 2)
+        self.assertEqual(updated.at[0, "detection_status"], "detected_jump")
+
     def test_save_annotation_file_values_persists_csv_workflow(self):
         import pandas as pd
 
