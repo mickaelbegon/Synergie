@@ -96,9 +96,11 @@ from synergie.services.hyperparameter_search_service import (
 from synergie.services.legacy_import_service import import_legacy_jumplist, migrate_legacy_annotation_workbook
 from synergie.services.detection_tuning_service import (
     analyze_detection_review_labels,
+    audit_detection_regressions,
     load_optimized_detection_parameters,
     optimize_detection_parameters,
     save_optimized_detection_parameters,
+    write_detection_regression_audit,
 )
 from synergie.services.data_inventory_service import build_data_inventory
 from synergie.services.data_validation_service import (

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from typing import Sequence
 
 from synergie import operations
@@ -69,6 +70,13 @@ def build_parser() -> argparse.ArgumentParser:
     archive_csv_parser.add_argument("--root", action="append", dest="roots", help="Limiter a un dossier; peut etre repete.")
     archive_csv_parser.add_argument("--limit", type=int, default=20)
     archive_csv_parser.add_argument("--apply", action="store_true", help="Deplacer reellement les fichiers. Sans ce flag, dry-run seulement.")
+
+    regression_audit_parser = subparsers.add_parser(
+        "audit-detection-regressions",
+        help="Auditer les annotations sans modifier les labels ni le detecteur.",
+    )
+    regression_audit_parser.add_argument("--root", default="data/pending", help="Dossier des CSV *_for_annotation*.csv.")
+    regression_audit_parser.add_argument("--output", help="Ecrire le rapport JSON a cet emplacement explicite.")
 
     parser.add_argument("-t", "--legacy-train", choices=["type", "success"], help=argparse.SUPPRESS)
     parser.add_argument("-repredict", action="store_true", dest="legacy_repredict", help=argparse.SUPPRESS)
@@ -235,6 +243,14 @@ def run_command(args: argparse.Namespace) -> int:
             print(f"... {result['candidate_count'] - args.limit} more")
         if not result["applied"]:
             print("No files moved. Re-run with --apply to archive these CSV files.")
+        return 0
+
+    if args.command == "audit-detection-regressions":
+        if args.output:
+            path = operations.write_detection_regression_audit(args.root, args.output)
+            print(path)
+        else:
+            print(json.dumps(operations.audit_detection_regressions(args.root), indent=2, ensure_ascii=False))
         return 0
 
     raise ValueError(f"Unknown command: {args.command}")

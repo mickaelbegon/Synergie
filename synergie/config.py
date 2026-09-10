@@ -17,6 +17,13 @@ JUMP_WINDOW_FRAMES = SEGMENT_FRAMES_BEFORE_TAKEOFF + SEGMENT_FRAMES_AFTER_TAKEOF
 DEFAULT_DETECTION_THRESHOLD = constants.treshold
 DEFAULT_SMOOTHING_SIGMA = 30
 DEFAULT_COMBINATION_GAP_FRAMES = 180
+# The legacy detector only considers negative Gyr_X second derivatives.  A
+# mirrored trace must use the opposite polarity, but that remains opt-in until
+# reviewed left-rotation data validates when it should be selected.
+DEFAULT_DETECTION_DERIVATIVE_POLARITY = -1
+# A value of zero means that detector intervals are never merged implicitly.
+# This avoids treating close, legitimate combinations as duplicate detections.
+DEFAULT_DETECTION_CONSOLIDATION_GAP_FRAMES = 0
 GYRO_SATURATION_WARNING_THRESHOLD = 1900.0
 ACCELERATION_ABERRANT_LIMIT_G = 32.0
 
@@ -28,6 +35,8 @@ class DetectionConfig:
     threshold: float = DEFAULT_DETECTION_THRESHOLD
     smoothing_sigma: float = DEFAULT_SMOOTHING_SIGMA
     combination_gap_frames: int = DEFAULT_COMBINATION_GAP_FRAMES
+    derivative_polarity: int = DEFAULT_DETECTION_DERIVATIVE_POLARITY
+    consolidation_gap_frames: int = DEFAULT_DETECTION_CONSOLIDATION_GAP_FRAMES
 
 
 @dataclass(frozen=True)

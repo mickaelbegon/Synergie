@@ -495,6 +495,34 @@ Cet onglet est l'outil visuel pour comprendre la detection de sauts sur un CSV b
 
 Le panneau `Detected Jumps` liste les sauts trouves, et la zone de graphiques montre les signaux relies a la detection. Cet onglet est le meilleur endroit pour comprendre pourquoi un faux positif ou un faux negatif s'est produit.
 
+#### Reglages avances pour extraire les sauts
+
+Les reglages suivants sont definis dans `synergie/config.py`. Ils servent a tester une **nouvelle detection** ou une copie de session ; ils ne modifient jamais les CSV deja annotes, les segments archives ni `jumplist.csv`.
+
+| Reglage | Defaut | Effet | Quand le changer |
+| --- | ---: | --- | --- |
+| `threshold` / `2nd derivative threshold` | `-0.20` | Sensibilite de detection sur la derivee seconde de `Gyr_X`. Une valeur plus proche de zero trouve plus de candidats, mais augmente les faux positifs. | Seulement apres revue video de vrais sauts manques et de faux positifs. |
+| `smoothing_sigma` | `30` | Lissage du gyroscope avant detection. Une valeur plus grande absorbe du bruit mais peut effacer un saut faible. | Tester sur une copie si le signal est tres bruite ou si de petits sauts sont manques. |
+| `derivative_polarity` | `-1` | Sens de la derivee recherchee. `-1` reproduit le comportement historique ; `+1` est un essai explicite pour une trace IMU miroir. | Ne pas deduire ce choix uniquement du fait que le patineur tourne a gauche : valider par session/capteur et video. |
+| `consolidation_gap_frames` | `0` | Fusionne deux intervalles de detection tres proches. A `0`, aucune fusion implicite n'est appliquee. | Tester uniquement sur une copie quand deux candidats sont confirmes comme le meme saut. |
+| `combination_gap_frames` | `180` | Marque deux sauts proches comme combinaison ; il ne fusionne pas les candidats. | Ne le modifier que si la definition de combinaison doit changer. |
+
+Procedure recommandee :
+
+1. Exporter une sauvegarde/manifeste et travailler sur une copie de la session.
+2. Dans `Review - Inspect IMU`, relever le numero de candidat et l'horodatage video de chaque vrai saut manque ou faux positif.
+3. Modifier un seul parametre a la fois et comparer : candidats ajoutes, vrais sauts conserves et faux positifs ajoutes.
+4. Ne retenir un reglage que s'il est valide sur plusieurs sessions et les deux sens de rotation lorsque pertinent.
+5. Laisser les valeurs par defaut en place tant que cette validation n'est pas faite ; aucune regeneration massive des fichiers deja labellises ne doit etre lancee.
+
+Le cas particulier des doublons est traite separement : `consolidation_gap_frames` ne doit pas servir a effacer des lignes d'annotation. Il ne change que les candidats nouvellement detectes. Pour auditer les annotations revues sans les modifier, utiliser :
+
+```text
+python main.py audit-detection-regressions --root data/pending --output data/reports/detection_regression.json
+```
+
+Seules les lignes dont le statut d'annotation est termine sont comptabilisees. Les lignes `pending` et les previsions de modele ne constituent pas une validation humaine.
+
 #### `Review - Detection`
 
 Cet onglet s'appuie sur les erreurs deja revues pendant l'annotation.

@@ -8,35 +8,104 @@ from core.utils.jump import Jump
 from synergie.config import (
     ACCELERATION_ABERRANT_LIMIT_G,
     DEFAULT_COMBINATION_GAP_FRAMES,
+    DEFAULT_DETECTION_CONSOLIDATION_GAP_FRAMES,
     DEFAULT_DETECTION_THRESHOLD,
+    DEFAULT_DETECTION_DERIVATIVE_POLARITY,
     DEFAULT_SMOOTHING_SIGMA,
 )
 from synergie.services.signal_cleaning_service import clean_imu_outliers
 
 
-def gather_jumps(df: pd.DataFrame, combination_gap_frames: int = DEFAULT_COMBINATION_GAP_FRAMES) -> list[Jump]:
+def detection_mask_from_second_derivative(
+    second_derivative,
+    detection_threshold: float,
+    *,
+    derivative_polarity: int = DEFAULT_DETECTION_DERIVATIVE_POLARITY,
+) -> np.ndarray:
+    """Build the detector mask with an explicit rotation-direction polarity.
+
+    The legacy detector accepts only negative crossings (polarity ``-1``). A
+    mirrored IMU trace needs the opposite polarity (``+1``) to produce the
+    same candidates.  Accepting both signs at once would add extra candidates
+    around an oscillating signal, so polarity is deliberately explicit until
+    reviewed labelled examples establish how to select it in production.
+    """
+    if derivative_polarity not in {-1, 1}:
+        raise ValueError("derivative_polarity must be -1 or 1")
+    values = pd.to_numeric(pd.Series(second_derivative), errors="coerce").to_numpy(dtype="float64")
+    finite = np.isfinite(values)
+    if derivative_polarity == -1:
+        # Retain the legacy comparison exactly for default callers.
+        return finite & (values <= float(detection_threshold))
+    return finite & (values >= abs(float(detection_threshold)))
+
+
+def detector_intervals(active_mask) -> list[tuple[int, int]]:
+    """Return legacy-compatible begin/end indices for detector intervals."""
+    mask = np.asarray(active_mask, dtype=bool)
+    begin = np.where(np.diff(mask.astype(int)) == 1)[0]
+    end = np.where(np.diff(mask.astype(int)) == -1)[0]
+
+    intervals: list[tuple[int, int]] = []
+    end_cursor = 0
+    for begin_index in begin:
+        while end_cursor < len(end) and end[end_cursor] <= begin_index:
+            end_cursor += 1
+        if end_cursor >= len(end):
+            break
+        intervals.append((int(begin_index), int(end[end_cursor])))
+        end_cursor += 1
+    return intervals
+
+
+def consolidate_detector_intervals(
+    intervals: list[tuple[int, int]],
+    *,
+    max_gap_frames: int = DEFAULT_DETECTION_CONSOLIDATION_GAP_FRAMES,
+) -> list[tuple[int, int]]:
+    """Merge adjacent detector intervals only when an explicit gap is supplied.
+
+    ``max_gap_frames`` counts inactive frames separating two detector events.
+    A zero default leaves all legacy candidates intact; this is important for
+    preserving possible jump combinations until real reviewed examples justify
+    a consolidation gap.
+    """
+    if max_gap_frames < 0:
+        raise ValueError("max_gap_frames must be non-negative")
+    if not intervals:
+        return []
+
+    ordered = sorted((int(start), int(end)) for start, end in intervals)
+    consolidated = [ordered[0]]
+    for start, end in ordered[1:]:
+        previous_start, previous_end = consolidated[-1]
+        inactive_gap = start - previous_end - 1
+        if inactive_gap <= max_gap_frames:
+            consolidated[-1] = (previous_start, max(previous_end, end))
+        else:
+            consolidated.append((start, end))
+    return consolidated
+
+
+def gather_jumps(
+    df: pd.DataFrame,
+    combination_gap_frames: int = DEFAULT_COMBINATION_GAP_FRAMES,
+    consolidation_gap_frames: int = DEFAULT_DETECTION_CONSOLIDATION_GAP_FRAMES,
+) -> list[Jump]:
     """
     detects and gathers all the jumps in a dataframe
     :param df: the dataframe containing the session data
     :return: list of jumps done
     """
     jumps = []
-    # Find indices where 'X_gyr_second_derivative_crossing' transitions from False to True
-    begin = np.where(np.diff(df['X_gyr_second_derivative_crossing'].astype(int)) == 1)[0]
-    # Find indices where 'X_gyr_second_derivative_crossing' transitions from True to False
-    end = np.where(np.diff(df['X_gyr_second_derivative_crossing'].astype(int)) == -1)[0]
-    
-    end_cursor = 0
-    previous_begin = None
-    begin_list = [int(value) for value in begin]
-    for begin_position, begin_index in enumerate(begin_list):
-        while end_cursor < len(end) and end[end_cursor] <= begin_index:
-            end_cursor += 1
-        if end_cursor >= len(end):
-            break
+    intervals = consolidate_detector_intervals(
+        detector_intervals(df['X_gyr_second_derivative_crossing']),
+        max_gap_frames=consolidation_gap_frames,
+    )
 
-        end_index = int(end[end_cursor])
-        end_cursor += 1
+    previous_begin = None
+    begin_list = [begin_index for begin_index, _end_index in intervals]
+    for begin_position, (begin_index, end_index) in enumerate(intervals):
         max_landing_index = begin_list[begin_position + 1] - 1 if begin_position + 1 < len(begin_list) else None
         combinate = previous_begin is not None and (begin_index - previous_begin) < combination_gap_frames
         jumps.append(Jump(begin_index, end_index, df, combinate, max_landing_index=max_landing_index))
@@ -56,6 +125,8 @@ class trainingSession:
         detection_threshold: float | None = None,
         smoothing_sigma: float = DEFAULT_SMOOTHING_SIGMA,
         combination_gap_frames: int = DEFAULT_COMBINATION_GAP_FRAMES,
+        detection_derivative_polarity: int = DEFAULT_DETECTION_DERIVATIVE_POLARITY,
+        consolidation_gap_frames: int = DEFAULT_DETECTION_CONSOLIDATION_GAP_FRAMES,
     ):
         """
         :param path: path of the CSV
@@ -64,6 +135,8 @@ class trainingSession:
         self.detection_threshold = DEFAULT_DETECTION_THRESHOLD if detection_threshold is None else detection_threshold
         self.smoothing_sigma = smoothing_sigma
         self.combination_gap_frames = combination_gap_frames
+        self.detection_derivative_polarity = int(detection_derivative_polarity)
+        self.consolidation_gap_frames = int(consolidation_gap_frames)
         df = self.__load_and_preprocess_data(df, sampleTimefineSynchro)
         self.initFromDataFrame(df)
 
@@ -100,9 +173,11 @@ class trainingSession:
         df['Z_gyr_derivative'] = df['Gyr_Z'].diff()
         df["X_gyr_second_derivative"] = df['X_gyr_derivative'].diff()
 
-        # add markers when the value is crossing -0.2
-        df['X_gyr_second_derivative_crossing'] = [False if x > self.detection_threshold else True for x in
-                                                  df['X_gyr_second_derivative']]
+        df['X_gyr_second_derivative_crossing'] = detection_mask_from_second_derivative(
+            df['X_gyr_second_derivative'],
+            self.detection_threshold,
+            derivative_polarity=self.detection_derivative_polarity,
+        )
         return df
     
     def initFromDataFrame(self, df: pd.DataFrame):
@@ -112,7 +187,11 @@ class trainingSession:
         :param df: the dataframe containing the whole session
         """
         self.df = df
-        self.jumps = gather_jumps(df, combination_gap_frames=self.combination_gap_frames)
+        self.jumps = gather_jumps(
+            df,
+            combination_gap_frames=self.combination_gap_frames,
+            consolidation_gap_frames=self.consolidation_gap_frames,
+        )
 
     def plot(self):
         timestamps = [i.startTimestamp for i in self.jumps] + [i.endTimestamp for i in self.jumps]

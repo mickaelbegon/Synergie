@@ -56,6 +56,15 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.task, "success")
         self.assertEqual(args.model, "hydra")
 
+    def test_detection_regression_audit_parsing(self):
+        parser = build_parser()
+        args = normalize_args(
+            parser.parse_args(["audit-detection-regressions", "--root", "fixtures/pending", "--output", "reports/audit.json"])
+        )
+        self.assertEqual(args.command, "audit-detection-regressions")
+        self.assertEqual(args.root, "fixtures/pending")
+        self.assertEqual(args.output, "reports/audit.json")
+
     def test_legacy_train_flag_is_preserved(self):
         parser = build_parser()
         args = normalize_args(parser.parse_args(["-t", "success"]))
