@@ -1,0 +1,31 @@
+name: synergie-data
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - tk
+  - numpy=1.26
+  - pandas=2.2
+  - scipy=1.15
+  - matplotlib=3.10
+  - seaborn=0.13
+  - scikit-learn=1.7
+  - cryptography
+  - openssl
+  - pkg-config
+  - ffmpeg
+  - pip:
+      # TensorFlow 2.20.0 is not published for macOS Intel (osx-64).
+      - tensorflow==2.16.2
+      - h5py==3.14.0
+      - keras-tuner==1.4.7
+      - firebase-admin==7.1.0
+      - google-cloud-firestore==2.27.0
+      - grpcio==1.80.0
+      - cffi==2.0.0
+      - ttkbootstrap==1.10.1
+      - pytest==8.3.5
+      - aeon==1.3.0
+      - opencv-python-headless==4.10.0.84
+      - Pillow==11.2.1

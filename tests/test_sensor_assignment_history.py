@@ -1,0 +1,81 @@
+import tempfile
+import unittest
+from dataclasses import dataclass
+from pathlib import Path
+
+from synergie.sensor_assignment_history import (
+    assignment_count,
+    assignment_label,
+    load_history,
+    record_assignment,
+    sort_skaters_for_sensor,
+)
+
+
+@dataclass
+class SkaterStub:
+    skater_id: str
+    skater_name: str
+
+
+class SensorAssignmentHistoryTests(unittest.TestCase):
+    def test_record_assignment_counts_by_sensor_and_skater(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            history_path = Path(tmpdir) / "history.json"
+
+            record_assignment("1", "alice", "Alice", path=history_path)
+            record_assignment("1", "alice", "Alice", path=history_path)
+            record_assignment("10", "alice", "Alice", path=history_path)
+
+            self.assertEqual(assignment_count("1", "alice", path=history_path), 2)
+            self.assertEqual(assignment_count("10", "alice", path=history_path), 1)
+
+    def test_record_assignment_creates_parent_directory(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            history_path = Path(tmpdir) / "nested" / "history.json"
+
+            record_assignment("1", "alice", "Alice", path=history_path)
+
+            self.assertTrue(history_path.is_file())
+            self.assertEqual(assignment_count("1", "alice", path=history_path), 1)
+
+    def test_load_history_recovers_from_invalid_json(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            history_path = Path(tmpdir) / "history.json"
+            history_path.write_text("{not valid json", encoding="utf-8")
+
+            self.assertEqual(load_history(history_path), {"assignments": {}})
+
+    def test_sort_skaters_for_sensor_keeps_frequent_skater_first(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            history_path = Path(tmpdir) / "history.json"
+            skaters = [SkaterStub("alice", "Alice"), SkaterStub("bob", "Bob")]
+            record_assignment("1", "bob", "Bob", path=history_path)
+            record_assignment("1", "bob", "Bob", path=history_path)
+
+            sorted_skaters = sort_skaters_for_sensor(skaters, "1", path=history_path)
+
+            self.assertEqual([skater.skater_id for skater in sorted_skaters], ["bob", "alice"])
+
+    def test_assignment_label_summarizes_sensor_history(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            history_path = Path(tmpdir) / "history.json"
+            record_assignment("1", "alice", "Alice", path=history_path)
+
+            self.assertEqual(assignment_label("1", "alice", path=history_path), "Déjà utilisé 1 fois avec ce capteur")
+            self.assertEqual(assignment_label("1", "bob", path=history_path), "")
+
+    def test_sort_skaters_for_sensor_uses_recent_history_for_ties(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            history_path = Path(tmpdir) / "history.json"
+            skaters = [SkaterStub("alice", "Alice"), SkaterStub("bob", "Bob")]
+            record_assignment("1", "alice", "Alice", path=history_path)
+            record_assignment("1", "bob", "Bob", path=history_path)
+
+            sorted_skaters = sort_skaters_for_sensor(skaters, "1", path=history_path)
+
+            self.assertEqual([skater.skater_id for skater in sorted_skaters], ["bob", "alice"])
+
+
+if __name__ == "__main__":
+    unittest.main()

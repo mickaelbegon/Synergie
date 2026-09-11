@@ -1,6 +1,7 @@
 import os
 import sys
 from typing import List
+from pathlib import Path
 import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import firestore
@@ -12,6 +13,7 @@ from datetime import datetime
 @dataclass
 class JumpData:
     jump_id : int
+    training_id : str
     jump_type : str
     jump_rotations : float
     jump_success : bool
@@ -20,7 +22,8 @@ class JumpData:
     jump_length : float
 
     def to_dict(self):
-        return {"jump_type" : self.jump_type,
+        return {"training_id" : self.training_id,
+         "jump_type" : self.jump_type,
          "jump_rotations" : self.jump_rotations,
          "jump_success" : self.jump_success,
          "jump_time" : self.jump_time,
@@ -50,15 +53,82 @@ class SkaterData:
         return {"skater_name" : self.skater_name}
 
 class DatabaseManager:
+    CREDENTIALS_PREFIX = "s2m-skating-firebase-adminsdk-3ofmb-"
+    CREDENTIALS_SUFFIX = ".json"
+    CREDENTIALS_FILENAME = "s2m-skating-firebase-adminsdk-3ofmb-0556d6ac57.json"
+    CREDENTIALS_GLOB = f"{CREDENTIALS_PREFIX}*{CREDENTIALS_SUFFIX}"
+    CREDENTIALS_ENV_VARS = ("SYNERGIE_FIREBASE_CREDENTIALS", "GOOGLE_APPLICATION_CREDENTIALS")
+
+    @classmethod
+    def credential_search_directories(cls) -> list[Path]:
+        repo_root = Path(__file__).resolve().parents[2]
+        search_dirs = [Path.cwd(), repo_root, repo_root / "config"]
+        try:
+            search_dirs.insert(0, Path(sys._MEIPASS))
+        except AttributeError:
+            pass
+
+        unique_dirs: list[Path] = []
+        seen: set[str] = set()
+        for directory in search_dirs:
+            normalized = str(directory.resolve(strict=False)).lower()
+            if normalized not in seen:
+                unique_dirs.append(directory)
+                seen.add(normalized)
+        return unique_dirs
+
+    @classmethod
+    def credential_search_paths(cls) -> list[Path]:
+        candidate_paths: list[Path] = []
+
+        for env_var in cls.CREDENTIALS_ENV_VARS:
+            env_value = os.environ.get(env_var)
+            if env_value:
+                candidate_paths.append(Path(env_value).expanduser())
+
+        for search_dir in cls.credential_search_directories():
+            candidate_paths.extend(sorted(search_dir.glob(cls.CREDENTIALS_GLOB)))
+
+        unique_candidates: list[Path] = []
+        seen: set[str] = set()
+        for candidate in candidate_paths:
+            normalized = str(candidate.resolve(strict=False)).lower()
+            if normalized not in seen:
+                unique_candidates.append(candidate)
+                seen.add(normalized)
+        return unique_candidates
+
+    @classmethod
+    def resolve_credentials_path(cls) -> Path:
+        candidates = cls.credential_search_paths()
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate
+
+        checked_directories = cls.credential_search_directories()
+        checked_text = "\n".join(f"- {directory}" for directory in checked_directories)
+        env_text = "\n".join(
+            f"- {env_var}={os.environ.get(env_var)}"
+            for env_var in cls.CREDENTIALS_ENV_VARS
+            if os.environ.get(env_var)
+        ) or "- none"
+        raise FileNotFoundError(
+            "Firebase credentials file not found.\n"
+            f"Expected filename example: {cls.CREDENTIALS_FILENAME}\n"
+            f"Accepted filename pattern: {cls.CREDENTIALS_GLOB}\n"
+            "Checked environment variables:\n"
+            f"{env_text}\n"
+            "Checked directories:\n"
+            f"{checked_text}\n"
+            "You can also define SYNERGIE_FIREBASE_CREDENTIALS to point to the JSON file."
+        )
+
     def __init__(self):
-        try :
-            json_path = os.path.join(sys._MEIPASS, 's2m-skating-firebase-adminsdk-3ofmb-8552d58146.json')
-        except:
-            json_path = 's2m-skating-firebase-adminsdk-3ofmb-8552d58146.json'
-        cred = credentials.Certificate(json_path)
+        json_path = self.resolve_credentials_path()
+        cred = credentials.Certificate(str(json_path))
         try:
             firebase_admin.initialize_app(cred)
-        except :
+        except ValueError:
             pass
         self.db = firestore.client()
     
@@ -90,7 +160,7 @@ class DatabaseManager:
         try:
             trainingId = self.db.collection("dots").document(deviceId).get().get("current_record")[-1]
             return trainingId
-        except:
+        except (TypeError, IndexError):
             return ""
         
     def remove_current_record(self, deviceId, trainingId):
